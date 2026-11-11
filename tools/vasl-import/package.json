@@ -1,0 +1,21 @@
+{
+  "name": "@asl/vasl-import",
+  "license": "SEE LICENSE IN LICENSE",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Imports counter art, board art and terrain/LOS data from the VASL module.",
+  "scripts": {
+    "import": "tsx src/cli.ts",
+    "audit": "tsx src/audit.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@asl/content": "workspace:*",
+    "@asl/engine": "workspace:*",
+    "@asl/rules": "workspace:*",
+    "@resvg/resvg-js": "^2.6.2",
+    "fflate": "^0.8.3",
+    "sharp": "^0.35.5"
+  }
+}

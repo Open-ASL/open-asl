@@ -1,0 +1,43 @@
+{
+  "name": "asl-web",
+  "license": "SEE LICENSE IN LICENSE",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @asl/functions build && concurrently -k -n fn,emu,web -c magenta,yellow,cyan \"pnpm --filter @asl/functions watch\" \"pnpm emulators\" \"pnpm --filter @asl/web dev\"",
+    "emulators": "node -e \"require('fs').mkdirSync('.emulator-data',{recursive:true})\" && firebase emulators:start -P demo-asl-web --only auth,functions,firestore,storage,database --import=.emulator-data --export-on-exit=.emulator-data",
+    "emulators:fresh": "firebase emulators:start -P demo-asl-web --only auth,functions,firestore,storage,database",
+    "build": "pnpm -r build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "node apps/web/e2e/smoke.mjs",
+    "test:e2e:cc": "node apps/web/e2e/closeCombat.mjs",
+    "test:e2e:devices": "node apps/web/e2e/twoDevices.mjs",
+    "test:e2e:ping": "node apps/web/e2e/ping.mjs",
+    "test:e2e:opponent": "node apps/web/e2e/opponentView.mjs",
+    "test:e2e:undo": "node apps/web/e2e/undo.mjs",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "seed": "tsx scripts/seed-emulator.ts",
+    "demo:lobby": "tsx scripts/seed-lobby-demo.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.5",
+    "concurrently": "^10.0.6",
+    "eslint": "^10.12.0",
+    "fast-check": "^4.10.2",
+    "firebase-tools": "^15.34.0",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^5.0.5",
+    "firebase-admin": "^14.5.0"
+  }
+}

@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// Game art (VASL-derived) is public-read; uploads happen only through the import tool with admin credentials.
+// Members upload their own profile picture.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /art/{allPaths=**} {
+      allow read: if true;
+    }
+    match /avatars/{uid}/{file} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.auth.token.member == true
+        && request.resource.contentType.matches('image/(png|jpeg|webp)')
+        && request.resource.size < 2 * 1024 * 1024;
+    }
+    match /announcements/{file} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.member == true
+        && request.auth.token.admin == true
+        && request.resource.contentType.matches('image/(png|jpeg|webp)')
+        && request.resource.size < 8 * 1024 * 1024;
+    }
+  }
+}

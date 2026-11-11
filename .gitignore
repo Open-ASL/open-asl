@@ -1,0 +1,19 @@
+node_modules/
+dist/
+coverage/
+.firebase/
+*.log
+.env*
+!.env.example
+# Firebase Functions secrets for the emulator
+functions/.secret.local
+# Local-only assets: scenario card photographs and audio overrides you supply yourself (see docs/getting-started.md)
+assets-local/
+tools/vasl-import/cache/
+functions/lib/
+# Local emulator state (pnpm dev exports here on exit)
+.emulator-data/
+firebase-export-*/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log

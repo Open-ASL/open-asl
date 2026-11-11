@@ -1,0 +1,147 @@
+rules_version = '2';
+
+// Clients read; almost every write goes through Cloud Functions (the Admin SDK bypasses rules),
+// so the server stays authoritative over profiles, ratings, invites and match results.
+// The one exception is a hotseat (or computer) game, which its owner records directly as it is played.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    // Set by claimProfile once an invited email has been verified.
+    function member() { return signedIn() && request.auth.token.member == true; }
+    function me() { return request.auth.uid; }
+    function only(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+    // The Full ASL development gate (as functions/src/lib/scenarios.ts `fullAslOpen`): an admin, or any
+    // account on the local emulators, whose tokens are issued for a demo- project.
+    function fullAslGate() { return request.auth.token.admin == true || request.auth.token.aud.matches('demo-.*'); }
+    // Each ruleset's lobby has its own chat; the Full ASL one only behind the gate.
+    function lobbyChat(channelId) { return channelId == 'lobby_starter-kit' || (channelId == 'lobby_full-asl' && fullAslGate()); }
+
+    match /users/{uid} {
+      allow read: if member() && uid == me();
+      allow update: if member() && uid == me()
+        && only(['photoURL', 'lastSeenAt', 'updatedAt']);
+      allow create, delete: if false;
+    }
+    // Public identity is deliberately separate from email-bearing account documents.
+    match /publicProfiles/{uid} { allow read: if true; allow write: if false; }
+    match /nicknames/{name} { allow read: if true; allow write: if false; }
+    match /scenarioStats/{id} { allow read: if true; allow write: if false; }
+    match /publicResults/{id} { allow read: if true; allow write: if false; }
+    // After action reports of public, computer and hotseat games: the share page needs no login.
+    match /aars/{id} { allow read: if true; allow write: if false; }
+    match /announcements/{id} {
+      allow read: if resource.data.status == 'published' || (member() && request.auth.token.admin == true);
+      allow write: if false;
+    }
+    match /gameListings/{id} { allow read: if member(); allow write: if false; }
+    match /attendance/{id} { allow read: if member() && resource.data.uid == me(); allow write: if false; }
+    match /chatChannels/{channelId} {
+      function channel() { return get(/databases/$(database)/documents/chatChannels/$(channelId)).data; }
+      function matchChat() { return get(/databases/$(database)/documents/matches/$(channelId)).data; }
+      function canReadChannel() { return member() && (lobbyChat(channelId) || me() in matchChat().playerIds); }
+      allow read: if canReadChannel();
+      allow write: if false;
+      match /messages/{messageId} {
+        allow read: if member() && (lobbyChat(channelId) || me() in matchChat().playerIds);
+        allow write: if false;
+      }
+    }
+    // Booked session time, one document per half hour per player: read so the board can hide starts that collide.
+    match /bookingSlots/{id} {
+      allow read: if member();
+      allow write: if false;
+    }
+    match /allowlist/{email} { allow read, write: if false; }
+    match /signups/{id} { allow read, write: if false; }
+
+    match /invites/{id} {
+      allow read: if member() && (resource.data.fromUid == me() || resource.data.toUid == me());
+      allow write: if false;
+    }
+
+    match /matches/{matchId} {
+      function canReadMatch() { return resource.data.visibility == 'public' || (member() && me() in resource.data.playerIds); }
+      allow read: if canReadMatch();
+      allow create, delete: if false;
+      // A hotseat (or computer game) owner keeps the lobby summary current and may abandon the game.
+      allow update: if member()
+        && (resource.data.mode == 'hotseat' || resource.data.mode == 'computer') && resource.data.createdBy == me()
+        && resource.data.status == 'active'
+        && only(['summary', 'actionCount', 'updatedAt', 'status'])
+        && (request.resource.data.status == 'active' || request.resource.data.status == 'abandoned');
+
+      // The recording of an online match stays closed while it is live: an action can carry what its side keeps
+      // hidden (HIP placements, concealed stacks, secret designations). Live play reads `views/{viewer}` instead.
+      match /actions/{seq} {
+        function parent() { return get(/databases/$(database)/documents/matches/$(matchId)).data; }
+        // An online match on the older model (no `model`) is still played by replaying this recording, as before
+        // the views model; it closes once a migration has moved the match over.
+        function recordingOpen() { return parent().mode != 'online' || parent().get('model', null) != 'views' || (parent().status != 'active' && parent().status != 'open'); }
+        allow read: if recordingOpen() && (parent().visibility == 'public' || (member() && me() in parent().playerIds));
+        function ownGameRecording() { return member() && (parent().mode == 'hotseat' || parent().mode == 'computer') && parent().createdBy == me() && parent().status == 'active'; }
+        // The computer's moves carry its version and thinking time (MatchActionDoc.bot).
+        function botOk() { return !('bot' in request.resource.data) || parent().mode == 'computer'; }
+        allow create: if ownGameRecording() && request.resource.data.keys().hasOnly(['seq', 'json', 'at', 'bot']) && botOk();
+        // The client SDK re-sends a write whose acknowledgement a dropped write stream lost; by then the action is stored,
+        // so the re-send arrives as an update. The same action again changes nothing and is let through (only its `at`
+        // moves); any other update of a recorded action stays refused.
+        allow update: if ownGameRecording() && request.resource.data.keys().hasOnly(['seq', 'json', 'at', 'bot']) && botOk()
+          && request.resource.data.seq == resource.data.seq && request.resource.data.json == resource.data.json;
+        // Undo is a hotseat convenience; a computer game's moves stand, like an online game's.
+        allow delete: if member()
+          && parent().mode == 'hotseat' && parent().createdBy == me() && parent().status == 'active';
+      }
+
+      // Each viewer's redacted view of a live online match (`views` model): a seat reads its own, anyone reads
+      // `public` when the match is public. The server writes them.
+      match /views/{viewer} {
+        function parent() { return get(/databases/$(database)/documents/matches/$(matchId)).data; }
+        function canView() { return (viewer == 'public' && parent().visibility == 'public') || (member() && parent().seats[viewer] != null && parent().seats[viewer].uid == me()); }
+        allow read: if canView();
+        allow write: if false;
+        match /steps/{seq} {
+          function parent() { return get(/databases/$(database)/documents/matches/$(matchId)).data; }
+          function canView() { return (viewer == 'public' && parent().visibility == 'public') || (member() && parent().seats[viewer] != null && parent().seats[viewer].uid == me()); }
+          allow read: if canView();
+          allow write: if false;
+        }
+      }
+
+      // The dice seed of a live online match: the server's alone.
+      match /private/{document=**} { allow read, write: if false; }
+
+      // A seated player's work in progress (setup placements), shown live to the opponent. Not the recording.
+      // The writer leaves its own hidden placements out (its own secret); the server does not re-check it.
+      match /drafts/{side} {
+        function parent() { return get(/databases/$(database)/documents/matches/$(matchId)).data; }
+        function seated() { return parent().mode == 'online' && parent().status == 'active' && parent().seats[side] != null && parent().seats[side].uid == me(); }
+        allow read: if member() && me() in parent().playerIds;
+        allow create, update: if member() && seated()
+          && request.resource.data.keys().hasOnly(['side', 'decisionId', 'placements', 'updatedAt'])
+          && request.resource.data.side == side
+          && request.resource.data.decisionId is string
+          && request.resource.data.placements is map
+          && request.resource.data.placements.size() <= 200;
+        allow delete: if member() && seated();
+      }
+
+      // A seated player's last ping (a hex pointed out to the opponent), overwritten by each ping. Not the recording.
+      match /pings/{side} {
+        function parent() { return get(/databases/$(database)/documents/matches/$(matchId)).data; }
+        function seated() { return parent().mode == 'online' && parent().status == 'active' && parent().seats[side] != null && parent().seats[side].uid == me(); }
+        allow read: if member() && me() in parent().playerIds;
+        allow create, update: if member() && seated()
+          && request.resource.data.keys().hasOnly(['side', 'hex', 'n', 'at', 'x', 'y'])
+          && request.resource.data.side == side
+          && request.resource.data.hex is string
+          && request.resource.data.hex.size() <= 16
+          && request.resource.data.n is number;
+        allow delete: if member() && seated();
+      }
+    }
+
+    match /news/{id} { allow read: if true; }
+    match /leaderboards/{kind} { allow read: if true; }
+    match /tournaments/{id}/{document=**} { allow read: if true; }
+  }
+}

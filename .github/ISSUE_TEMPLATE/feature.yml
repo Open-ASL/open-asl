@@ -1,0 +1,23 @@
+name: Feature request
+description: An idea for Open ASL.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would it let you do
+      description: The problem or the game situation, not only the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: How it might work. For rules, cite the rule numbers.
+  - type: checkboxes
+    id: ip
+    attributes:
+      label: Copyright
+      options:
+        - label: This does not need copyrighted commercial material (board or counter scans, rulebook or scenario card text).
+          required: true

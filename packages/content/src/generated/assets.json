@@ -1,0 +1,1524 @@
+{
+ "source": {
+  "vasl": "6.7.3"
+ },
+ "counters": {
+  "al.127c": {
+   "front": "counters/al127C.webp",
+   "back": "counters/alc7b.webp"
+  },
+  "al.227h": {
+   "front": "counters/al227H.webp",
+   "back": "counters/alh6b.webp"
+  },
+  "al.228c": {
+   "front": "counters/al228C.webp",
+   "back": "counters/alc8b.webp"
+  },
+  "al.237h": {
+   "front": "counters/al237H.webp",
+   "back": "counters/alh6b.webp"
+  },
+  "al.248h": {
+   "front": "counters/al248H.webp",
+   "back": "counters/alh7b.webp"
+  },
+  "al.248h.ae": {
+   "front": "counters/al248Hae.webp",
+   "back": "counters/alh7b.webp"
+  },
+  "al.437": {
+   "front": "counters/al437S.webp",
+   "back": "counters/als7b.webp"
+  },
+  "al.457": {
+   "front": "counters/al457S.webp",
+   "back": "counters/als7b.webp"
+  },
+  "al.458": {
+   "front": "counters/al458S.webp",
+   "back": "counters/als8b.webp"
+  },
+  "al.458.ae": {
+   "front": "counters/al458Sae.webp",
+   "back": "counters/als8b.webp"
+  },
+  "al.ATR": {
+   "front": "counters/alATR.webp",
+   "back": "counters/alATRb.webp"
+  },
+  "al.DC": {
+   "front": "counters/alDC.webp",
+   "back": "counters/alDCb.webp"
+  },
+  "al.FT": {
+   "front": "counters/alFT.webp",
+   "back": "counters/alFTb.webp"
+  },
+  "al.HMG": {
+   "front": "counters/alHMG.webp",
+   "back": "counters/alHMGb.webp"
+  },
+  "al.HMG50": {
+   "front": "counters/alHMG50.webp",
+   "back": "counters/alHMG50b.webp"
+  },
+  "al.L102": {
+   "front": "counters/alL102.webp",
+   "back": "counters/alL102b.webp"
+  },
+  "al.L103": {
+   "front": "counters/alL103.webp",
+   "back": "counters/alL103b.webp"
+  },
+  "al.L61": {
+   "front": "counters/alL61.webp",
+   "back": "counters/alL61b.webp"
+  },
+  "al.L70": {
+   "front": "counters/alL70.webp",
+   "back": "counters/alL70b.webp"
+  },
+  "al.L80": {
+   "front": "counters/alL80.webp",
+   "back": "counters/alL80b.webp"
+  },
+  "al.L81": {
+   "front": "counters/alL81.webp",
+   "back": "counters/alL81b.webp"
+  },
+  "al.L91": {
+   "front": "counters/alL91.webp",
+   "back": "counters/alL91b.webp"
+  },
+  "al.L92": {
+   "front": "counters/alL92.webp",
+   "back": "counters/alL92b.webp"
+  },
+  "al.LMG": {
+   "front": "counters/alLMG.webp",
+   "back": "counters/alLMGb.webp"
+  },
+  "al.MMG": {
+   "front": "counters/alMMG.webp",
+   "back": "counters/alMMGb.webp"
+  },
+  "al.MTR46": {
+   "front": "counters/alMTR46.webp"
+  },
+  "am.126c": {
+   "front": "counters/am126C.webp",
+   "back": "counters/amc7b.webp"
+  },
+  "am.126h": {
+   "front": "counters/am126H.webp",
+   "back": "counters/amh5b.webp"
+  },
+  "am.226h": {
+   "front": "counters/am226H.webp",
+   "back": "counters/amh6b.webp"
+  },
+  "am.227c": {
+   "front": "counters/am227C.webp",
+   "back": "counters/amc8b.webp"
+  },
+  "am.228c": {
+   "front": "counters/am228C.webp",
+   "back": "counters/amc8b.webp"
+  },
+  "am.236h": {
+   "front": "counters/am236H.webp",
+   "back": "counters/amh6b.webp"
+  },
+  "am.237h": {
+   "front": "counters/am237H.webp",
+   "back": "counters/amh6b.webp"
+  },
+  "am.238h": {
+   "front": "counters/am238H.webp",
+   "back": "counters/amh7b.webp"
+  },
+  "am.238ph": {
+   "front": "counters/am238pH.webp",
+   "back": "counters/amh7b.webp"
+  },
+  "am.238rh": {
+   "front": "counters/am238rH.webp",
+   "back": "counters/amh7b.webp"
+  },
+  "am.248h": {
+   "front": "counters/am248H.webp",
+   "back": "counters/amh7b.webp"
+  },
+  "am.336": {
+   "front": "counters/am336S.webp",
+   "back": "counters/ams6b.webp"
+  },
+  "am.337h": {
+   "front": "counters/am337H.webp",
+   "back": "counters/amh7b.webp"
+  },
+  "am.337h.ae": {
+   "front": "counters/am337Hae.webp",
+   "back": "counters/amh7b.webp"
+  },
+  "am.346h": {
+   "front": "counters/am346H.webp",
+   "back": "counters/amh7b.webp"
+  },
+  "am.347h": {
+   "front": "counters/am347H.webp",
+   "back": "counters/amh7b.webp"
+  },
+  "am.348h": {
+   "front": "counters/am348H.webp",
+   "back": "counters/amh7b.webp"
+  },
+  "am.348h.ae": {
+   "front": "counters/am348Hae.webp",
+   "back": "counters/amh7b.webp"
+  },
+  "am.447": {
+   "front": "counters/am447S.webp",
+   "back": "counters/ams7b.webp"
+  },
+  "am.458": {
+   "front": "counters/am458S.webp",
+   "back": "counters/ams8b.webp"
+  },
+  "am.536": {
+   "front": "counters/am536S.webp",
+   "back": "counters/ams7b.webp"
+  },
+  "am.546": {
+   "front": "counters/am546S.webp",
+   "back": "counters/ams7b.webp"
+  },
+  "am.558": {
+   "front": "counters/am558S.webp",
+   "back": "counters/ams8b.webp"
+  },
+  "am.558p": {
+   "front": "counters/am558pS.webp",
+   "back": "counters/ams8b.webp"
+  },
+  "am.558r": {
+   "front": "counters/am558rS.webp",
+   "back": "counters/ams8b.webp"
+  },
+  "am.666": {
+   "front": "counters/am666S.webp",
+   "back": "counters/ams8b.webp"
+  },
+  "am.667": {
+   "front": "counters/am667S.webp",
+   "back": "counters/ams8b.webp"
+  },
+  "am.668": {
+   "front": "counters/am668S.webp",
+   "back": "counters/ams8b.webp"
+  },
+  "am.747": {
+   "front": "counters/am747S.webp",
+   "back": "counters/ams8b.webp"
+  },
+  "am.747.ae": {
+   "front": "counters/am747Sae.webp",
+   "back": "counters/ams8b.webp"
+  },
+  "am.768": {
+   "front": "counters/am768S.webp",
+   "back": "counters/ams8b.webp"
+  },
+  "am.768.ae": {
+   "front": "counters/am768Sae.webp",
+   "back": "counters/ams8b.webp"
+  },
+  "am.AA37L": {
+   "front": "counters/amAA37L.webp",
+   "back": "counters/amAA37Lb.webp",
+   "limbered": "counters/amAA37L-l.webp"
+  },
+  "am.AA76L": {
+   "front": "counters/amAA76L.webp",
+   "back": "counters/amAA76Lb.webp"
+  },
+  "am.AR105": {
+   "front": "counters/amAR105.webp",
+   "back": "counters/amAR105b.webp",
+   "limbered": "counters/amAR105-l.webp"
+  },
+  "am.AR155_": {
+   "front": "counters/amAR155_.webp",
+   "back": "counters/amAR155_b.webp",
+   "limbered": "counters/amAR155_-l.webp"
+  },
+  "am.AR75": {
+   "front": "counters/amAR75.webp",
+   "back": "counters/amAR75b.webp"
+  },
+  "am.AT37LL": {
+   "front": "counters/amAT37LL.webp",
+   "back": "counters/amAT37LLb.webp"
+  },
+  "am.AT57L": {
+   "front": "counters/amAT57L.webp",
+   "back": "counters/amAT57Lb.webp"
+  },
+  "am.AT76L": {
+   "front": "counters/amAT76L.webp",
+   "back": "counters/amAT76Lb.webp"
+  },
+  "am.ATR": {
+   "front": "counters/amATR.webp",
+   "back": "counters/amATRb.webp"
+  },
+  "am.BAZ43": {
+   "front": "counters/amBAZ43.webp",
+   "back": "counters/amBAZ43b.webp"
+  },
+  "am.BAZ44": {
+   "front": "counters/amBAZ44.webp",
+   "back": "counters/amBAZ44b.webp"
+  },
+  "am.BAZ45": {
+   "front": "counters/amBAZ45.webp",
+   "back": "counters/amBAZ45b.webp"
+  },
+  "am.DC": {
+   "front": "counters/amDC.webp",
+   "back": "counters/amDCb.webp"
+  },
+  "am.FT": {
+   "front": "counters/amFT.webp",
+   "back": "counters/amFTb.webp"
+  },
+  "am.HMG": {
+   "front": "counters/amHMG.webp",
+   "back": "counters/amHMGb.webp"
+  },
+  "am.HMG50": {
+   "front": "counters/amHMG50.webp",
+   "back": "counters/amHMG50b.webp"
+  },
+  "am.L102": {
+   "front": "counters/amL102.webp",
+   "back": "counters/amL102b.webp"
+  },
+  "am.L103": {
+   "front": "counters/amL103.webp",
+   "back": "counters/amL103b.webp"
+  },
+  "am.L61": {
+   "front": "counters/amL61.webp",
+   "back": "counters/amL61b.webp"
+  },
+  "am.L70": {
+   "front": "counters/amL70.webp",
+   "back": "counters/amL70b.webp"
+  },
+  "am.L80": {
+   "front": "counters/amL80.webp",
+   "back": "counters/amL80b.webp"
+  },
+  "am.L81": {
+   "front": "counters/amL81.webp",
+   "back": "counters/amL81b.webp"
+  },
+  "am.L91": {
+   "front": "counters/amL91.webp",
+   "back": "counters/amL91b.webp"
+  },
+  "am.L92": {
+   "front": "counters/amL92.webp",
+   "back": "counters/amL92b.webp"
+  },
+  "am.LMG": {
+   "front": "counters/amLMG.webp",
+   "back": "counters/amLMGb.webp"
+  },
+  "am.M4A2L": {
+   "front": "counters/M4A2L.webp",
+   "back": "counters/M4A2Lb.webp"
+  },
+  "am.M4A3": {
+   "front": "counters/M4A3.webp",
+   "back": "counters/M4A3b.webp"
+  },
+  "am.M4A3E2": {
+   "front": "counters/M4A3E2.webp",
+   "back": "counters/M4A3E2b.webp"
+  },
+  "am.M5A1": {
+   "front": "counters/M5A1.webp",
+   "back": "counters/M5A1b.webp"
+  },
+  "am.M8AC": {
+   "front": "counters/M8AC.webp",
+   "back": "counters/M8ACb.webp"
+  },
+  "am.MMG": {
+   "front": "counters/amMMG.webp",
+   "back": "counters/amMMGb.webp"
+  },
+  "am.MTR": {
+   "front": "counters/amMTR.webp",
+   "back": "counters/amMTRb.webp"
+  },
+  "am.MTR81s": {
+   "front": "counters/amMTR81s.webp",
+   "back": "counters/amMTR81sb.webp"
+  },
+  "br.127c": {
+   "front": "counters/br127C.webp",
+   "back": "counters/brc7b.webp"
+  },
+  "br.226h": {
+   "front": "counters/br226H.webp",
+   "back": "counters/brh5b.webp"
+  },
+  "br.228c": {
+   "front": "counters/br228C.webp",
+   "back": "counters/brc8b.webp"
+  },
+  "br.237h": {
+   "front": "counters/br237H.webp",
+   "back": "counters/brh6b.webp"
+  },
+  "br.247h": {
+   "front": "counters/br247H.webp",
+   "back": "counters/brh6b.webp"
+  },
+  "br.248h": {
+   "front": "counters/br248H.webp",
+   "back": "counters/brh7b.webp"
+  },
+  "br.248parah": {
+   "front": "counters/br248paraH.webp",
+   "back": "counters/brh7b.webp"
+  },
+  "br.338h": {
+   "front": "counters/br338H.webp",
+   "back": "counters/brh7b.webp"
+  },
+  "br.338h.ae": {
+   "front": "counters/br338Hae.webp",
+   "back": "counters/brh7b.webp"
+  },
+  "br.436": {
+   "front": "counters/br436S.webp",
+   "back": "counters/brs6b.webp"
+  },
+  "br.447": {
+   "front": "counters/br447S.webp",
+   "back": "counters/brs7b.webp"
+  },
+  "br.457": {
+   "front": "counters/br457S.webp",
+   "back": "counters/brs7b.webp"
+  },
+  "br.458": {
+   "front": "counters/br458S.webp",
+   "back": "counters/brs8b.webp"
+  },
+  "br.458para": {
+   "front": "counters/br458paraS.webp",
+   "back": "counters/brs8b.webp"
+  },
+  "br.648": {
+   "front": "counters/br648S.webp",
+   "back": "counters/brs8b.webp"
+  },
+  "br.648.ae": {
+   "front": "counters/br648Sae.webp",
+   "back": "counters/brs8b.webp"
+  },
+  "br.AA40L": {
+   "front": "counters/brAA40L.webp",
+   "back": "counters/brAA40Lb.webp",
+   "limbered": "counters/brAA40L-l.webp"
+  },
+  "br.AR75": {
+   "front": "counters/brAR75.webp",
+   "back": "counters/brAR75b.webp"
+  },
+  "br.AR88": {
+   "front": "counters/brAR88.webp",
+   "back": "counters/brAR88b.webp",
+   "limbered": "counters/brAR88-l.webp"
+  },
+  "br.AT40L": {
+   "front": "counters/brAT40L.webp",
+   "back": "counters/brAT40Lb.webp",
+   "limbered": "counters/brAT40L-l.webp"
+  },
+  "br.AT57L": {
+   "front": "counters/brAT57L.webp",
+   "back": "counters/brAT57Lb.webp"
+  },
+  "br.AT7625": {
+   "front": "counters/brAT7625.webp",
+   "back": "counters/brAT7625b.webp",
+   "limbered": "counters/brAT7625-l.webp"
+  },
+  "br.AT76LL": {
+   "front": "counters/brAT76LL.webp",
+   "back": "counters/brAT76LLb.webp",
+   "limbered": "counters/brAT76LL-l.webp"
+  },
+  "br.ATR": {
+   "front": "counters/brATR.webp",
+   "back": "counters/brATRb.webp"
+  },
+  "br.DC": {
+   "front": "counters/brDC.webp",
+   "back": "counters/brDCb.webp"
+  },
+  "br.FT": {
+   "front": "counters/brFT.webp",
+   "back": "counters/brFTb.webp"
+  },
+  "br.HMG": {
+   "front": "counters/brHMG.webp",
+   "back": "counters/brHMGb.webp"
+  },
+  "br.L102": {
+   "front": "counters/brL102.webp",
+   "back": "counters/brL102b.webp"
+  },
+  "br.L103": {
+   "front": "counters/brL103.webp",
+   "back": "counters/brL103b.webp"
+  },
+  "br.L61": {
+   "front": "counters/brL61.webp",
+   "back": "counters/brL61b.webp"
+  },
+  "br.L70": {
+   "front": "counters/brL70.webp",
+   "back": "counters/brL70b.webp"
+  },
+  "br.L80": {
+   "front": "counters/brL80.webp",
+   "back": "counters/brL80b.webp"
+  },
+  "br.L81": {
+   "front": "counters/brL81.webp",
+   "back": "counters/brL81b.webp"
+  },
+  "br.L91": {
+   "front": "counters/brL91.webp",
+   "back": "counters/brL91b.webp"
+  },
+  "br.L92": {
+   "front": "counters/brL92.webp",
+   "back": "counters/brL92b.webp"
+  },
+  "br.LMG": {
+   "front": "counters/brLMG.webp",
+   "back": "counters/brLMGb.webp"
+  },
+  "br.MMG": {
+   "front": "counters/brMMG.webp",
+   "back": "counters/brMMGb.webp"
+  },
+  "br.MTR": {
+   "front": "counters/brMTR.webp",
+   "back": "counters/brMTRb.webp"
+  },
+  "br.MTR76": {
+   "front": "counters/brMTR76.webp",
+   "back": "counters/brMTR76b.webp"
+  },
+  "br.MTR76s": {
+   "front": "counters/brMTR76s.webp",
+   "back": "counters/brMTR76sb.webp"
+  },
+  "br.PIAT": {
+   "front": "counters/brPIAT.webp",
+   "back": "counters/brPIATb.webp"
+  },
+  "br.cromiv": {
+   "front": "counters/cromiv.webp",
+   "back": "counters/cromivb.webp"
+  },
+  "br.daimac": {
+   "front": "counters/daimac.webp",
+   "back": "counters/daimacb.webp"
+  },
+  "br.mkvib": {
+   "front": "counters/mkvib.webp",
+   "back": "counters/mkvibb.webp"
+  },
+  "br.sheriiaa": {
+   "front": "counters/sheriiaa.webp",
+   "back": "counters/sheriiaab.webp"
+  },
+  "ge.127c": {
+   "front": "counters/ge127C.webp",
+   "back": "counters/gec7b.webp"
+  },
+  "ge.128c": {
+   "front": "counters/ge128C.webp",
+   "back": "counters/gec8b.webp"
+  },
+  "ge.128h": {
+   "front": "counters/ge128H.webp",
+   "back": "counters/geh7b.webp"
+  },
+  "ge.228": {
+   "front": "counters/ge228S.webp",
+   "back": "counters/ges8b.webp"
+  },
+  "ge.228c": {
+   "front": "counters/ge228C.webp",
+   "back": "counters/gec8b.webp"
+  },
+  "ge.236h": {
+   "front": "counters/ge236H.webp",
+   "back": "counters/geh4b.webp"
+  },
+  "ge.236h.s": {
+   "front": "counters/ge236Hs.webp",
+   "back": "counters/geh5b.webp"
+  },
+  "ge.237h": {
+   "front": "counters/ge237H.webp",
+   "back": "counters/geh6b.webp"
+  },
+  "ge.237h.s": {
+   "front": "counters/ge237Hs.webp",
+   "back": "counters/geh7b.webp"
+  },
+  "ge.238h": {
+   "front": "counters/ge238H.webp",
+   "back": "counters/geh7b.webp"
+  },
+  "ge.238h.ae": {
+   "front": "counters/ge238Hae.webp",
+   "back": "counters/geh7b.webp"
+  },
+  "ge.238h.p": {
+   "front": "counters/ge238Hp.webp",
+   "back": "counters/geh7b.webp"
+  },
+  "ge.238h.s": {
+   "front": "counters/ge238Hs.webp",
+   "back": "counters/geh8b.webp"
+  },
+  "ge.238h.sae": {
+   "front": "counters/ge238Hsae.webp",
+   "back": "counters/geh8b.webp"
+  },
+  "ge.247h": {
+   "front": "counters/ge247H.webp",
+   "back": "counters/geh6b.webp"
+  },
+  "ge.248h": {
+   "front": "counters/ge248H.webp",
+   "back": "counters/geh7b.webp"
+  },
+  "ge.248h.ae": {
+   "front": "counters/ge248Hae.webp"
+  },
+  "ge.248h.s": {
+   "front": "counters/ge248Hs.webp",
+   "back": "counters/geh8b.webp"
+  },
+  "ge.338h": {
+   "front": "counters/ge338H.webp",
+   "back": "counters/geh7b.webp"
+  },
+  "ge.338h.ae": {
+   "front": "counters/ge338Hae.webp",
+   "back": "counters/geh7b.webp"
+  },
+  "ge.338h.s": {
+   "front": "counters/ge338Hs.webp",
+   "back": "counters/geh8b.webp"
+  },
+  "ge.338h.sae": {
+   "front": "counters/ge338Hsae.webp",
+   "back": "counters/geh8b.webp"
+  },
+  "ge.348h.s": {
+   "front": "counters/ge348Hs.webp",
+   "back": "counters/geh8b.webp"
+  },
+  "ge.436": {
+   "front": "counters/ge436S.webp",
+   "back": "counters/ges5b.webp"
+  },
+  "ge.436.s": {
+   "front": "counters/ge436Ss.webp",
+   "back": "counters/ges6b.webp"
+  },
+  "ge.447": {
+   "front": "counters/ge447S.webp",
+   "back": "counters/ges7b.webp"
+  },
+  "ge.447.s": {
+   "front": "counters/ge447Ss.webp",
+   "back": "counters/ges8b.webp"
+  },
+  "ge.467": {
+   "front": "counters/ge467S.webp",
+   "back": "counters/ges7b.webp"
+  },
+  "ge.468": {
+   "front": "counters/ge468S.webp",
+   "back": "counters/ges8b.webp"
+  },
+  "ge.468.ae": {
+   "front": "counters/ge468Sae.webp"
+  },
+  "ge.548": {
+   "front": "counters/ge548S.webp",
+   "back": "counters/ges8b.webp"
+  },
+  "ge.548.ae": {
+   "front": "counters/ge548Sae.webp",
+   "back": "counters/ges8b.webp"
+  },
+  "ge.548.p": {
+   "front": "counters/ge548Sp.webp",
+   "back": "counters/ges8b.webp"
+  },
+  "ge.548.s": {
+   "front": "counters/ge548Ss.webp",
+   "back": "counters/ges9b.webp"
+  },
+  "ge.548.sae": {
+   "front": "counters/ge548Ssae.webp",
+   "back": "counters/ges9b.webp"
+  },
+  "ge.658.s": {
+   "front": "counters/ge658Ss.webp",
+   "back": "counters/ges9b.webp"
+  },
+  "ge.838": {
+   "front": "counters/ge838S.webp",
+   "back": "counters/ges8b.webp"
+  },
+  "ge.838.ae": {
+   "front": "counters/ge838Sae.webp",
+   "back": "counters/ges8b.webp"
+  },
+  "ge.838.s": {
+   "front": "counters/ge838Ss.webp",
+   "back": "counters/ges9b.webp"
+  },
+  "ge.838.sae": {
+   "front": "counters/ge838Ssae.webp",
+   "back": "counters/ges9b.webp"
+  },
+  "ge.AA2020": {
+   "front": "counters/geAA2020.webp",
+   "back": "counters/geAA2020b.webp",
+   "limbered": "counters/geAA2020-l.webp"
+  },
+  "ge.AA20L4": {
+   "front": "counters/geAA20L4.webp",
+   "back": "counters/geAA20L4b.webp",
+   "limbered": "counters/geAA20L4-l.webp"
+  },
+  "ge.AA20L6": {
+   "front": "counters/geAA20L6.webp",
+   "back": "counters/geAA20L6b.webp",
+   "limbered": "counters/geAA20L6-l.webp"
+  },
+  "ge.AA3712": {
+   "front": "counters/geAA3712.webp",
+   "back": "counters/geAA3712b.webp",
+   "limbered": "counters/geAA3712-l.webp"
+  },
+  "ge.AA37L8": {
+   "front": "counters/geAA37L8.webp",
+   "back": "counters/geAA37L8b.webp",
+   "limbered": "counters/geAA37L8-l.webp"
+  },
+  "ge.AA88L": {
+   "front": "counters/geAA88L.webp",
+   "back": "counters/geAA88Lb.webp",
+   "limbered": "counters/geAA88L-l.webp"
+  },
+  "ge.AA88LL41": {
+   "front": "counters/geAA88LL41.webp",
+   "back": "counters/geAA88LL41b.webp",
+   "limbered": "counters/geAA88LL41-l.webp"
+  },
+  "ge.AR105": {
+   "front": "counters/geAR105.webp",
+   "back": "counters/geAR105b.webp",
+   "limbered": "counters/geAR105-l.webp"
+  },
+  "ge.AT37L": {
+   "front": "counters/geAT37L.webp",
+   "back": "counters/geAT37Lb.webp"
+  },
+  "ge.AT50L": {
+   "front": "counters/geAT50L.webp",
+   "back": "counters/geAT50Lb.webp"
+  },
+  "ge.AT75L": {
+   "front": "counters/geAT75L.webp",
+   "back": "counters/geAT75Lb.webp"
+  },
+  "ge.AT88LL": {
+   "front": "counters/geAT88LL.webp",
+   "back": "counters/geAT88LLb.webp",
+   "limbered": "counters/geAT88LL-l.webp"
+  },
+  "ge.AT88NT": {
+   "front": "counters/geAT88NT.webp",
+   "back": "counters/geAT88NTb.webp",
+   "limbered": "counters/geAT88NT-l.webp"
+  },
+  "ge.ATR": {
+   "front": "counters/geATR.webp",
+   "back": "counters/geATRb.webp"
+  },
+  "ge.DC": {
+   "front": "counters/geDC.webp",
+   "back": "counters/geDCb.webp"
+  },
+  "ge.FT": {
+   "front": "counters/geFT.webp",
+   "back": "counters/geFTb.webp"
+  },
+  "ge.HMG": {
+   "front": "counters/geHMG.webp",
+   "back": "counters/geHMGb.webp"
+  },
+  "ge.INF75": {
+   "front": "counters/geINF75.webp",
+   "back": "counters/geINF75b.webp",
+   "limbered": "counters/geINF75-l.webp"
+  },
+  "ge.L102": {
+   "front": "counters/geL102.webp",
+   "back": "counters/geL102b.webp"
+  },
+  "ge.L103": {
+   "front": "counters/geL103.webp",
+   "back": "counters/geL103b.webp"
+  },
+  "ge.L61": {
+   "front": "counters/geL61.webp",
+   "back": "counters/geL61b.webp"
+  },
+  "ge.L70": {
+   "front": "counters/geL70.webp",
+   "back": "counters/geL70b.webp"
+  },
+  "ge.L80": {
+   "front": "counters/geL80.webp",
+   "back": "counters/geL80b.webp"
+  },
+  "ge.L81": {
+   "front": "counters/geL81.webp",
+   "back": "counters/geL81b.webp"
+  },
+  "ge.L91": {
+   "front": "counters/geL91.webp",
+   "back": "counters/geL91b.webp"
+  },
+  "ge.L92": {
+   "front": "counters/geL92.webp",
+   "back": "counters/geL92b.webp"
+  },
+  "ge.LMG": {
+   "front": "counters/geLMG.webp",
+   "back": "counters/geLMGb.webp"
+  },
+  "ge.MMG": {
+   "front": "counters/geMMG.webp",
+   "back": "counters/geMMGb.webp"
+  },
+  "ge.MTR": {
+   "front": "counters/geMTR.webp",
+   "back": "counters/geMTRb.webp"
+  },
+  "ge.MTR81s": {
+   "front": "counters/geMTR81s.webp",
+   "back": "counters/geMTR81sb.webp"
+  },
+  "ge.PF": {
+   "front": "counters/gePF.webp",
+   "back": "counters/gePFb.webp"
+  },
+  "ge.PSK": {
+   "front": "counters/gePSK.webp",
+   "back": "counters/gePSKb.webp"
+  },
+  "ge.jgpz38": {
+   "front": "counters/jgpz38.webp",
+   "back": "counters/jgpz38b.webp"
+  },
+  "ge.psw2341": {
+   "front": "counters/psw2341.webp",
+   "back": "counters/psw2341b.webp"
+  },
+  "ge.psw2342": {
+   "front": "counters/psw2342.webp",
+   "back": "counters/psw2342b.webp"
+  },
+  "ge.pz35t": {
+   "front": "counters/pz35t.webp",
+   "back": "counters/pz35tb.webp"
+  },
+  "ge.pziia": {
+   "front": "counters/pziia.webp",
+   "back": "counters/pziiab.webp"
+  },
+  "ge.pziif": {
+   "front": "counters/pziif.webp",
+   "back": "counters/pziifb.webp"
+  },
+  "ge.pziiig": {
+   "front": "counters/pziiig.webp",
+   "back": "counters/pziiigb.webp"
+  },
+  "ge.pziiin": {
+   "front": "counters/pziiin.webp",
+   "back": "counters/pziiinb.webp"
+  },
+  "ge.pzivd": {
+   "front": "counters/pzivd.webp",
+   "back": "counters/pzivdb.webp"
+  },
+  "ge.pzivf2": {
+   "front": "counters/pzivf2.webp",
+   "back": "counters/pzivf2b.webp"
+  },
+  "ge.pzivh": {
+   "front": "counters/pzivh.webp",
+   "back": "counters/pzivf2b.webp"
+  },
+  "ge.pzivj": {
+   "front": "counters/pzivj.webp",
+   "back": "counters/pzivjb.webp"
+  },
+  "ge.pzvg": {
+   "front": "counters/pzvg.webp",
+   "back": "counters/pzvgb.webp"
+  },
+  "ge.pzvib": {
+   "front": "counters/pzvib.webp",
+   "back": "counters/pzvibb.webp"
+  },
+  "ge.pzvie": {
+   "front": "counters/pzvie.webp",
+   "back": "counters/pzvieb.webp"
+  },
+  "ge.pzviel": {
+   "front": "counters/pzviel.webp",
+   "back": "counters/pzvielb.webp"
+  },
+  "ge.stgiiig": {
+   "front": "counters/stgiiig.webp",
+   "back": "counters/stgiiigb.webp"
+  },
+  "ge.stgiiigl": {
+   "front": "counters/stgiiigl.webp",
+   "back": "counters/stgiiigb.webp"
+  },
+  "ge.stuh42": {
+   "front": "counters/stuh42.webp",
+   "back": "counters/stuh42b.webp"
+  },
+  "it.126c": {
+   "front": "counters/it126C.webp",
+   "back": "counters/itc5b.webp"
+  },
+  "it.126h": {
+   "front": "counters/it126H.webp",
+   "back": "counters/ith4b.webp"
+  },
+  "it.136h": {
+   "front": "counters/it136H.webp",
+   "back": "counters/ith4b.webp"
+  },
+  "it.137h": {
+   "front": "counters/it137H.webp",
+   "back": "counters/ith5b.webp"
+  },
+  "it.227c": {
+   "front": "counters/it227C.webp",
+   "back": "counters/itc7b.webp"
+  },
+  "it.247h": {
+   "front": "counters/it247H.webp",
+   "back": "counters/ith6b.webp"
+  },
+  "it.247h.ae": {
+   "front": "counters/it247Hae.webp",
+   "back": "counters/ith6b.webp"
+  },
+  "it.336": {
+   "front": "counters/it336S.webp",
+   "back": "counters/its5b.webp"
+  },
+  "it.346": {
+   "front": "counters/it346S.webp",
+   "back": "counters/its5b.webp"
+  },
+  "it.347": {
+   "front": "counters/it347S.webp",
+   "back": "counters/its6b.webp"
+  },
+  "it.447": {
+   "front": "counters/it447S.webp",
+   "back": "counters/its7b.webp"
+  },
+  "it.447.ae": {
+   "front": "counters/it447Sae.webp",
+   "back": "counters/its7b.webp"
+  },
+  "it.AR105": {
+   "front": "counters/itAR105.webp",
+   "back": "counters/itAR105b.webp",
+   "limbered": "counters/itAR105-l.webp"
+  },
+  "it.AR75s_n10": {
+   "front": "counters/itAR75s_n10.webp",
+   "back": "counters/itAR75s_n10b.webp"
+  },
+  "it.AR75s_n8": {
+   "front": "counters/itAR75s_n8.webp",
+   "back": "counters/itAR75s_n8b.webp"
+  },
+  "it.AR75s_n9": {
+   "front": "counters/itAR75s_n9.webp",
+   "back": "counters/itAR75s_n9b.webp"
+  },
+  "it.AT47": {
+   "front": "counters/itAT47.webp",
+   "back": "counters/itAT47b.webp"
+  },
+  "it.ATR": {
+   "front": "counters/itATR.webp",
+   "back": "counters/itATRb.webp"
+  },
+  "it.DC": {
+   "front": "counters/itDC.webp",
+   "back": "counters/itDCb.webp"
+  },
+  "it.FT": {
+   "front": "counters/itFT.webp",
+   "back": "counters/itFTb.webp"
+  },
+  "it.HMG": {
+   "front": "counters/itHMG.webp",
+   "back": "counters/itHMGb.webp"
+  },
+  "it.L102": {
+   "front": "counters/itL102.webp",
+   "back": "counters/itL102b.webp"
+  },
+  "it.L103": {
+   "front": "counters/itL103.webp",
+   "back": "counters/itL103b.webp"
+  },
+  "it.L61": {
+   "front": "counters/itL61.webp",
+   "back": "counters/itL61b.webp"
+  },
+  "it.L70": {
+   "front": "counters/itL70.webp",
+   "back": "counters/itL70b.webp"
+  },
+  "it.L80": {
+   "front": "counters/itL80.webp",
+   "back": "counters/itL80b.webp"
+  },
+  "it.L81": {
+   "front": "counters/itL81.webp",
+   "back": "counters/itL81b.webp"
+  },
+  "it.L91": {
+   "front": "counters/itL91.webp",
+   "back": "counters/itL91b.webp"
+  },
+  "it.L92": {
+   "front": "counters/itL92.webp",
+   "back": "counters/itL92b.webp"
+  },
+  "it.LMG": {
+   "front": "counters/itLMG.webp",
+   "back": "counters/itLMGb.webp"
+  },
+  "it.MMG": {
+   "front": "counters/itMMG.webp",
+   "back": "counters/itMMGb.webp"
+  },
+  "it.MTR": {
+   "front": "counters/itMTR.webp",
+   "back": "counters/itMTRb.webp"
+  },
+  "ja.126h": {
+   "front": "counters/ja126H.webp",
+   "back": "counters/jah5b.webp"
+  },
+  "ja.126h.k": {
+   "front": "counters/ja126Hk.webp"
+  },
+  "ja.127c": {
+   "front": "counters/ja127C.webp",
+   "back": "counters/jac8b.webp"
+  },
+  "ja.128cr": {
+   "front": "counters/ja128Cr.webp",
+   "back": "counters/jac8b.webp"
+  },
+  "ja.137h": {
+   "front": "counters/ja137H.webp",
+   "back": "counters/jah6b.webp"
+  },
+  "ja.226r": {
+   "front": "counters/ja226Sr.webp"
+  },
+  "ja.228c": {
+   "front": "counters/ja228C.webp",
+   "back": "counters/jac8b.webp"
+  },
+  "ja.237h": {
+   "front": "counters/ja237H.webp",
+   "back": "counters/jah7b.webp"
+  },
+  "ja.237r": {
+   "front": "counters/ja237Sr.webp"
+  },
+  "ja.238h": {
+   "front": "counters/ja238H.webp",
+   "back": "counters/jah8b.webp"
+  },
+  "ja.238h.ae": {
+   "front": "counters/ja238Hae.webp",
+   "back": "counters/jah8b.webp"
+  },
+  "ja.336": {
+   "front": "counters/ja336S.webp"
+  },
+  "ja.336.k": {
+   "front": "counters/ja336Sk.webp"
+  },
+  "ja.347": {
+   "front": "counters/ja347S.webp"
+  },
+  "ja.347r": {
+   "front": "counters/ja347Sr.webp"
+  },
+  "ja.348r": {
+   "front": "counters/ja348Sr.webp"
+  },
+  "ja.348r.ae": {
+   "front": "counters/ja348Srae.webp"
+  },
+  "ja.447": {
+   "front": "counters/ja447S.webp"
+  },
+  "ja.448": {
+   "front": "counters/ja448S.webp"
+  },
+  "ja.448.ae": {
+   "front": "counters/ja448Sae.webp"
+  },
+  "ja.AT47L": {
+   "front": "counters/jaAT47L.webp",
+   "back": "counters/jaAT47Lb.webp"
+  },
+  "ja.ATR": {
+   "front": "counters/jaATR20.webp",
+   "back": "counters/jaATR20b.webp"
+  },
+  "ja.DC": {
+   "front": "counters/jaDC.webp",
+   "back": "counters/jaDCb.webp"
+  },
+  "ja.FT": {
+   "front": "counters/jaFT.webp",
+   "back": "counters/jaFTb.webp"
+  },
+  "ja.HMG": {
+   "front": "counters/jaHMG.webp",
+   "back": "counters/jaHMGb.webp"
+  },
+  "ja.HMG50": {
+   "front": "counters/jaHMG50.webp",
+   "back": "counters/jaHMG50b.webp"
+  },
+  "ja.INF70s": {
+   "front": "counters/jaINF70s.webp",
+   "back": "counters/jaINF70sb.webp"
+  },
+  "ja.L100": {
+   "front": "counters/jaL100.webp"
+  },
+  "ja.L101": {
+   "front": "counters/jaL101.webp"
+  },
+  "ja.L102": {
+   "front": "counters/jaL102.webp"
+  },
+  "ja.L80": {
+   "front": "counters/jaL80.webp"
+  },
+  "ja.L8p1": {
+   "front": "counters/jaL8p1.webp"
+  },
+  "ja.L90": {
+   "front": "counters/jaL90.webp"
+  },
+  "ja.L91": {
+   "front": "counters/jaL91.webp"
+  },
+  "ja.LMG": {
+   "front": "counters/jaLMG.webp",
+   "back": "counters/jaLMGb.webp"
+  },
+  "ja.MMG": {
+   "front": "counters/jaMMG.webp",
+   "back": "counters/jaMMGb.webp"
+  },
+  "ja.MTR": {
+   "front": "counters/jaMTR.webp",
+   "back": "counters/jaMTRb.webp"
+  },
+  "ja.ty95hago": {
+   "front": "counters/ty95hago.webp",
+   "back": "counters/ty95hagob.webp"
+  },
+  "ja.ty97Achiha": {
+   "front": "counters/ty97Achiha.webp",
+   "back": "counters/ty97Achihab.webp"
+  },
+  "ja.ty97Bchiha": {
+   "front": "counters/ty97Bchiha.webp",
+   "back": "counters/ty97Bchihab.webp"
+  },
+  "ru.127c": {
+   "front": "counters/ru127C.webp",
+   "back": "counters/ruc7b.webp"
+  },
+  "ru.226h": {
+   "front": "counters/ru226H.webp",
+   "back": "counters/ruh4b.webp"
+  },
+  "ru.227h": {
+   "front": "counters/ru227H.webp",
+   "back": "counters/ruh6b.webp"
+  },
+  "ru.228c": {
+   "front": "counters/ru228C.webp",
+   "back": "counters/ruc8b.webp"
+  },
+  "ru.237h": {
+   "front": "counters/ru237H.webp",
+   "back": "counters/ruh6b.webp"
+  },
+  "ru.248h": {
+   "front": "counters/ru248H.webp",
+   "back": "counters/ruh7b.webp"
+  },
+  "ru.328h": {
+   "front": "counters/ru328H.webp",
+   "back": "counters/ruh7b.webp"
+  },
+  "ru.328h.ae": {
+   "front": "counters/ru328Hae.webp",
+   "back": "counters/ruh7b.webp"
+  },
+  "ru.426": {
+   "front": "counters/ru426S.webp",
+   "back": "counters/rus5b.webp"
+  },
+  "ru.447": {
+   "front": "counters/ru447S.webp",
+   "back": "counters/rus7b.webp"
+  },
+  "ru.458": {
+   "front": "counters/ru458S.webp",
+   "back": "counters/rus8b.webp"
+  },
+  "ru.527": {
+   "front": "counters/ru527S.webp",
+   "back": "counters/rus7b.webp"
+  },
+  "ru.628": {
+   "front": "counters/ru628S.webp",
+   "back": "counters/rus8b.webp"
+  },
+  "ru.628.ae": {
+   "front": "counters/ru628Sae.webp",
+   "back": "counters/rus8b.webp"
+  },
+  "ru.AA85L": {
+   "front": "counters/ruAA85L.webp",
+   "back": "counters/ruAA85Lb.webp",
+   "limbered": "counters/ruAA85L-l.webp"
+  },
+  "ru.AR122L": {
+   "front": "counters/ruAR122L.webp",
+   "back": "counters/ruAR122Lb.webp",
+   "limbered": "counters/ruAR122L-l.webp"
+  },
+  "ru.AR152s": {
+   "front": "counters/ruAR152s.webp",
+   "back": "counters/ruAR152sb.webp",
+   "limbered": "counters/ruAR152s-l.webp"
+  },
+  "ru.AR76L": {
+   "front": "counters/ruAR76L.webp",
+   "back": "counters/ruAR76Lb.webp"
+  },
+  "ru.AR76s": {
+   "front": "counters/ruAR76s.webp",
+   "back": "counters/ruAR76sb.webp"
+  },
+  "ru.AR85L": {
+   "front": "counters/ruAR85L.webp",
+   "back": "counters/ruAR85Lb.webp"
+  },
+  "ru.AT45L": {
+   "front": "counters/ruAT45L.webp",
+   "back": "counters/ruAT45Lb.webp"
+  },
+  "ru.AT57LL": {
+   "front": "counters/ruAT57LL.webp",
+   "back": "counters/ruAT57LLb.webp"
+  },
+  "ru.ATR": {
+   "front": "counters/ruATR.webp",
+   "back": "counters/ruATRb.webp"
+  },
+  "ru.BT7M37": {
+   "front": "counters/BT7M37.webp",
+   "back": "counters/BT7M37b.webp"
+  },
+  "ru.DC": {
+   "front": "counters/ruDC.webp",
+   "back": "counters/ruDCb.webp"
+  },
+  "ru.FT": {
+   "front": "counters/ruFT.webp",
+   "back": "counters/ruFTb.webp"
+  },
+  "ru.HMG": {
+   "front": "counters/ruHMG.webp",
+   "back": "counters/ruHMGb.webp"
+  },
+  "ru.HMG50": {
+   "front": "counters/ruHMG50.webp",
+   "back": "counters/ruHMG50b.webp"
+  },
+  "ru.INF76s": {
+   "front": "counters/ruINF76s.webp",
+   "back": "counters/ruINF76sb.webp"
+  },
+  "ru.IS2": {
+   "front": "counters/IS2.webp",
+   "back": "counters/IS2b.webp"
+  },
+  "ru.KV1M41": {
+   "front": "counters/KV1M41.webp",
+   "back": "counters/KV1M41b.webp"
+  },
+  "ru.KV2": {
+   "front": "counters/KV2.webp",
+   "back": "counters/KV2b.webp"
+  },
+  "ru.L102": {
+   "front": "counters/ruL102.webp",
+   "back": "counters/ruL102b.webp"
+  },
+  "ru.L103": {
+   "front": "counters/ruL103.webp",
+   "back": "counters/ruL103b.webp"
+  },
+  "ru.L61": {
+   "front": "counters/ruL61.webp",
+   "back": "counters/ruL61b.webp"
+  },
+  "ru.L70": {
+   "front": "counters/ruL70.webp",
+   "back": "counters/ruL70b.webp"
+  },
+  "ru.L80": {
+   "front": "counters/ruL80.webp",
+   "back": "counters/ruL80b.webp"
+  },
+  "ru.L81": {
+   "front": "counters/ruL81.webp",
+   "back": "counters/ruL81b.webp"
+  },
+  "ru.L91": {
+   "front": "counters/ruL91.webp",
+   "back": "counters/ruL91b.webp"
+  },
+  "ru.L92": {
+   "front": "counters/ruL92.webp",
+   "back": "counters/ruL92b.webp"
+  },
+  "ru.LMG": {
+   "front": "counters/ruLMG.webp",
+   "back": "counters/ruLMGb.webp"
+  },
+  "ru.MMG": {
+   "front": "counters/ruMMG.webp",
+   "back": "counters/ruMMGb.webp"
+  },
+  "ru.MTR": {
+   "front": "counters/ruMTR.webp",
+   "back": "counters/ruMTRb.webp"
+  },
+  "ru.MTR82s": {
+   "front": "counters/ruMTR82s.webp",
+   "back": "counters/ruMTR82sb.webp"
+  },
+  "ru.ShermanIII": {
+   "front": "counters/ruShermanIII.webp",
+   "back": "counters/sheriiiab.webp"
+  },
+  "ru.T3485": {
+   "front": "counters/T3485.webp",
+   "back": "counters/T3485b.webp"
+  },
+  "ru.T34M41": {
+   "front": "counters/T34M41.webp",
+   "back": "counters/T34M41b.webp"
+  },
+  "ru.T34M43": {
+   "front": "counters/T34M43.webp",
+   "back": "counters/T34M43b.webp"
+  }
+ },
+ "markers": {
+  "pin": "markers/pin.webp",
+  "dm": "markers/dm.webp",
+  "cx": "markers/cx.webp",
+  "FirePrep": "markers/FirePrep.webp",
+  "FireAdv": "markers/FireAdv.webp",
+  "First": "markers/First.webp",
+  "Final": "markers/Final.webp",
+  "Melee": "markers/Melee.webp",
+  "CC": "markers/CC.webp",
+  "Wound": "markers/Wound.webp",
+  "RFP01": "markers/RFP01.webp",
+  "RFP02": "markers/RFP02.webp",
+  "RFP04": "markers/RFP04.webp",
+  "RFP06": "markers/RFP06.webp",
+  "RFP08": "markers/RFP08.webp",
+  "RFP12": "markers/RFP12.webp",
+  "Smk2": "markers/Smk2.webp",
+  "Smk3": "markers/Smk3.webp",
+  "WP1": "markers/WP1.webp",
+  "WP2": "markers/WP2.webp",
+  "acq1wh": "markers/acq1wh.webp",
+  "acq2wh": "markers/acq2wh.webp",
+  "MalfGun": "markers/MalfGun.webp",
+  "Limbered": "markers/Limbered.webp",
+  "qmark-br": "markers/qmark-br.webp",
+  "qmark-al": "markers/qmark-al.webp",
+  "qmark-ge": "markers/qmark-ge.webp",
+  "qmark-ru": "markers/qmark-ru.webp",
+  "qmark-am": "markers/qmark-am.webp",
+  "qmark-it": "markers/qmark-it.webp",
+  "qmark-ja": "markers/qmark-ja.webp",
+  "Banzai": "markers/Banzai.webp",
+  "Lev1": "markers/Lev1.webp",
+  "Lev2": "markers/Lev2.webp",
+  "Motion": "markers/Motion.webp",
+  "Bog": "markers/Bog.webp",
+  "Mired": "markers/Mired.webp",
+  "Immob": "markers/Immob.webp",
+  "Shock": "markers/Shock.webp",
+  "UK": "markers/UK.webp",
+  "Stun": "markers/Stun.webp",
+  "StunPlus1": "markers/StunPlus1.webp",
+  "STUNR": "markers/STUNR.webp",
+  "Recall": "markers/Recall.webp",
+  "LowAmmo": "markers/LowAmmo.webp",
+  "acq1tr": "markers/acq1tr.webp",
+  "acq2tr": "markers/acq2tr.webp",
+  "FireBnd": "markers/FireBnd.webp",
+  "MalfMA": "markers/MalfMA.webp",
+  "DisMA": "markers/DisMA.webp",
+  "MalfBMG": "markers/MalfBMG.webp",
+  "MalfCMG": "markers/MalfCMG.webp",
+  "MalfAAMG": "markers/MalfAAMG.webp",
+  "MalfRMG": "markers/MalfRMG.webp",
+  "DisBMG": "markers/DisBMG.webp",
+  "DisCMG": "markers/DisCMG.webp",
+  "DisAAMG": "markers/DisAAMG.webp",
+  "DisRMG": "markers/DisRMG.webp",
+  "turret-ce-ge": "markers/turret-ce-ge.webp",
+  "turret-bu-ge": "markers/turret-bu-ge.webp",
+  "turret-ce-ru": "markers/turret-ce-ru.webp",
+  "turret-bu-ru": "markers/turret-bu-ru.webp",
+  "ce-ge": "markers/ce-ge.webp",
+  "bu-ge": "markers/bu-ge.webp",
+  "ce-ru": "markers/ce-ru.webp",
+  "bu-ru": "markers/bu-ru.webp",
+  "Cave": "markers/Cave.webp",
+  "CaveOG": "markers/CaveOG.webp"
+ },
+ "boards": {
+  "t": {
+   "image": "boards/t.webp",
+   "width": 1800,
+   "height": 645,
+   "hasHills": true
+  },
+  "u": {
+   "image": "boards/u.webp",
+   "width": 1800,
+   "height": 645,
+   "hasHills": true
+  },
+  "v": {
+   "image": "boards/v.webp",
+   "width": 1800,
+   "height": 645,
+   "hasHills": true
+  },
+  "w": {
+   "image": "boards/w.webp",
+   "width": 1800,
+   "height": 645,
+   "hasHills": true
+  },
+  "x": {
+   "image": "boards/x.webp",
+   "width": 1800,
+   "height": 645
+  },
+  "y": {
+   "image": "boards/y.webp",
+   "width": 1800,
+   "height": 645
+  },
+  "z": {
+   "image": "boards/z.webp",
+   "width": 1800,
+   "height": 645
+  },
+  "m": {
+   "image": "boards/m.webp",
+   "width": 1800,
+   "height": 645,
+   "hasHills": true
+  },
+  "n": {
+   "image": "boards/n.webp",
+   "width": 1800,
+   "height": 645
+  },
+  "o": {
+   "image": "boards/o.webp",
+   "width": 1800,
+   "height": 645,
+   "hasHills": true
+  }
+ }
+}

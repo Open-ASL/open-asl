@@ -1,0 +1,33 @@
+name: Bug report
+description: Something plays wrong, looks wrong or breaks.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, and what the game did.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened
+      description: For a rules problem, quote the rule number (for example SK1 3.2.3 or ASLRB A8.31) and say what it requires, in your own words.
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Scenario, turn and phase
+      placeholder: S7, Turn 2, German Movement Phase
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Steps, a screenshot, or the log lines. Hotseat games can be replayed from Home.
+  - type: input
+    id: env
+    attributes:
+      label: Browser and system
+      placeholder: Firefox 140, Windows 11

@@ -1,0 +1,21 @@
+{
+  "_comment": "Optional: copy to assets-local/audio/manifest.json (next to your files) to replace the built-in CC0 recordings (src/audio/sounds) for any effect, e.g. with a bought weapons pack. Paths are relative to assets-local/audio/. Effects left out keep the built-in sound, or are synthesized if there is none. Effect names: see SFX in src/audio/sfx.ts.",
+  "fire.rifle": {
+    "*": ["rifle_volley_1.ogg", "rifle_volley_2.ogg"],
+    "am": ["garand_volley_1.ogg", "garand_volley_2.ogg"],
+    "ge": ["kar98_volley_1.ogg", "kar98_volley_2.ogg"],
+    "ru": ["mosin_ppsh_volley_1.ogg"],
+    "gain": 0.9
+  },
+  "fire.pistol": ["pistol_3shots.ogg"],
+  "fire.lmg": { "*": ["bren_burst.ogg"], "am": ["bar_burst_1.ogg", "bar_burst_2.ogg"], "ge": ["mg42_burst_1.ogg", "mg42_burst_2.ogg"], "ru": ["dp28_burst.ogg"] },
+  "fire.mmg": { "*": ["vickers_long.ogg"], "am": ["m1919_long.ogg"], "ge": ["mg42_long_1.ogg", "mg42_long_2.ogg"], "ru": ["maxim_long.ogg"] },
+  "fire.hmg": { "*": ["vickers_long.ogg"], "am": ["m2_50cal_1.ogg", "m2_50cal_2.ogg"], "ge": ["mg42_long_1.ogg"], "ru": ["dshk_burst.ogg"] },
+  "fire.ft": ["flamethrower.ogg"],
+  "fire.explosion": ["explosion_1.ogg", "explosion_2.ogg"],
+  "hit.none": ["ricochet_1.ogg", "ricochet_2.ogg"],
+  "dice.roll": ["dice_1.ogg", "dice_2.ogg"],
+  "move.step": ["footsteps_short.ogg"],
+  "rout": ["footsteps_run.ogg"],
+  "cc": ["melee.ogg"]
+}

@@ -1,0 +1,7436 @@
+{
+ "ru.328h.ae": {
+  "id": "ru.328h.ae",
+  "nationality": "ru",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 3,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "ru.628.ae": {
+  "id": "ru.628.ae",
+  "nationality": "ru",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 6,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 2,
+  "elrExempt": false,
+  "reducesTo": "ru.328h.ae"
+ },
+ "ru.328h": {
+  "id": "ru.328h",
+  "nationality": "ru",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 3,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "ru.227h"
+ },
+ "ru.227h": {
+  "id": "ru.227h",
+  "nationality": "ru",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 2,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "ru.226h"
+ },
+ "ru.226h": {
+  "id": "ru.226h",
+  "nationality": "ru",
+  "kind": "hs",
+  "quality": "C",
+  "fp": 2,
+  "range": 2,
+  "morale": 6,
+  "brokenMorale": 4,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "ru.628": {
+  "id": "ru.628",
+  "nationality": "ru",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 6,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "elrExempt": false,
+  "reducesTo": "ru.328h",
+  "elrReplacement": "ru.527"
+ },
+ "ru.527": {
+  "id": "ru.527",
+  "nationality": "ru",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 5,
+  "range": 2,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": true,
+  "elrExempt": false,
+  "reducesTo": "ru.227h",
+  "elrReplacement": "ru.426"
+ },
+ "ru.426": {
+  "id": "ru.426",
+  "nationality": "ru",
+  "kind": "squad",
+  "quality": "C",
+  "fp": 4,
+  "range": 2,
+  "morale": 6,
+  "brokenMorale": 5,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "ru.226h"
+ },
+ "ru.248h": {
+  "id": "ru.248h",
+  "nationality": "ru",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 2,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "ru.237h"
+ },
+ "ru.237h": {
+  "id": "ru.237h",
+  "nationality": "ru",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "ru.226h"
+ },
+ "ru.458": {
+  "id": "ru.458",
+  "nationality": "ru",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 4,
+  "range": 5,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "ru.248h",
+  "elrReplacement": "ru.447"
+ },
+ "ru.447": {
+  "id": "ru.447",
+  "nationality": "ru",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "ru.237h",
+  "elrReplacement": "ru.426"
+ },
+ "ru.L103": {
+  "id": "ru.L103",
+  "nationality": "ru",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -3,
+  "selfRally": true,
+  "elrReplacement": "ru.L102"
+ },
+ "ru.L102": {
+  "id": "ru.L102",
+  "nationality": "ru",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "ru.L92"
+ },
+ "ru.L92": {
+  "id": "ru.L92",
+  "nationality": "ru",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "ru.L91"
+ },
+ "ru.L91": {
+  "id": "ru.L91",
+  "nationality": "ru",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "ru.L81"
+ },
+ "ru.L81": {
+  "id": "ru.L81",
+  "nationality": "ru",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "ru.L80"
+ },
+ "ru.L80": {
+  "id": "ru.L80",
+  "nationality": "ru",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "ru.L70"
+ },
+ "ru.L70": {
+  "id": "ru.L70",
+  "nationality": "ru",
+  "kind": "leader",
+  "morale": 7,
+  "brokenMorale": 7,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "ru.L61"
+ },
+ "ru.L61": {
+  "id": "ru.L61",
+  "nationality": "ru",
+  "kind": "leader",
+  "morale": 6,
+  "brokenMorale": 6,
+  "leadership": 1,
+  "selfRally": true
+ },
+ "am.337h.ae": {
+  "id": "am.337h.ae",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 3,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "am.747.ae": {
+  "id": "am.747.ae",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 7,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 5,
+  "elrExempt": true,
+  "reducesTo": "am.337h.ae"
+ },
+ "am.337h": {
+  "id": "am.337h",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 3,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "am.747": {
+  "id": "am.747",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 7,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 3,
+  "elrExempt": true,
+  "reducesTo": "am.337h"
+ },
+ "am.347h": {
+  "id": "am.347h",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 3,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "am.346h"
+ },
+ "am.346h": {
+  "id": "am.346h",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 3,
+  "range": 4,
+  "morale": 6,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "am.236h"
+ },
+ "am.236h": {
+  "id": "am.236h",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "2",
+  "fp": 2,
+  "range": 3,
+  "morale": 6,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "am.226h"
+ },
+ "am.226h": {
+  "id": "am.226h",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "G",
+  "fp": 2,
+  "range": 2,
+  "morale": 6,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "am.667": {
+  "id": "am.667",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 6,
+  "range": 6,
+  "morale": 7,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 3,
+  "elrExempt": false,
+  "reducesTo": "am.347h",
+  "elrReplacement": "am.666"
+ },
+ "am.666": {
+  "id": "am.666",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 6,
+  "range": 6,
+  "morale": 6,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 3,
+  "elrExempt": false,
+  "reducesTo": "am.346h",
+  "elrReplacement": "am.546"
+ },
+ "am.546": {
+  "id": "am.546",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "2",
+  "fp": 5,
+  "range": 4,
+  "morale": 6,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 2,
+  "elrExempt": false,
+  "reducesTo": "am.236h",
+  "elrReplacement": "am.536"
+ },
+ "am.536": {
+  "id": "am.536",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "G",
+  "fp": 5,
+  "range": 3,
+  "morale": 6,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 2,
+  "elrExempt": false,
+  "reducesTo": "am.226h"
+ },
+ "am.237h": {
+  "id": "am.237h",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "2",
+  "fp": 2,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "am.126h"
+ },
+ "am.126h": {
+  "id": "am.126h",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "G",
+  "fp": 1,
+  "range": 2,
+  "morale": 6,
+  "brokenMorale": 5,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "am.447": {
+  "id": "am.447",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "2",
+  "fp": 4,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 1,
+  "elrExempt": false,
+  "reducesTo": "am.237h",
+  "elrReplacement": "am.336"
+ },
+ "am.336": {
+  "id": "am.336",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "G",
+  "fp": 3,
+  "range": 3,
+  "morale": 6,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "am.126h"
+ },
+ "am.348h.ae": {
+  "id": "am.348h.ae",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 3,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "am.768.ae": {
+  "id": "am.768.ae",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 7,
+  "range": 6,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 5,
+  "elrExempt": true,
+  "reducesTo": "am.348h.ae"
+ },
+ "am.348h": {
+  "id": "am.348h",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 3,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "am.768": {
+  "id": "am.768",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 7,
+  "range": 6,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 3,
+  "elrExempt": true,
+  "reducesTo": "am.348h"
+ },
+ "am.668": {
+  "id": "am.668",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 6,
+  "range": 6,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 3,
+  "elrExempt": true,
+  "reducesTo": "am.348h"
+ },
+ "am.238h": {
+  "id": "am.238h",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "am.558": {
+  "id": "am.558",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 5,
+  "range": 5,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 2,
+  "elrExempt": true,
+  "reducesTo": "am.238h"
+ },
+ "am.238ph": {
+  "id": "am.238ph",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "am.558p": {
+  "id": "am.558p",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 5,
+  "range": 5,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 2,
+  "elrExempt": true,
+  "reducesTo": "am.238ph"
+ },
+ "am.238rh": {
+  "id": "am.238rh",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "am.558r": {
+  "id": "am.558r",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 5,
+  "range": 5,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 2,
+  "elrExempt": true,
+  "reducesTo": "am.238rh"
+ },
+ "am.248h": {
+  "id": "am.248h",
+  "nationality": "am",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "am.458": {
+  "id": "am.458",
+  "nationality": "am",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 5,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 2,
+  "elrExempt": true,
+  "reducesTo": "am.248h"
+ },
+ "am.L103": {
+  "id": "am.L103",
+  "nationality": "am",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -3,
+  "selfRally": true,
+  "elrReplacement": "am.L102"
+ },
+ "am.L102": {
+  "id": "am.L102",
+  "nationality": "am",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "am.L92"
+ },
+ "am.L92": {
+  "id": "am.L92",
+  "nationality": "am",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "am.L91"
+ },
+ "am.L91": {
+  "id": "am.L91",
+  "nationality": "am",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "am.L81"
+ },
+ "am.L81": {
+  "id": "am.L81",
+  "nationality": "am",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "am.L80"
+ },
+ "am.L80": {
+  "id": "am.L80",
+  "nationality": "am",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "am.L70"
+ },
+ "am.L70": {
+  "id": "am.L70",
+  "nationality": "am",
+  "kind": "leader",
+  "morale": 7,
+  "brokenMorale": 7,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "am.L61"
+ },
+ "am.L61": {
+  "id": "am.L61",
+  "nationality": "am",
+  "kind": "leader",
+  "morale": 6,
+  "brokenMorale": 6,
+  "leadership": 1,
+  "selfRally": true
+ },
+ "br.338h.ae": {
+  "id": "br.338h.ae",
+  "nationality": "br",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 3,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "br.648.ae": {
+  "id": "br.648.ae",
+  "nationality": "br",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 6,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 4,
+  "elrExempt": true,
+  "reducesTo": "br.338h.ae"
+ },
+ "br.338h": {
+  "id": "br.338h",
+  "nationality": "br",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 3,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "br.648": {
+  "id": "br.648",
+  "nationality": "br",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 6,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 2,
+  "elrExempt": true,
+  "reducesTo": "br.338h"
+ },
+ "br.248h": {
+  "id": "br.248h",
+  "nationality": "br",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 2,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "br.247h"
+ },
+ "br.247h": {
+  "id": "br.247h",
+  "nationality": "br",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "br.237h"
+ },
+ "br.237h": {
+  "id": "br.237h",
+  "nationality": "br",
+  "kind": "hs",
+  "quality": "2",
+  "fp": 2,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "br.226h"
+ },
+ "br.226h": {
+  "id": "br.226h",
+  "nationality": "br",
+  "kind": "hs",
+  "quality": "G",
+  "fp": 2,
+  "range": 2,
+  "morale": 6,
+  "brokenMorale": 5,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "br.458": {
+  "id": "br.458",
+  "nationality": "br",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 4,
+  "range": 5,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 2,
+  "elrExempt": false,
+  "reducesTo": "br.248h",
+  "elrReplacement": "br.457"
+ },
+ "br.457": {
+  "id": "br.457",
+  "nationality": "br",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 5,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 2,
+  "elrExempt": false,
+  "reducesTo": "br.247h",
+  "elrReplacement": "br.447"
+ },
+ "br.447": {
+  "id": "br.447",
+  "nationality": "br",
+  "kind": "squad",
+  "quality": "2",
+  "fp": 4,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "br.237h",
+  "elrReplacement": "br.436"
+ },
+ "br.436": {
+  "id": "br.436",
+  "nationality": "br",
+  "kind": "squad",
+  "quality": "G",
+  "fp": 4,
+  "range": 3,
+  "morale": 6,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "br.226h"
+ },
+ "br.248parah": {
+  "id": "br.248parah",
+  "nationality": "br",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "br.458para": {
+  "id": "br.458para",
+  "nationality": "br",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 5,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 2,
+  "elrExempt": true,
+  "reducesTo": "br.248parah"
+ },
+ "br.L103": {
+  "id": "br.L103",
+  "nationality": "br",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -3,
+  "selfRally": true,
+  "elrReplacement": "br.L102"
+ },
+ "br.L102": {
+  "id": "br.L102",
+  "nationality": "br",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "br.L92"
+ },
+ "br.L92": {
+  "id": "br.L92",
+  "nationality": "br",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "br.L91"
+ },
+ "br.L91": {
+  "id": "br.L91",
+  "nationality": "br",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "br.L81"
+ },
+ "br.L81": {
+  "id": "br.L81",
+  "nationality": "br",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "br.L80"
+ },
+ "br.L80": {
+  "id": "br.L80",
+  "nationality": "br",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "br.L70"
+ },
+ "br.L70": {
+  "id": "br.L70",
+  "nationality": "br",
+  "kind": "leader",
+  "morale": 7,
+  "brokenMorale": 7,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "br.L61"
+ },
+ "br.L61": {
+  "id": "br.L61",
+  "nationality": "br",
+  "kind": "leader",
+  "morale": 6,
+  "brokenMorale": 6,
+  "leadership": 1,
+  "selfRally": true
+ },
+ "al.248h.ae": {
+  "id": "al.248h.ae",
+  "nationality": "al",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "al.458.ae": {
+  "id": "al.458.ae",
+  "nationality": "al",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 5,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 3,
+  "elrExempt": false,
+  "reducesTo": "al.248h.ae"
+ },
+ "al.248h": {
+  "id": "al.248h",
+  "nationality": "al",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 2,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "al.237h"
+ },
+ "al.237h": {
+  "id": "al.237h",
+  "nationality": "al",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "al.227h"
+ },
+ "al.227h": {
+  "id": "al.227h",
+  "nationality": "al",
+  "kind": "hs",
+  "quality": "G",
+  "fp": 2,
+  "range": 2,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "al.458": {
+  "id": "al.458",
+  "nationality": "al",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 4,
+  "range": 5,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 1,
+  "elrExempt": false,
+  "reducesTo": "al.248h",
+  "elrReplacement": "al.457"
+ },
+ "al.457": {
+  "id": "al.457",
+  "nationality": "al",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 5,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "al.237h",
+  "elrReplacement": "al.437"
+ },
+ "al.437": {
+  "id": "al.437",
+  "nationality": "al",
+  "kind": "squad",
+  "quality": "G",
+  "fp": 4,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "al.227h"
+ },
+ "al.L103": {
+  "id": "al.L103",
+  "nationality": "al",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -3,
+  "selfRally": true,
+  "elrReplacement": "al.L102"
+ },
+ "al.L102": {
+  "id": "al.L102",
+  "nationality": "al",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "al.L92"
+ },
+ "al.L92": {
+  "id": "al.L92",
+  "nationality": "al",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "al.L91"
+ },
+ "al.L91": {
+  "id": "al.L91",
+  "nationality": "al",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "al.L81"
+ },
+ "al.L81": {
+  "id": "al.L81",
+  "nationality": "al",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "al.L80"
+ },
+ "al.L80": {
+  "id": "al.L80",
+  "nationality": "al",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "al.L70"
+ },
+ "al.L70": {
+  "id": "al.L70",
+  "nationality": "al",
+  "kind": "leader",
+  "morale": 7,
+  "brokenMorale": 7,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "al.L61"
+ },
+ "al.L61": {
+  "id": "al.L61",
+  "nationality": "al",
+  "kind": "leader",
+  "morale": 6,
+  "brokenMorale": 6,
+  "leadership": 1,
+  "selfRally": true
+ },
+ "ge.338h.ae": {
+  "id": "ge.338h.ae",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 3,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.838.ae": {
+  "id": "ge.838.ae",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 8,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 5,
+  "elrExempt": true,
+  "reducesTo": "ge.338h.ae"
+ },
+ "ge.338h": {
+  "id": "ge.338h",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 3,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.838": {
+  "id": "ge.838",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 8,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 3,
+  "elrExempt": true,
+  "reducesTo": "ge.338h"
+ },
+ "ge.238h.ae": {
+  "id": "ge.238h.ae",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "ge.237h"
+ },
+ "ge.237h": {
+  "id": "ge.237h",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "2",
+  "fp": 2,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "ge.236h"
+ },
+ "ge.236h": {
+  "id": "ge.236h",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "C",
+  "fp": 2,
+  "range": 3,
+  "morale": 6,
+  "brokenMorale": 4,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "ge.548.ae": {
+  "id": "ge.548.ae",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 5,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 4,
+  "elrExempt": false,
+  "reducesTo": "ge.238h.ae",
+  "elrReplacement": "ge.447"
+ },
+ "ge.447": {
+  "id": "ge.447",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "2",
+  "fp": 4,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "ge.237h",
+  "elrReplacement": "ge.436"
+ },
+ "ge.436": {
+  "id": "ge.436",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "C",
+  "fp": 4,
+  "range": 3,
+  "morale": 6,
+  "brokenMorale": 5,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "ge.236h"
+ },
+ "ge.238h": {
+  "id": "ge.238h",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 2,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "ge.237h"
+ },
+ "ge.548": {
+  "id": "ge.548",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 5,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 2,
+  "elrExempt": false,
+  "reducesTo": "ge.238h",
+  "elrReplacement": "ge.447"
+ },
+ "ge.248h": {
+  "id": "ge.248h",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 2,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "ge.247h"
+ },
+ "ge.247h": {
+  "id": "ge.247h",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "ge.237h"
+ },
+ "ge.468": {
+  "id": "ge.468",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 4,
+  "range": 6,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 2,
+  "elrExempt": false,
+  "reducesTo": "ge.248h",
+  "elrReplacement": "ge.467"
+ },
+ "ge.467": {
+  "id": "ge.467",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 6,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 1,
+  "elrExempt": false,
+  "reducesTo": "ge.247h",
+  "elrReplacement": "ge.447"
+ },
+ "ge.238h.p": {
+  "id": "ge.238h.p",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "ge.548.p": {
+  "id": "ge.548.p",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 5,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 2,
+  "elrExempt": false,
+  "reducesTo": "ge.238h.p"
+ },
+ "ge.128h": {
+  "id": "ge.128h",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 1,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "ge.228": {
+  "id": "ge.228",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 2,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "ge.128h"
+ },
+ "ge.838.sae": {
+  "id": "ge.838.sae",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 8,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 9,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 5,
+  "elrExempt": true,
+  "reducesTo": "ge.338h.sae"
+ },
+ "ge.338h.sae": {
+  "id": "ge.338h.sae",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 3,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.338h.s": {
+  "id": "ge.338h.s",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 3,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.838.s": {
+  "id": "ge.838.s",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 8,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 9,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 3,
+  "elrExempt": true,
+  "reducesTo": "ge.338h.s"
+ },
+ "ge.348h.s": {
+  "id": "ge.348h.s",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 3,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.548.sae": {
+  "id": "ge.548.sae",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 5,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 9,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 4,
+  "elrExempt": true,
+  "reducesTo": "ge.238h.sae"
+ },
+ "ge.238h.sae": {
+  "id": "ge.238h.sae",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.238h.s": {
+  "id": "ge.238h.s",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.548.s": {
+  "id": "ge.548.s",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 5,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 9,
+  "selfRally": false,
+  "assaultFire": true,
+  "smoke": 2,
+  "elrExempt": true,
+  "reducesTo": "ge.238h.s"
+ },
+ "ge.248h.s": {
+  "id": "ge.248h.s",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.237h.s": {
+  "id": "ge.237h.s",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.236h.s": {
+  "id": "ge.236h.s",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 6,
+  "brokenMorale": 5,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.436.s": {
+  "id": "ge.436.s",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 3,
+  "morale": 6,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true,
+  "reducesTo": "ge.236h.s"
+ },
+ "ge.658.s": {
+  "id": "ge.658.s",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 6,
+  "range": 5,
+  "morale": 8,
+  "brokenMorale": 9,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 2,
+  "elrExempt": true,
+  "reducesTo": "ge.348h.s"
+ },
+ "ge.447.s": {
+  "id": "ge.447.s",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true,
+  "reducesTo": "ge.237h.s"
+ },
+ "ge.L103": {
+  "id": "ge.L103",
+  "nationality": "ge",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -3,
+  "selfRally": true,
+  "elrReplacement": "ge.L102"
+ },
+ "ge.L102": {
+  "id": "ge.L102",
+  "nationality": "ge",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "ge.L92"
+ },
+ "ge.L92": {
+  "id": "ge.L92",
+  "nationality": "ge",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "ge.L91"
+ },
+ "ge.L91": {
+  "id": "ge.L91",
+  "nationality": "ge",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "ge.L81"
+ },
+ "ge.L81": {
+  "id": "ge.L81",
+  "nationality": "ge",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "ge.L80"
+ },
+ "ge.L80": {
+  "id": "ge.L80",
+  "nationality": "ge",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "ge.L70"
+ },
+ "ge.L70": {
+  "id": "ge.L70",
+  "nationality": "ge",
+  "kind": "leader",
+  "morale": 7,
+  "brokenMorale": 7,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "ge.L61"
+ },
+ "ge.L61": {
+  "id": "ge.L61",
+  "nationality": "ge",
+  "kind": "leader",
+  "morale": 6,
+  "brokenMorale": 6,
+  "leadership": 1,
+  "selfRally": true
+ },
+ "ja.238h.ae": {
+  "id": "ja.238h.ae",
+  "nationality": "ja",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "ja.348r.ae": {
+  "id": "ja.348r.ae",
+  "nationality": "ja",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 3,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 4,
+  "elrExempt": false,
+  "reducesTo": "ja.238h.ae",
+  "noBrokenSide": true
+ },
+ "ja.448.ae": {
+  "id": "ja.448.ae",
+  "nationality": "ja",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 4,
+  "elrExempt": false,
+  "reducesTo": "ja.238h.ae",
+  "noBrokenSide": true
+ },
+ "ja.238h": {
+  "id": "ja.238h",
+  "nationality": "ja",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 2,
+  "range": 3,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "ja.237h"
+ },
+ "ja.237h": {
+  "id": "ja.237h",
+  "nationality": "ja",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "ja.137h"
+ },
+ "ja.137h": {
+  "id": "ja.137h",
+  "nationality": "ja",
+  "kind": "hs",
+  "quality": "2",
+  "fp": 1,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "ja.126h"
+ },
+ "ja.126h": {
+  "id": "ja.126h",
+  "nationality": "ja",
+  "kind": "hs",
+  "quality": "C",
+  "fp": 1,
+  "range": 2,
+  "morale": 6,
+  "brokenMorale": 5,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "ja.348r": {
+  "id": "ja.348r",
+  "nationality": "ja",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 3,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 2,
+  "elrExempt": false,
+  "reducesTo": "ja.238h",
+  "elrReplacement": "ja.347r",
+  "noBrokenSide": true
+ },
+ "ja.347r": {
+  "id": "ja.347r",
+  "nationality": "ja",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 3,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 1,
+  "elrExempt": false,
+  "reducesTo": "ja.237h",
+  "elrReplacement": "ja.237r",
+  "noBrokenSide": true
+ },
+ "ja.237r": {
+  "id": "ja.237r",
+  "nationality": "ja",
+  "kind": "squad",
+  "quality": "2",
+  "fp": 2,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "ja.137h",
+  "elrReplacement": "ja.226r",
+  "noBrokenSide": true
+ },
+ "ja.226r": {
+  "id": "ja.226r",
+  "nationality": "ja",
+  "kind": "squad",
+  "quality": "C",
+  "fp": 2,
+  "range": 2,
+  "morale": 6,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "ja.126h",
+  "noBrokenSide": true
+ },
+ "ja.448": {
+  "id": "ja.448",
+  "nationality": "ja",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 4,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 2,
+  "elrExempt": false,
+  "reducesTo": "ja.238h",
+  "elrReplacement": "ja.447",
+  "noBrokenSide": true
+ },
+ "ja.447": {
+  "id": "ja.447",
+  "nationality": "ja",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 1,
+  "elrExempt": false,
+  "reducesTo": "ja.237h",
+  "elrReplacement": "ja.347",
+  "noBrokenSide": true
+ },
+ "ja.347": {
+  "id": "ja.347",
+  "nationality": "ja",
+  "kind": "squad",
+  "quality": "2",
+  "fp": 3,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "ja.137h",
+  "elrReplacement": "ja.336",
+  "noBrokenSide": true
+ },
+ "ja.336": {
+  "id": "ja.336",
+  "nationality": "ja",
+  "kind": "squad",
+  "quality": "C",
+  "fp": 3,
+  "range": 3,
+  "morale": 6,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "ja.126h",
+  "noBrokenSide": true
+ },
+ "ja.126h.k": {
+  "id": "ja.126h.k",
+  "nationality": "ja",
+  "kind": "hs",
+  "quality": "C",
+  "fp": 1,
+  "range": 2,
+  "morale": 6,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "ja.336.k": {
+  "id": "ja.336.k",
+  "nationality": "ja",
+  "kind": "squad",
+  "quality": "C",
+  "fp": 3,
+  "range": 3,
+  "morale": 6,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "ja.126h.k",
+  "noBrokenSide": true
+ },
+ "ja.L102": {
+  "id": "ja.L102",
+  "nationality": "ja",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "ja.L101",
+  "noBrokenSide": true
+ },
+ "ja.L101": {
+  "id": "ja.L101",
+  "nationality": "ja",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "ja.L100",
+  "noBrokenSide": true
+ },
+ "ja.L100": {
+  "id": "ja.L100",
+  "nationality": "ja",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "ja.L91",
+  "noBrokenSide": true
+ },
+ "ja.L91": {
+  "id": "ja.L91",
+  "nationality": "ja",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "ja.L90",
+  "noBrokenSide": true
+ },
+ "ja.L90": {
+  "id": "ja.L90",
+  "nationality": "ja",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "ja.L80",
+  "noBrokenSide": true
+ },
+ "ja.L80": {
+  "id": "ja.L80",
+  "nationality": "ja",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "ja.L8p1",
+  "noBrokenSide": true
+ },
+ "ja.L8p1": {
+  "id": "ja.L8p1",
+  "nationality": "ja",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": 1,
+  "selfRally": true,
+  "noBrokenSide": true
+ },
+ "it.247h.ae": {
+  "id": "it.247h.ae",
+  "nationality": "it",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "it.447.ae": {
+  "id": "it.447.ae",
+  "nationality": "it",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 3,
+  "elrExempt": false,
+  "reducesTo": "it.247h.ae"
+ },
+ "it.247h": {
+  "id": "it.247h",
+  "nationality": "it",
+  "kind": "hs",
+  "quality": "E",
+  "fp": 2,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "it.136h"
+ },
+ "it.136h": {
+  "id": "it.136h",
+  "nationality": "it",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 1,
+  "range": 3,
+  "morale": 6,
+  "brokenMorale": 4,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "elrReplacement": "it.126h"
+ },
+ "it.126h": {
+  "id": "it.126h",
+  "nationality": "it",
+  "kind": "hs",
+  "quality": "C",
+  "fp": 1,
+  "range": 2,
+  "morale": 6,
+  "brokenMorale": 4,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "it.447": {
+  "id": "it.447",
+  "nationality": "it",
+  "kind": "squad",
+  "quality": "E",
+  "fp": 4,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 1,
+  "elrExempt": false,
+  "reducesTo": "it.247h",
+  "elrReplacement": "it.346"
+ },
+ "it.346": {
+  "id": "it.346",
+  "nationality": "it",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 3,
+  "range": 4,
+  "morale": 6,
+  "brokenMorale": 5,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "it.136h",
+  "elrReplacement": "it.336"
+ },
+ "it.336": {
+  "id": "it.336",
+  "nationality": "it",
+  "kind": "squad",
+  "quality": "C",
+  "fp": 3,
+  "range": 3,
+  "morale": 6,
+  "brokenMorale": 5,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "it.126h"
+ },
+ "it.137h": {
+  "id": "it.137h",
+  "nationality": "it",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 1,
+  "range": 3,
+  "morale": 7,
+  "brokenMorale": 5,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false
+ },
+ "it.347": {
+  "id": "it.347",
+  "nationality": "it",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 3,
+  "range": 4,
+  "morale": 7,
+  "brokenMorale": 6,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": false,
+  "reducesTo": "it.137h"
+ },
+ "it.L103": {
+  "id": "it.L103",
+  "nationality": "it",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -3,
+  "selfRally": true,
+  "elrReplacement": "it.L102"
+ },
+ "it.L102": {
+  "id": "it.L102",
+  "nationality": "it",
+  "kind": "leader",
+  "morale": 10,
+  "brokenMorale": 10,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "it.L92"
+ },
+ "it.L92": {
+  "id": "it.L92",
+  "nationality": "it",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -2,
+  "selfRally": true,
+  "elrReplacement": "it.L91"
+ },
+ "it.L91": {
+  "id": "it.L91",
+  "nationality": "it",
+  "kind": "leader",
+  "morale": 9,
+  "brokenMorale": 9,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "it.L81"
+ },
+ "it.L81": {
+  "id": "it.L81",
+  "nationality": "it",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": -1,
+  "selfRally": true,
+  "elrReplacement": "it.L80"
+ },
+ "it.L80": {
+  "id": "it.L80",
+  "nationality": "it",
+  "kind": "leader",
+  "morale": 8,
+  "brokenMorale": 8,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "it.L70"
+ },
+ "it.L70": {
+  "id": "it.L70",
+  "nationality": "it",
+  "kind": "leader",
+  "morale": 7,
+  "brokenMorale": 7,
+  "leadership": 0,
+  "selfRally": true,
+  "elrReplacement": "it.L61"
+ },
+ "it.L61": {
+  "id": "it.L61",
+  "nationality": "it",
+  "kind": "leader",
+  "morale": 6,
+  "brokenMorale": 6,
+  "leadership": 1,
+  "selfRally": true
+ },
+ "ge.248h.ae": {
+  "id": "ge.248h.ae",
+  "nationality": "ge",
+  "kind": "hs",
+  "quality": "1",
+  "fp": 2,
+  "range": 4,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.468.ae": {
+  "id": "ge.468.ae",
+  "nationality": "ge",
+  "kind": "squad",
+  "quality": "1",
+  "fp": 4,
+  "range": 6,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": false,
+  "assaultFire": false,
+  "smoke": 5,
+  "elrExempt": true,
+  "reducesTo": "ge.248h.ae"
+ },
+ "ru.228c": {
+  "id": "ru.228c",
+  "nationality": "ru",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 2,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ru.127c": {
+  "id": "ru.127c",
+  "nationality": "ru",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 1,
+  "range": 2,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "am.227c": {
+  "id": "am.227c",
+  "nationality": "am",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 2,
+  "range": 2,
+  "morale": 7,
+  "brokenMorale": 8,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "am.126c": {
+  "id": "am.126c",
+  "nationality": "am",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 1,
+  "range": 2,
+  "morale": 6,
+  "brokenMorale": 7,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "am.228c": {
+  "id": "am.228c",
+  "nationality": "am",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 2,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "br.228c": {
+  "id": "br.228c",
+  "nationality": "br",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 2,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "br.127c": {
+  "id": "br.127c",
+  "nationality": "br",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 1,
+  "range": 2,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "al.228c": {
+  "id": "al.228c",
+  "nationality": "al",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 2,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "al.127c": {
+  "id": "al.127c",
+  "nationality": "al",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 1,
+  "range": 2,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.228c": {
+  "id": "ge.228c",
+  "nationality": "ge",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 2,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.127c": {
+  "id": "ge.127c",
+  "nationality": "ge",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 1,
+  "range": 2,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ge.128c": {
+  "id": "ge.128c",
+  "nationality": "ge",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 1,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ja.228c": {
+  "id": "ja.228c",
+  "nationality": "ja",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 2,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ja.128cr": {
+  "id": "ja.128cr",
+  "nationality": "ja",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 1,
+  "range": 2,
+  "morale": 8,
+  "brokenMorale": 8,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ja.127c": {
+  "id": "ja.127c",
+  "nationality": "ja",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 1,
+  "range": 2,
+  "morale": 7,
+  "brokenMorale": 8,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "it.227c": {
+  "id": "it.227c",
+  "nationality": "it",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 2,
+  "range": 2,
+  "morale": 7,
+  "brokenMorale": 7,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "it.126c": {
+  "id": "it.126c",
+  "nationality": "it",
+  "kind": "crew",
+  "quality": "E",
+  "fp": 1,
+  "range": 2,
+  "morale": 6,
+  "brokenMorale": 5,
+  "selfRally": true,
+  "assaultFire": false,
+  "elrExempt": true
+ },
+ "ru.MTR82s": {
+  "id": "ru.MTR82s",
+  "nationality": "ru",
+  "kind": "gun",
+  "type": "MTR",
+  "caliber": 82,
+  "barrel": "*",
+  "rof": 3,
+  "m": 11,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": false
+  },
+  "minRange": 3,
+  "maxRange": 78,
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   }
+  ]
+ },
+ "ru.AT45L": {
+  "id": "ru.AT45L",
+  "nationality": "ru",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 45,
+  "barrel": "L",
+  "rof": 3,
+  "m": 11,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "APCR",
+    "steps": [
+     {
+      "n": 4,
+      "from": {
+       "year": 1942
+      }
+     },
+     {
+      "n": 5,
+      "from": {
+       "year": 1943
+      }
+     },
+     {
+      "n": 6,
+      "from": {
+       "year": 1944
+      }
+     },
+     {
+      "n": 7,
+      "from": {
+       "year": 1945
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "ru.AT57LL": {
+  "id": "ru.AT57LL",
+  "nationality": "ru",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 57,
+  "barrel": "LL",
+  "rof": 3,
+  "m": 10,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "APCR",
+    "steps": [
+     {
+      "n": 4,
+      "from": {
+       "year": 1943
+      }
+     },
+     {
+      "n": 5,
+      "from": {
+       "year": 1944
+      }
+     },
+     {
+      "n": 6,
+      "from": {
+       "year": 1945
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "ru.INF76s": {
+  "id": "ru.INF76s",
+  "nationality": "ru",
+  "kind": "gun",
+  "type": "INF",
+  "caliber": 76,
+  "barrel": "*",
+  "rof": 2,
+  "m": 8,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   },
+   {
+    "kind": "HEAT",
+    "steps": [
+     {
+      "n": 6
+     }
+    ]
+   }
+  ]
+ },
+ "ru.AR76s": {
+  "id": "ru.AR76s",
+  "nationality": "ru",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 76,
+  "barrel": "*",
+  "rof": 1,
+  "m": 8,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": false
+  },
+  "b": 11,
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   }
+  ]
+ },
+ "ru.AR76L": {
+  "id": "ru.AR76L",
+  "nationality": "ru",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 76,
+  "barrel": "L",
+  "rof": 2,
+  "m": 9,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   },
+   {
+    "kind": "APCR",
+    "steps": [
+     {
+      "n": 4,
+      "from": {
+       "year": 1942
+      }
+     },
+     {
+      "n": 5,
+      "from": {
+       "year": 1943
+      }
+     },
+     {
+      "n": 6,
+      "from": {
+       "year": 1944
+      }
+     },
+     {
+      "n": 7,
+      "from": {
+       "year": 1945
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "ru.AR85L": {
+  "id": "ru.AR85L",
+  "nationality": "ru",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 85,
+  "barrel": "L",
+  "rof": 2,
+  "m": 7,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   },
+   {
+    "kind": "APCR",
+    "steps": [
+     {
+      "n": 5,
+      "from": {
+       "year": 1944
+      }
+     },
+     {
+      "n": 6,
+      "from": {
+       "year": 1945
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "ru.AR122L": {
+  "id": "ru.AR122L",
+  "nationality": "ru",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 122,
+  "barrel": "L",
+  "rof": 1,
+  "m": 2,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   }
+  ]
+ },
+ "ru.AR152s": {
+  "id": "ru.AR152s",
+  "nationality": "ru",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 152,
+  "barrel": "*",
+  "m": 4,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ru.AA85L": {
+  "id": "ru.AA85L",
+  "nationality": "ru",
+  "kind": "gun",
+  "type": "AA",
+  "caliber": 85,
+  "barrel": "L",
+  "rof": 2,
+  "m": 5,
+  "targetSize": "normal",
+  "mount": "360",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "am.MTR81s": {
+  "id": "am.MTR81s",
+  "nationality": "am",
+  "kind": "gun",
+  "type": "MTR",
+  "caliber": 81,
+  "barrel": "*",
+  "rof": 3,
+  "m": 11,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": false
+  },
+  "minRange": 3,
+  "maxRange": 75,
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "WP",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   }
+  ]
+ },
+ "am.AT37LL": {
+  "id": "am.AT37LL",
+  "nationality": "am",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 37,
+  "barrel": "LL",
+  "rof": 2,
+  "m": 12,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "am.AT57L": {
+  "id": "am.AT57L",
+  "nationality": "am",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 57,
+  "barrel": "L",
+  "rof": 3,
+  "m": 10,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": false,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "HE",
+    "steps": [
+     {
+      "n": 7,
+      "from": {
+       "year": 1944,
+       "month": 6
+      }
+     },
+     {
+      "n": 7,
+      "from": {
+       "year": 1945
+      }
+     }
+    ],
+    "theater": "ETO"
+   },
+   {
+    "kind": "APDS",
+    "steps": [
+     {
+      "n": 4,
+      "from": {
+       "year": 1944,
+       "month": 6
+      }
+     }
+    ],
+    "theater": "ETO"
+   }
+  ]
+ },
+ "am.AT76L": {
+  "id": "am.AT76L",
+  "nationality": "am",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 76,
+  "barrel": "L",
+  "rof": 1,
+  "m": 7,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 6,
+      "from": {
+       "year": 1945
+      }
+     }
+    ]
+   },
+   {
+    "kind": "APCR",
+    "steps": [
+     {
+      "n": 4,
+      "from": {
+       "year": 1944
+      }
+     },
+     {
+      "n": 5,
+      "from": {
+       "year": 1945
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "am.AR75": {
+  "id": "am.AR75",
+  "nationality": "am",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 75,
+  "rof": 1,
+  "m": 8,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "WP",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   }
+  ]
+ },
+ "am.AR105": {
+  "id": "am.AR105",
+  "nationality": "am",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 105,
+  "rof": 1,
+  "m": 7,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": false
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 7
+     }
+    ]
+   },
+   {
+    "kind": "WP",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   },
+   {
+    "kind": "HEAT",
+    "steps": [
+     {
+      "n": 6
+     }
+    ]
+   }
+  ]
+ },
+ "am.AR155_": {
+  "id": "am.AR155_",
+  "nationality": "am",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 155,
+  "m": 3,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": false
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 7
+     }
+    ]
+   },
+   {
+    "kind": "WP",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   }
+  ]
+ },
+ "am.AA37L": {
+  "id": "am.AA37L",
+  "nationality": "am",
+  "kind": "gun",
+  "type": "AA",
+  "caliber": 37,
+  "barrel": "L",
+  "rof": 3,
+  "ife": 8,
+  "m": 7,
+  "targetSize": "normal",
+  "mount": "360",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "am.AA76L": {
+  "id": "am.AA76L",
+  "nationality": "am",
+  "kind": "gun",
+  "type": "AA",
+  "caliber": 76,
+  "barrel": "L",
+  "rof": 2,
+  "m": 3,
+  "targetSize": "normal",
+  "mount": "360",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "br.MTR76s": {
+  "id": "br.MTR76s",
+  "nationality": "br",
+  "kind": "gun",
+  "type": "MTR",
+  "caliber": 76,
+  "barrel": "*",
+  "rof": 2,
+  "m": 11,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": false
+  },
+  "minRange": 6,
+  "maxRange": 36,
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8,
+      "from": {
+       "year": 1941
+      }
+     }
+    ]
+   },
+   {
+    "kind": "WP",
+    "steps": [
+     {
+      "n": 7
+     }
+    ]
+   }
+  ]
+ },
+ "br.MTR76": {
+  "id": "br.MTR76",
+  "nationality": "br",
+  "kind": "gun",
+  "type": "MTR",
+  "caliber": 76,
+  "barrel": "*",
+  "rof": 2,
+  "m": 11,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": false
+  },
+  "minRange": 3,
+  "maxRange": 63,
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   },
+   {
+    "kind": "WP",
+    "steps": [
+     {
+      "n": 7
+     }
+    ]
+   }
+  ]
+ },
+ "br.AT40L": {
+  "id": "br.AT40L",
+  "nationality": "br",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 40,
+  "barrel": "L",
+  "rof": 3,
+  "m": 10,
+  "targetSize": "small",
+  "mount": "360",
+  "qsu": false,
+  "gunshield": true,
+  "ammo": {
+   "he": false,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "br.AT57L": {
+  "id": "br.AT57L",
+  "nationality": "br",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 57,
+  "barrel": "L",
+  "rof": 3,
+  "m": 10,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": false,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "HE",
+    "steps": [
+     {
+      "n": 7,
+      "from": {
+       "year": 1943,
+       "month": 2
+      }
+     },
+     {
+      "n": 8,
+      "from": {
+       "year": 1944
+      }
+     }
+    ]
+   },
+   {
+    "kind": "APDS",
+    "steps": [
+     {
+      "n": 6,
+      "from": {
+       "year": 1944,
+       "month": 6
+      }
+     },
+     {
+      "n": 7,
+      "from": {
+       "year": 1945
+      }
+     }
+    ],
+    "theater": "ETO"
+   }
+  ]
+ },
+ "br.AT7625": {
+  "id": "br.AT7625",
+  "nationality": "br",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 76,
+  "barrel": "LL",
+  "rof": 1,
+  "m": 6,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": false,
+  "gunshield": true,
+  "ammo": {
+   "he": false,
+   "ap": true
+  },
+  "b": 11,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "br.AT76LL": {
+  "id": "br.AT76LL",
+  "nationality": "br",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 76,
+  "barrel": "LL",
+  "rof": 2,
+  "m": 6,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": false,
+  "gunshield": true,
+  "ammo": {
+   "he": false,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "HE",
+    "steps": [
+     {
+      "n": 8,
+      "from": {
+       "year": 1944,
+       "month": 6
+      }
+     }
+    ]
+   },
+   {
+    "kind": "APDS",
+    "steps": [
+     {
+      "n": 5,
+      "from": {
+       "year": 1944,
+       "month": 9
+      }
+     },
+     {
+      "n": 6,
+      "from": {
+       "year": 1945
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "br.AR75": {
+  "id": "br.AR75",
+  "nationality": "br",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 75,
+  "rof": 1,
+  "m": 8,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   }
+  ]
+ },
+ "br.AR88": {
+  "id": "br.AR88",
+  "nationality": "br",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 88,
+  "rof": 1,
+  "m": 8,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   }
+  ]
+ },
+ "br.AA40L": {
+  "id": "br.AA40L",
+  "nationality": "br",
+  "kind": "gun",
+  "type": "AA",
+  "caliber": 40,
+  "barrel": "L",
+  "rof": 3,
+  "ife": 8,
+  "m": 8,
+  "targetSize": "normal",
+  "mount": "360",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ge.MTR81s": {
+  "id": "ge.MTR81s",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "MTR",
+  "caliber": 81,
+  "barrel": "*",
+  "rof": 3,
+  "m": 11,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": false
+  },
+  "minRange": 2,
+  "maxRange": 60,
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   }
+  ]
+ },
+ "ge.AT37L": {
+  "id": "ge.AT37L",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 37,
+  "barrel": "L",
+  "rof": 3,
+  "m": 12,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "HEAT",
+    "steps": [
+     {
+      "n": 6
+     }
+    ]
+   },
+   {
+    "kind": "APCR",
+    "steps": [
+     {
+      "n": 4,
+      "from": {
+       "year": 1941
+      }
+     },
+     {
+      "n": 5,
+      "from": {
+       "year": 1942
+      }
+     },
+     {
+      "n": 4,
+      "from": {
+       "year": 1943
+      }
+     },
+     {
+      "n": 3,
+      "from": {
+       "year": 1944
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "ge.AT50L": {
+  "id": "ge.AT50L",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 50,
+  "barrel": "L",
+  "rof": 3,
+  "m": 10,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "APCR",
+    "steps": [
+     {
+      "n": 5,
+      "from": {
+       "year": 1941
+      }
+     },
+     {
+      "n": 6,
+      "from": {
+       "year": 1942
+      }
+     },
+     {
+      "n": 5,
+      "from": {
+       "year": 1943
+      }
+     },
+     {
+      "n": 4,
+      "from": {
+       "year": 1944
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "ge.AT75L": {
+  "id": "ge.AT75L",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 75,
+  "barrel": "L",
+  "rof": 2,
+  "m": 8,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 7
+     }
+    ]
+   },
+   {
+    "kind": "APCR",
+    "steps": [
+     {
+      "n": 5,
+      "from": {
+       "year": 1942
+      }
+     },
+     {
+      "n": 4,
+      "from": {
+       "year": 1943
+      }
+     },
+     {
+      "n": 3,
+      "from": {
+       "year": 1944
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "ge.AT88LL": {
+  "id": "ge.AT88LL",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 88,
+  "barrel": "LL",
+  "rof": 2,
+  "m": 4,
+  "targetSize": "normal",
+  "mount": "360",
+  "qsu": false,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ge.AT88NT": {
+  "id": "ge.AT88NT",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 88,
+  "barrel": "LL",
+  "rof": 2,
+  "m": 5,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": false,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ge.INF75": {
+  "id": "ge.INF75",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "INF",
+  "caliber": 75,
+  "barrel": "*",
+  "rof": 2,
+  "m": 10,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": false,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": false
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "HEAT",
+    "steps": [
+     {
+      "n": 7
+     }
+    ]
+   }
+  ]
+ },
+ "ge.AR105": {
+  "id": "ge.AR105",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 105,
+  "rof": 1,
+  "m": 6,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   },
+   {
+    "kind": "HEAT",
+    "steps": [
+     {
+      "n": 6
+     }
+    ]
+   }
+  ]
+ },
+ "ge.AA20L4": {
+  "id": "ge.AA20L4",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "AA",
+  "caliber": 20,
+  "barrel": "L",
+  "rof": 3,
+  "ife": 4,
+  "m": 10,
+  "targetSize": "small",
+  "mount": "360",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "b": 11,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ge.AA20L6": {
+  "id": "ge.AA20L6",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "AA",
+  "caliber": 20,
+  "barrel": "L",
+  "rof": 3,
+  "ife": 6,
+  "m": 10,
+  "targetSize": "small",
+  "mount": "360",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ge.AA2020": {
+  "id": "ge.AA2020",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "AA",
+  "caliber": 20,
+  "barrel": "L",
+  "rof": 3,
+  "ife": 20,
+  "m": 8,
+  "targetSize": "normal",
+  "mount": "360",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ge.AA37L8": {
+  "id": "ge.AA37L8",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "AA",
+  "caliber": 37,
+  "barrel": "L",
+  "rof": 3,
+  "ife": 8,
+  "m": 8,
+  "targetSize": "normal",
+  "mount": "360",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "HEAT",
+    "steps": [
+     {
+      "n": 5
+     }
+    ]
+   }
+  ]
+ },
+ "ge.AA3712": {
+  "id": "ge.AA3712",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "AA",
+  "caliber": 37,
+  "barrel": "L",
+  "rof": 3,
+  "ife": 12,
+  "m": 8,
+  "targetSize": "normal",
+  "mount": "360",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ge.AA88L": {
+  "id": "ge.AA88L",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "AA",
+  "caliber": 88,
+  "barrel": "L",
+  "rof": 2,
+  "m": 4,
+  "targetSize": "normal",
+  "mount": "360",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "APCR",
+    "steps": [
+     {
+      "n": 5,
+      "from": {
+       "year": 1942
+      }
+     },
+     {
+      "n": 4,
+      "from": {
+       "year": 1943
+      }
+     },
+     {
+      "n": 3,
+      "from": {
+       "year": 1944
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "ge.AA88LL41": {
+  "id": "ge.AA88LL41",
+  "nationality": "ge",
+  "kind": "gun",
+  "type": "AA",
+  "caliber": 88,
+  "barrel": "LL",
+  "rof": 2,
+  "m": 4,
+  "targetSize": "normal",
+  "mount": "360",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "b": 10,
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "APCR",
+    "steps": [
+     {
+      "n": 5,
+      "from": {
+       "year": 1942
+      }
+     },
+     {
+      "n": 4,
+      "from": {
+       "year": 1943
+      }
+     },
+     {
+      "n": 3,
+      "from": {
+       "year": 1944
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "ja.AT47L": {
+  "id": "ja.AT47L",
+  "nationality": "ja",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 47,
+  "barrel": "L",
+  "rof": 3,
+  "m": 11,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ja.INF70s": {
+  "id": "ja.INF70s",
+  "nationality": "ja",
+  "kind": "gun",
+  "type": "INF",
+  "caliber": 70,
+  "barrel": "*",
+  "rof": 1,
+  "m": 12,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "WP",
+    "steps": [
+     {
+      "n": 5
+     }
+    ]
+   },
+   {
+    "kind": "HEAT",
+    "steps": [
+     {
+      "n": 6,
+      "from": {
+       "year": 1945
+      }
+     }
+    ]
+   },
+   {
+    "kind": "AP",
+    "steps": [
+     {
+      "n": 5
+     }
+    ]
+   }
+  ]
+ },
+ "it.AT47": {
+  "id": "it.AT47",
+  "nationality": "it",
+  "kind": "gun",
+  "type": "AT",
+  "caliber": 47,
+  "rof": 3,
+  "m": 12,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": true,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "it.AR75s_n8": {
+  "id": "it.AR75s_n8",
+  "nationality": "it",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 75,
+  "barrel": "*",
+  "rof": 1,
+  "m": 10,
+  "targetSize": "small",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": false
+  },
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "it.AR75s_n9": {
+  "id": "it.AR75s_n9",
+  "nationality": "it",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 75,
+  "barrel": "*",
+  "rof": 1,
+  "m": 8,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "b": 11,
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "HEAT",
+    "steps": [
+     {
+      "n": 6,
+      "from": {
+       "year": 1942,
+       "month": 9
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "it.AR75s_n10": {
+  "id": "it.AR75s_n10",
+  "nationality": "it",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 75,
+  "barrel": "*",
+  "rof": 1,
+  "m": 9,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": true,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": true
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   },
+   {
+    "kind": "HEAT",
+    "steps": [
+     {
+      "n": 6,
+      "from": {
+       "year": 1942,
+       "month": 9
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "it.AR105": {
+  "id": "it.AR105",
+  "nationality": "it",
+  "kind": "gun",
+  "type": "ART",
+  "caliber": 105,
+  "m": 6,
+  "targetSize": "normal",
+  "mount": "NT",
+  "qsu": false,
+  "gunshield": false,
+  "ammo": {
+   "he": true,
+   "ap": false
+  },
+  "repair": 1,
+  "removeOnRepair6": true,
+  "specialAmmo": [
+   {
+    "kind": "SMOKE",
+    "steps": [
+     {
+      "n": 8
+     }
+    ]
+   }
+  ]
+ },
+ "ge.LMG": {
+  "id": "ge.LMG",
+  "nationality": "ge",
+  "kind": "sw",
+  "type": "LMG",
+  "fp": 3,
+  "range": 8,
+  "pp": 1,
+  "rof": 1,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ge.MMG": {
+  "id": "ge.MMG",
+  "nationality": "ge",
+  "kind": "sw",
+  "type": "MMG",
+  "fp": 5,
+  "range": 12,
+  "pp": 3,
+  "rof": 2,
+  "repair": 2,
+  "removeOnRepair6": true
+ },
+ "ge.HMG": {
+  "id": "ge.HMG",
+  "nationality": "ge",
+  "kind": "sw",
+  "type": "HMG",
+  "fp": 7,
+  "range": 16,
+  "pp": 4,
+  "rof": 3,
+  "repair": 3,
+  "removeOnRepair6": true
+ },
+ "ge.FT": {
+  "id": "ge.FT",
+  "nationality": "ge",
+  "kind": "sw",
+  "type": "FT",
+  "fp": 24,
+  "range": 1,
+  "pp": 1,
+  "x": 10
+ },
+ "ge.DC": {
+  "id": "ge.DC",
+  "nationality": "ge",
+  "kind": "sw",
+  "type": "DC",
+  "fp": 30,
+  "range": 1,
+  "pp": 1,
+  "x": 12
+ },
+ "ge.ATR": {
+  "id": "ge.ATR",
+  "nationality": "ge",
+  "kind": "sw",
+  "type": "ATR",
+  "fp": 1,
+  "range": 12,
+  "pp": 1,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ru.LMG": {
+  "id": "ru.LMG",
+  "nationality": "ru",
+  "kind": "sw",
+  "type": "LMG",
+  "fp": 2,
+  "range": 6,
+  "pp": 1,
+  "rof": 1,
+  "b": 11,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ru.MMG": {
+  "id": "ru.MMG",
+  "nationality": "ru",
+  "kind": "sw",
+  "type": "MMG",
+  "fp": 4,
+  "range": 10,
+  "pp": 5,
+  "rof": 2,
+  "b": 11,
+  "repair": 2,
+  "removeOnRepair6": true
+ },
+ "ru.HMG": {
+  "id": "ru.HMG",
+  "nationality": "ru",
+  "kind": "sw",
+  "type": "HMG",
+  "fp": 6,
+  "range": 12,
+  "pp": 5,
+  "rof": 3,
+  "repair": 3,
+  "removeOnRepair6": true
+ },
+ "ru.HMG50": {
+  "id": "ru.HMG50",
+  "nationality": "ru",
+  "kind": "sw",
+  "type": "HMG",
+  "fp": 8,
+  "range": 16,
+  "pp": 5,
+  "rof": 3,
+  "repair": 2,
+  "removeOnRepair6": true
+ },
+ "ru.FT": {
+  "id": "ru.FT",
+  "nationality": "ru",
+  "kind": "sw",
+  "type": "FT",
+  "fp": 24,
+  "range": 1,
+  "pp": 1,
+  "x": 10
+ },
+ "ru.DC": {
+  "id": "ru.DC",
+  "nationality": "ru",
+  "kind": "sw",
+  "type": "DC",
+  "fp": 30,
+  "range": 1,
+  "pp": 1,
+  "x": 12
+ },
+ "ru.ATR": {
+  "id": "ru.ATR",
+  "nationality": "ru",
+  "kind": "sw",
+  "type": "ATR",
+  "fp": 1,
+  "range": 12,
+  "pp": 1,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "am.LMG": {
+  "id": "am.LMG",
+  "nationality": "am",
+  "kind": "sw",
+  "type": "LMG",
+  "fp": 2,
+  "range": 6,
+  "pp": 1,
+  "rof": 1,
+  "b": 11,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "am.MMG": {
+  "id": "am.MMG",
+  "nationality": "am",
+  "kind": "sw",
+  "type": "MMG",
+  "fp": 4,
+  "range": 10,
+  "pp": 3,
+  "rof": 2,
+  "repair": 2,
+  "removeOnRepair6": true
+ },
+ "am.HMG": {
+  "id": "am.HMG",
+  "nationality": "am",
+  "kind": "sw",
+  "type": "HMG",
+  "fp": 6,
+  "range": 12,
+  "pp": 5,
+  "rof": 3,
+  "repair": 3,
+  "removeOnRepair6": true
+ },
+ "am.HMG50": {
+  "id": "am.HMG50",
+  "nationality": "am",
+  "kind": "sw",
+  "type": "HMG",
+  "fp": 8,
+  "range": 16,
+  "pp": 5,
+  "rof": 3,
+  "repair": 2,
+  "removeOnRepair6": true
+ },
+ "am.FT": {
+  "id": "am.FT",
+  "nationality": "am",
+  "kind": "sw",
+  "type": "FT",
+  "fp": 24,
+  "range": 1,
+  "pp": 1,
+  "x": 10
+ },
+ "am.DC": {
+  "id": "am.DC",
+  "nationality": "am",
+  "kind": "sw",
+  "type": "DC",
+  "fp": 30,
+  "range": 1,
+  "pp": 1,
+  "x": 12
+ },
+ "am.ATR": {
+  "id": "am.ATR",
+  "nationality": "am",
+  "kind": "sw",
+  "type": "ATR",
+  "fp": 1,
+  "range": 12,
+  "pp": 1,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "br.LMG": {
+  "id": "br.LMG",
+  "nationality": "br",
+  "kind": "sw",
+  "type": "LMG",
+  "fp": 2,
+  "range": 7,
+  "pp": 1,
+  "rof": 1,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "br.MMG": {
+  "id": "br.MMG",
+  "nationality": "br",
+  "kind": "sw",
+  "type": "MMG",
+  "fp": 4,
+  "range": 12,
+  "pp": 4,
+  "rof": 2,
+  "repair": 2,
+  "removeOnRepair6": true
+ },
+ "br.HMG": {
+  "id": "br.HMG",
+  "nationality": "br",
+  "kind": "sw",
+  "type": "HMG",
+  "fp": 6,
+  "range": 14,
+  "pp": 5,
+  "rof": 3,
+  "repair": 3,
+  "removeOnRepair6": true
+ },
+ "br.FT": {
+  "id": "br.FT",
+  "nationality": "br",
+  "kind": "sw",
+  "type": "FT",
+  "fp": 24,
+  "range": 1,
+  "pp": 1,
+  "x": 10
+ },
+ "br.DC": {
+  "id": "br.DC",
+  "nationality": "br",
+  "kind": "sw",
+  "type": "DC",
+  "fp": 30,
+  "range": 1,
+  "pp": 1,
+  "x": 12
+ },
+ "br.ATR": {
+  "id": "br.ATR",
+  "nationality": "br",
+  "kind": "sw",
+  "type": "ATR",
+  "fp": 1,
+  "range": 12,
+  "pp": 1,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "al.LMG": {
+  "id": "al.LMG",
+  "nationality": "al",
+  "kind": "sw",
+  "type": "LMG",
+  "fp": 2,
+  "range": 6,
+  "pp": 1,
+  "rof": 1,
+  "b": 11,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "al.MMG": {
+  "id": "al.MMG",
+  "nationality": "al",
+  "kind": "sw",
+  "type": "MMG",
+  "fp": 4,
+  "range": 11,
+  "pp": 4,
+  "rof": 2,
+  "repair": 2,
+  "removeOnRepair6": true
+ },
+ "al.HMG": {
+  "id": "al.HMG",
+  "nationality": "al",
+  "kind": "sw",
+  "type": "HMG",
+  "fp": 6,
+  "range": 12,
+  "pp": 5,
+  "rof": 3,
+  "repair": 3,
+  "removeOnRepair6": true
+ },
+ "al.HMG50": {
+  "id": "al.HMG50",
+  "nationality": "al",
+  "kind": "sw",
+  "type": "HMG",
+  "fp": 8,
+  "range": 14,
+  "pp": 5,
+  "rof": 2,
+  "repair": 2,
+  "removeOnRepair6": true
+ },
+ "al.FT": {
+  "id": "al.FT",
+  "nationality": "al",
+  "kind": "sw",
+  "type": "FT",
+  "fp": 24,
+  "range": 1,
+  "pp": 1,
+  "x": 10
+ },
+ "al.DC": {
+  "id": "al.DC",
+  "nationality": "al",
+  "kind": "sw",
+  "type": "DC",
+  "fp": 30,
+  "range": 1,
+  "pp": 1,
+  "x": 12
+ },
+ "al.ATR": {
+  "id": "al.ATR",
+  "nationality": "al",
+  "kind": "sw",
+  "type": "ATR",
+  "fp": 1,
+  "range": 12,
+  "pp": 1,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "it.LMG": {
+  "id": "it.LMG",
+  "nationality": "it",
+  "kind": "sw",
+  "type": "LMG",
+  "fp": 2,
+  "range": 5,
+  "pp": 1,
+  "rof": 1,
+  "b": 11,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "it.MMG": {
+  "id": "it.MMG",
+  "nationality": "it",
+  "kind": "sw",
+  "type": "MMG",
+  "fp": 4,
+  "range": 10,
+  "pp": 4,
+  "rof": 2,
+  "b": 11,
+  "repair": 2,
+  "removeOnRepair6": true
+ },
+ "it.HMG": {
+  "id": "it.HMG",
+  "nationality": "it",
+  "kind": "sw",
+  "type": "HMG",
+  "fp": 6,
+  "range": 12,
+  "pp": 5,
+  "rof": 3,
+  "b": 11,
+  "repair": 3,
+  "removeOnRepair6": true
+ },
+ "it.FT": {
+  "id": "it.FT",
+  "nationality": "it",
+  "kind": "sw",
+  "type": "FT",
+  "fp": 24,
+  "range": 1,
+  "pp": 1,
+  "x": 10
+ },
+ "it.DC": {
+  "id": "it.DC",
+  "nationality": "it",
+  "kind": "sw",
+  "type": "DC",
+  "fp": 30,
+  "range": 1,
+  "pp": 1,
+  "x": 12
+ },
+ "it.ATR": {
+  "id": "it.ATR",
+  "nationality": "it",
+  "kind": "sw",
+  "type": "ATR",
+  "fp": 1,
+  "range": 12,
+  "pp": 1,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ja.LMG": {
+  "id": "ja.LMG",
+  "nationality": "ja",
+  "kind": "sw",
+  "type": "LMG",
+  "fp": 2,
+  "range": 6,
+  "pp": 1,
+  "rof": 1,
+  "b": 11,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ja.MMG": {
+  "id": "ja.MMG",
+  "nationality": "ja",
+  "kind": "sw",
+  "type": "MMG",
+  "fp": 4,
+  "range": 11,
+  "pp": 3,
+  "rof": 2,
+  "b": 11,
+  "repair": 2,
+  "removeOnRepair6": true
+ },
+ "ja.HMG": {
+  "id": "ja.HMG",
+  "nationality": "ja",
+  "kind": "sw",
+  "type": "HMG",
+  "fp": 6,
+  "range": 14,
+  "pp": 4,
+  "rof": 3,
+  "b": 11,
+  "repair": 3,
+  "removeOnRepair6": true
+ },
+ "ja.HMG50": {
+  "id": "ja.HMG50",
+  "nationality": "ja",
+  "kind": "sw",
+  "type": "HMG",
+  "fp": 8,
+  "range": 14,
+  "pp": 5,
+  "rof": 2,
+  "repair": 2,
+  "removeOnRepair6": true
+ },
+ "ja.FT": {
+  "id": "ja.FT",
+  "nationality": "ja",
+  "kind": "sw",
+  "type": "FT",
+  "fp": 24,
+  "range": 1,
+  "pp": 1,
+  "x": 10
+ },
+ "ja.DC": {
+  "id": "ja.DC",
+  "nationality": "ja",
+  "kind": "sw",
+  "type": "DC",
+  "fp": 30,
+  "range": 1,
+  "pp": 1,
+  "x": 12
+ },
+ "ja.ATR": {
+  "id": "ja.ATR",
+  "nationality": "ja",
+  "kind": "sw",
+  "type": "ATR",
+  "fp": 1,
+  "range": 12,
+  "pp": 5,
+  "rof": 2,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ge.MTR": {
+  "id": "ge.MTR",
+  "nationality": "ge",
+  "kind": "sw",
+  "type": "MTR",
+  "ordnance": {
+   "caliber": 50,
+   "barrel": "*",
+   "minRange": 2,
+   "maxRange": 13
+  },
+  "fp": 0,
+  "range": 13,
+  "pp": 5,
+  "rof": 3,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "ru.MTR": {
+  "id": "ru.MTR",
+  "nationality": "ru",
+  "kind": "sw",
+  "type": "MTR",
+  "ordnance": {
+   "caliber": 50,
+   "barrel": "*",
+   "minRange": 3,
+   "maxRange": 20
+  },
+  "fp": 0,
+  "range": 20,
+  "pp": 4,
+  "rof": 3,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "am.MTR": {
+  "id": "am.MTR",
+  "nationality": "am",
+  "kind": "sw",
+  "type": "MTR",
+  "ordnance": {
+   "caliber": 60,
+   "barrel": "*",
+   "minRange": 3,
+   "maxRange": 45,
+   "specialAmmo": [
+    {
+     "kind": "WP",
+     "steps": [
+      {
+       "n": 7,
+       "from": {
+        "year": 1945
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "fp": 0,
+  "range": 45,
+  "pp": 5,
+  "rof": 3,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "br.MTR": {
+  "id": "br.MTR",
+  "nationality": "br",
+  "kind": "sw",
+  "type": "MTR",
+  "ordnance": {
+   "caliber": 51,
+   "minRange": 2,
+   "maxRange": 11,
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 7
+      }
+     ]
+    }
+   ]
+  },
+  "fp": 0,
+  "range": 11,
+  "pp": 4,
+  "rof": 2,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "it.MTR": {
+  "id": "it.MTR",
+  "nationality": "it",
+  "kind": "sw",
+  "type": "MTR",
+  "ordnance": {
+   "caliber": 45,
+   "barrel": "*",
+   "minRange": 2,
+   "maxRange": 13
+  },
+  "fp": 0,
+  "range": 13,
+  "pp": 4,
+  "rof": 2,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "al.MTR46": {
+  "id": "al.MTR46",
+  "nationality": "al",
+  "kind": "sw",
+  "type": "MTR",
+  "ordnance": {
+   "caliber": 46,
+   "barrel": "*",
+   "minRange": 3,
+   "maxRange": 20
+  },
+  "fp": 0,
+  "range": 20,
+  "pp": 4,
+  "rof": 2
+ },
+ "ja.MTR": {
+  "id": "ja.MTR",
+  "nationality": "ja",
+  "kind": "sw",
+  "type": "MTR",
+  "ordnance": {
+   "caliber": 50,
+   "barrel": "*",
+   "minRange": 1,
+   "maxRange": 16,
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 7
+      }
+     ]
+    },
+    {
+     "kind": "WP",
+     "steps": [
+      {
+       "n": 6
+      }
+     ]
+    }
+   ]
+  },
+  "fp": 0,
+  "range": 16,
+  "pp": 4,
+  "rof": 2,
+  "repair": 1,
+  "removeOnRepair6": true
+ },
+ "am.BAZ43": {
+  "id": "am.BAZ43",
+  "nationality": "am",
+  "kind": "sw",
+  "type": "BAZ",
+  "fp": 8,
+  "range": 4,
+  "pp": 1,
+  "x": 10,
+  "latw": {
+   "th": [
+    11,
+    9,
+    8,
+    7,
+    4
+   ],
+   "tk": 13
+  }
+ },
+ "am.BAZ44": {
+  "id": "am.BAZ44",
+  "nationality": "am",
+  "kind": "sw",
+  "type": "BAZ",
+  "fp": 8,
+  "range": 4,
+  "pp": 1,
+  "x": 11,
+  "latw": {
+   "th": [
+    11,
+    9,
+    8,
+    7,
+    4
+   ],
+   "tk": 16
+  }
+ },
+ "am.BAZ45": {
+  "id": "am.BAZ45",
+  "nationality": "am",
+  "kind": "sw",
+  "type": "BAZ",
+  "fp": 8,
+  "range": 5,
+  "pp": 1,
+  "x": 11,
+  "latw": {
+   "th": [
+    11,
+    10,
+    9,
+    8,
+    6,
+    4
+   ],
+   "tk": 16
+  }
+ },
+ "ge.PSK": {
+  "id": "ge.PSK",
+  "nationality": "ge",
+  "kind": "sw",
+  "type": "PSK",
+  "fp": 12,
+  "range": 4,
+  "pp": 1,
+  "x": 10,
+  "latw": {
+   "th": [
+    11,
+    9,
+    8,
+    7,
+    4
+   ],
+   "tk": 26
+  }
+ },
+ "br.PIAT": {
+  "id": "br.PIAT",
+  "nationality": "br",
+  "kind": "sw",
+  "type": "PIAT",
+  "fp": 8,
+  "range": 3,
+  "pp": 1,
+  "b": 10,
+  "repair": 2,
+  "removeOnRepair6": true,
+  "latw": {
+   "th": [
+    11,
+    9,
+    7,
+    5
+   ],
+   "tk": 15
+  }
+ },
+ "ge.PF": {
+  "id": "ge.PF",
+  "nationality": "ge",
+  "kind": "sw",
+  "type": "PF",
+  "fp": 16,
+  "range": 3,
+  "pp": 0,
+  "latw": {
+   "th": [
+    10,
+    8,
+    6,
+    4
+   ],
+   "tk": 31
+  }
+ },
+ "ru.T34M43": {
+  "id": "ru.T34M43",
+  "nationality": "ru",
+  "name": "T-34 M43",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 16,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 11,
+    "side": 6,
+    "rear": 6
+   },
+   "turret": {
+    "front": 11,
+    "side": 6,
+    "rear": 6
+   }
+  },
+  "turret": "RST",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 76,
+   "barrel": "L",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 4,
+       "from": {
+        "year": 1942
+       }
+      },
+      {
+       "n": 5,
+       "from": {
+        "year": 1943
+       }
+      },
+      {
+       "n": 6,
+       "from": {
+        "year": 1944
+       }
+      },
+      {
+       "n": 7,
+       "from": {
+        "year": 1945
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 2,
+   "cmg": 4
+  },
+  "cs": 5,
+  "note": 16,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ru.T34M41": {
+  "id": "ru.T34M41",
+  "nationality": "ru",
+  "name": "T-34 M41",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 17,
+  "redMp": true,
+  "groundPressure": "low",
+  "af": {
+   "hull": {
+    "front": 11,
+    "side": 6,
+    "rear": 6
+   },
+   "turret": {
+    "front": 8,
+    "side": 6,
+    "rear": 6
+   }
+  },
+  "turret": "RST",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 76,
+   "barrel": "L",
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 4,
+       "from": {
+        "year": 1942
+       }
+      },
+      {
+       "n": 5,
+       "from": {
+        "year": 1943
+       }
+      },
+      {
+       "n": 6,
+       "from": {
+        "year": 1944
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 2,
+   "cmg": 4
+  },
+  "cs": 5,
+  "note": 14,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0,
+  "stallOn11": true
+ },
+ "ge.pzvie": {
+  "id": "ge.pzvie",
+  "nationality": "ge",
+  "name": "PzKw VIE",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 12,
+  "redMp": true,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 11,
+    "side": 8,
+    "rear": 8
+   },
+   "turret": {
+    "front": 14,
+    "side": 8,
+    "rear": 8
+   }
+  },
+  "turret": "ST",
+  "targetSize": "large",
+  "ma": {
+   "type": "AT",
+   "caliber": 88,
+   "barrel": "L",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 6,
+       "from": {
+        "year": 1942
+       }
+      },
+      {
+       "n": 5,
+       "from": {
+        "year": 1943
+       }
+      },
+      {
+       "n": 4,
+       "from": {
+        "year": 1944
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 3,
+   "cmg": 5
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 7
+   }
+  ],
+  "cs": 6,
+  "note": 30,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.pzivf2": {
+  "id": "ge.pzivf2",
+  "nationality": "ge",
+  "name": "PzKw IVF2",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 14,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 6,
+    "side": 3,
+    "rear": 3
+   },
+   "turret": {
+    "front": 6,
+    "side": 4,
+    "rear": 4
+   }
+  },
+  "turret": "T",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "barrel": "L",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 8
+      }
+     ]
+    },
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 5,
+       "from": {
+        "year": 1942
+       }
+      },
+      {
+       "n": 4,
+       "from": {
+        "year": 1943
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 3,
+   "cmg": 5
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 6
+   }
+  ],
+  "cs": 6,
+  "note": 23,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.pzivh": {
+  "id": "ge.pzivh",
+  "nationality": "ge",
+  "name": "PzKw IVH",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 13,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 8,
+    "side": 3,
+    "rear": 3
+   },
+   "turret": {
+    "front": 6,
+    "side": 4,
+    "rear": 4
+   }
+  },
+  "turret": "T",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "barrel": "L",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 8
+      }
+     ]
+    },
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 5,
+       "from": {
+        "year": 1942
+       }
+      },
+      {
+       "n": 4,
+       "from": {
+        "year": 1943
+       }
+      },
+      {
+       "n": 3,
+       "from": {
+        "year": 1944
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 3,
+   "cmg": 5
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 5
+   }
+  ],
+  "cs": 6,
+  "note": 24,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.psw2341": {
+  "id": "ge.psw2341",
+  "nationality": "ge",
+  "name": "PSW 234/1",
+  "kind": "vehicle",
+  "tracked": false,
+  "mp": 33,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 4,
+    "side": 1,
+    "rear": 1
+   },
+   "turret": {
+    "front": 4,
+    "side": 1,
+    "rear": 1
+   }
+  },
+  "turret": "ST",
+  "targetSize": "small",
+  "ma": {
+   "type": "AA",
+   "caliber": 20,
+   "barrel": "L",
+   "rof": 2,
+   "ife": 6,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "cmg": 5
+  },
+  "cs": 5,
+  "note": 74,
+  "openTopped": true,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.stuh42": {
+  "id": "ge.stuh42",
+  "nationality": "ge",
+  "name": "StuH 42",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 13,
+  "groundPressure": "high",
+  "af": {
+   "hull": {
+    "front": 8,
+    "side": 3,
+    "rear": 3
+   },
+   "turret": {
+    "front": 8,
+    "side": 3,
+    "rear": 3
+   }
+  },
+  "turret": "NT",
+  "targetSize": "small",
+  "ma": {
+   "type": "AT",
+   "caliber": 105,
+   "ammo": {
+    "he": true,
+    "ap": false
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 9
+      }
+     ]
+    },
+    {
+     "kind": "HEAT",
+     "steps": [
+      {
+       "n": 9
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "aamg": 2
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 7
+   }
+  ],
+  "cs": 4,
+  "note": 36,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.stgiiigl": {
+  "id": "ge.stgiiigl",
+  "nationality": "ge",
+  "name": "StuG IIIG (L)",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 13,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 8,
+    "side": 3,
+    "rear": 3
+   },
+   "turret": {
+    "front": 8,
+    "side": 3,
+    "rear": 3
+   }
+  },
+  "turret": "NT",
+  "targetSize": "small",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "barrel": "L",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 8
+      }
+     ]
+    },
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 4,
+       "from": {
+        "year": 1944
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "cmg": 4,
+   "aamg": 1
+  },
+  "smoke": [
+   {
+    "kind": "sN",
+    "n": 9
+   }
+  ],
+  "cs": 4,
+  "note": 35,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.pziiin": {
+  "id": "ge.pziiin",
+  "nationality": "ge",
+  "name": "PzKw IIIN",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 13,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 6,
+    "side": 3,
+    "rear": 3
+   },
+   "turret": {
+    "front": 6,
+    "side": 4,
+    "rear": 4
+   }
+  },
+  "turret": "T",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "barrel": "*",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": false
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 9
+      }
+     ]
+    },
+    {
+     "kind": "HEAT",
+     "steps": [
+      {
+       "n": 9
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 3,
+   "cmg": 5
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 7
+   }
+  ],
+  "cs": 5,
+  "note": 16,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ru.ShermanIII": {
+  "id": "ru.ShermanIII",
+  "nationality": "ru",
+  "name": "Sherman III(a)",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 14,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 8,
+    "side": 4,
+    "rear": 4
+   },
+   "turret": {
+    "front": 8,
+    "side": 6,
+    "rear": 6
+   }
+  },
+  "turret": "T",
+  "targetSize": "large",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 8
+      }
+     ]
+    },
+    {
+     "kind": "WP",
+     "steps": [
+      {
+       "n": 6,
+       "from": {
+        "year": 1944,
+        "month": 6
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 2,
+   "cmg": 4,
+   "aamg": 4
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 6
+   }
+  ],
+  "cs": 5,
+  "note": 50,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.pzviel": {
+  "id": "ge.pzviel",
+  "nationality": "ge",
+  "name": "PzKw VIE (L)",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 12,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 11,
+    "side": 8,
+    "rear": 8
+   },
+   "turret": {
+    "front": 14,
+    "side": 8,
+    "rear": 8
+   }
+  },
+  "turret": "ST",
+  "targetSize": "large",
+  "ma": {
+   "type": "AT",
+   "caliber": 88,
+   "barrel": "L",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 4,
+       "from": {
+        "year": 1944
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 3,
+   "cmg": 5,
+   "aamg": 2
+  },
+  "cs": 6,
+  "note": 31,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.pzivd": {
+  "id": "ge.pzivd",
+  "nationality": "ge",
+  "name": "PzKw IVD",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 14,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 3,
+    "side": 2,
+    "rear": 2
+   },
+   "turret": {
+    "front": 3,
+    "side": 3,
+    "rear": 3
+   }
+  },
+  "turret": "T",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "barrel": "*",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 9
+      }
+     ]
+    },
+    {
+     "kind": "HEAT",
+     "steps": [
+      {
+       "n": 6
+      }
+     ]
+    },
+    {
+     "kind": "AP",
+     "steps": [
+      {
+       "n": 7
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 3,
+   "cmg": 5
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 7
+   }
+  ],
+  "cs": 5,
+  "note": 20,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.pz35t": {
+  "id": "ge.pz35t",
+  "nationality": "ge",
+  "name": "PzKw 35t",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 14,
+  "groundPressure": "low",
+  "af": {
+   "hull": {
+    "front": 3,
+    "side": 1,
+    "rear": 1
+   },
+   "turret": {
+    "front": 3,
+    "side": 1,
+    "rear": 1
+   }
+  },
+  "turret": "ST",
+  "targetSize": "small",
+  "ma": {
+   "type": "AT",
+   "caliber": 37,
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "bmg": 4,
+   "cmg": 4
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 5
+   }
+  ],
+  "cs": 4,
+  "note": 6,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.pziif": {
+  "id": "ge.pziif",
+  "nationality": "ge",
+  "name": "PzKw IIF",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 14,
+  "groundPressure": "low",
+  "af": {
+   "hull": {
+    "front": 3,
+    "side": 1,
+    "rear": 1
+   },
+   "turret": {
+    "front": 3,
+    "side": 1,
+    "rear": 1
+   }
+  },
+  "turret": "RST",
+  "targetSize": "small",
+  "ma": {
+   "type": "AT",
+   "caliber": 20,
+   "barrel": "L",
+   "rof": 2,
+   "b": 11,
+   "ife": 4,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "cmg": 5
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 7
+   }
+  ],
+  "cs": 3,
+  "note": 3,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ru.KV2": {
+  "id": "ru.KV2",
+  "nationality": "ru",
+  "name": "KV-2",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 9,
+  "redMp": true,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 8,
+    "side": 8,
+    "rear": 8
+   },
+   "turret": {
+    "front": 11,
+    "side": 8,
+    "rear": 8
+   }
+  },
+  "turret": "NT",
+  "targetSize": "veryLarge",
+  "ma": {
+   "type": "AT",
+   "caliber": 152,
+   "barrel": "*",
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "AP",
+     "steps": [
+      {
+       "n": 9
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 2,
+   "cmg": 4,
+   "rmg": 2
+  },
+  "cs": 7,
+  "note": 24,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0,
+  "stallOn11": true
+ },
+ "ru.BT7M37": {
+  "id": "ru.BT7M37",
+  "nationality": "ru",
+  "name": "BT-7 M37",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 23,
+  "redMp": true,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 2,
+    "side": 1,
+    "rear": 1
+   },
+   "turret": {
+    "front": 1,
+    "side": 2,
+    "rear": 2
+   }
+  },
+  "turret": "RST",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 45,
+   "barrel": "L",
+   "rof": 1,
+   "b": 11,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "cmg": 4
+  },
+  "cs": 3,
+  "note": 9,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0,
+  "stallOn11": true
+ },
+ "ru.IS2": {
+  "id": "ru.IS2",
+  "nationality": "ru",
+  "name": "IS-2",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 13,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 14,
+    "side": 11,
+    "rear": 11
+   },
+   "turret": {
+    "front": 18,
+    "side": 11,
+    "rear": 11
+   }
+  },
+  "turret": "ST",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 122,
+   "barrel": "L",
+   "b": 11,
+   "lowAmmo": true,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "bmg": 1,
+   "bmgFixed": true,
+   "cmg": 4,
+   "rmg": 2
+  },
+  "cs": 6,
+  "note": 27,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ru.T3485": {
+  "id": "ru.T3485",
+  "nationality": "ru",
+  "name": "T-34/85",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 16,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 11,
+    "side": 6,
+    "rear": 6
+   },
+   "turret": {
+    "front": 11,
+    "side": 8,
+    "rear": 8
+   }
+  },
+  "turret": "T",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 85,
+   "barrel": "L",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 5,
+       "from": {
+        "year": 1944
+       }
+      },
+      {
+       "n": 6,
+       "from": {
+        "year": 1945
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 2,
+   "cmg": 4
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 6
+   }
+  ],
+  "cs": 6,
+  "note": 18,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.pzvg": {
+  "id": "ge.pzvg",
+  "nationality": "ge",
+  "name": "PzKw VG",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 15,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 18,
+    "side": 6,
+    "rear": 6
+   },
+   "turret": {
+    "front": 14,
+    "side": 6,
+    "rear": 6
+   }
+  },
+  "turret": "ST",
+  "targetSize": "large",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "barrel": "LL",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "bmg": 3,
+   "cmg": 5,
+   "aamg": 2
+  },
+  "cs": 6,
+  "note": 27,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.pzvib": {
+  "id": "ge.pzvib",
+  "nationality": "ge",
+  "name": "PzKw VIB",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 11,
+  "redMp": true,
+  "groundPressure": "high",
+  "af": {
+   "hull": {
+    "front": 26,
+    "side": 8,
+    "rear": 8
+   },
+   "turret": {
+    "front": 18,
+    "side": 11,
+    "rear": 11
+   }
+  },
+  "turret": "ST",
+  "targetSize": "veryLarge",
+  "ma": {
+   "type": "AT",
+   "caliber": 88,
+   "barrel": "LL",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "bmg": 3,
+   "cmg": 5,
+   "aamg": 2
+  },
+  "smoke": [
+   {
+    "kind": "sN",
+    "n": 9
+   }
+  ],
+  "cs": 6,
+  "note": 32,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.pzivj": {
+  "id": "ge.pzivj",
+  "nationality": "ge",
+  "name": "PzKw IVJ",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 13,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 8,
+    "side": 3,
+    "rear": 3
+   },
+   "turret": {
+    "front": 6,
+    "side": 4,
+    "rear": 4
+   }
+  },
+  "turret": "ST",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "barrel": "L",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 8
+      }
+     ]
+    },
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 3,
+       "from": {
+        "year": 1944
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 3,
+   "cmg": 5,
+   "aamg": 2
+  },
+  "smoke": [
+   {
+    "kind": "sN",
+    "n": 9
+   }
+  ],
+  "cs": 6,
+  "note": 25,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "br.mkvib": {
+  "id": "br.mkvib",
+  "nationality": "br",
+  "name": "Mark VIB",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 18,
+  "groundPressure": "low",
+  "af": {
+   "hull": {
+    "front": 1,
+    "side": 1,
+    "rear": 1
+   },
+   "turret": {
+    "front": 1,
+    "side": 1,
+    "rear": 1
+   }
+  },
+  "turret": "ST",
+  "targetSize": "small",
+  "mg": {
+   "cmg": 10
+  },
+  "maMg": {
+   "mg": "cmg",
+   "rof": 1
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 6
+   }
+  ],
+  "cs": 3,
+  "note": 1,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.jgpz38": {
+  "id": "ge.jgpz38",
+  "nationality": "ge",
+  "name": "JgdPz 38(t)",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 13,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 14,
+    "side": 3,
+    "rear": 3
+   },
+   "turret": {
+    "front": 14,
+    "side": 3,
+    "rear": 3
+   }
+  },
+  "turret": "NT",
+  "targetSize": "small",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "barrel": "L",
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "HE",
+     "steps": [
+      {
+       "n": 7
+      }
+     ]
+    },
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 4,
+       "from": {
+        "year": 1944
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "aamg": 1
+  },
+  "cs": 4,
+  "note": 50,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "am.M4A2L": {
+  "id": "am.M4A2L",
+  "nationality": "am",
+  "name": "M4A2(L)",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 14,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 11,
+    "side": 4,
+    "rear": 4
+   },
+   "turret": {
+    "front": 8,
+    "side": 6,
+    "rear": 6
+   }
+  },
+  "turret": "T",
+  "targetSize": "large",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 5
+      }
+     ]
+    },
+    {
+     "kind": "WP",
+     "steps": [
+      {
+       "n": 7
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 2,
+   "cmg": 4,
+   "aamg": 4
+  },
+  "smoke": [
+   {
+    "kind": "sM",
+    "n": 8
+   }
+  ],
+  "cs": 6,
+  "note": 11,
+  "ceDrm": 2,
+  "crewMorale": 7,
+  "cvp": 0
+ },
+ "am.M4A3": {
+  "id": "am.M4A3",
+  "nationality": "am",
+  "name": "M4A3",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 15,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 8,
+    "side": 4,
+    "rear": 4
+   },
+   "turret": {
+    "front": 8,
+    "side": 6,
+    "rear": 6
+   }
+  },
+  "turret": "T",
+  "targetSize": "large",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 5,
+       "from": {
+        "year": 1944,
+        "month": 6
+       }
+      }
+     ]
+    },
+    {
+     "kind": "WP",
+     "steps": [
+      {
+       "n": 7,
+       "from": {
+        "year": 1944,
+        "month": 6
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 2,
+   "cmg": 4,
+   "aamg": 4
+  },
+  "cs": 5,
+  "note": 12,
+  "ceDrm": 2,
+  "crewMorale": 7,
+  "cvp": 0
+ },
+ "am.M4A3E2": {
+  "id": "am.M4A3E2",
+  "nationality": "am",
+  "name": "M4A3E2",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 12,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 18,
+    "side": 8,
+    "rear": 8
+   },
+   "turret": {
+    "front": 18,
+    "side": 11,
+    "rear": 11
+   }
+  },
+  "turret": "T",
+  "targetSize": "large",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 5
+      }
+     ]
+    },
+    {
+     "kind": "WP",
+     "steps": [
+      {
+       "n": 7
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 2,
+   "cmg": 4,
+   "aamg": 4
+  },
+  "smoke": [
+   {
+    "kind": "sM",
+    "n": 8
+   }
+  ],
+  "cs": 6,
+  "note": 14,
+  "ceDrm": 2,
+  "crewMorale": 7,
+  "cvp": 0
+ },
+ "ge.pziia": {
+  "id": "ge.pziia",
+  "nationality": "ge",
+  "name": "PzKw IIA",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 15,
+  "groundPressure": "low",
+  "af": {
+   "hull": {
+    "front": 1,
+    "side": 1,
+    "rear": 1
+   },
+   "turret": {
+    "front": 1,
+    "side": 1,
+    "rear": 1
+   }
+  },
+  "turret": "RST",
+  "targetSize": "small",
+  "ma": {
+   "type": "AT",
+   "caliber": 20,
+   "barrel": "L",
+   "rof": 2,
+   "b": 11,
+   "ife": 4,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "cmg": 5
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 6
+   }
+  ],
+  "cs": 3,
+  "note": 2,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "am.M5A1": {
+  "id": "am.M5A1",
+  "nationality": "am",
+  "name": "M5A1",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 17,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 6,
+    "side": 3,
+    "rear": 3
+   },
+   "turret": {
+    "front": 6,
+    "side": 4,
+    "rear": 4
+   }
+  },
+  "turret": "ST",
+  "targetSize": "small",
+  "ma": {
+   "type": "AT",
+   "caliber": 37,
+   "barrel": "LL",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "bmg": 2,
+   "cmg": 4,
+   "aamg": 2
+  },
+  "cs": 4,
+  "note": 5,
+  "ceDrm": 2,
+  "crewMorale": 7,
+  "cvp": 0
+ },
+ "ge.pziiig": {
+  "id": "ge.pziiig",
+  "nationality": "ge",
+  "name": "PzKw IIIG",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 13,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 3,
+    "side": 3,
+    "rear": 3
+   },
+   "turret": {
+    "front": 4,
+    "side": 4,
+    "rear": 4
+   }
+  },
+  "turret": "T",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 50,
+   "rof": 2,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 4,
+       "from": {
+        "year": 1941
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 3,
+   "cmg": 5
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 7
+   }
+  ],
+  "cs": 5,
+  "note": 12,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ru.KV1M41": {
+  "id": "ru.KV1M41",
+  "nationality": "ru",
+  "name": "KV-1 M41",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 11,
+  "redMp": true,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 11,
+    "side": 8,
+    "rear": 8
+   },
+   "turret": {
+    "front": 11,
+    "side": 11,
+    "rear": 11
+   }
+  },
+  "turret": "RST",
+  "targetSize": "large",
+  "ma": {
+   "type": "AT",
+   "caliber": 76,
+   "barrel": "L",
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 4,
+       "from": {
+        "year": 1942
+       }
+      },
+      {
+       "n": 5,
+       "from": {
+        "year": 1943
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 2,
+   "cmg": 4,
+   "rmg": 2
+  },
+  "cs": 6,
+  "note": 23,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0,
+  "stallOn11": true
+ },
+ "ge.stgiiig": {
+  "id": "ge.stgiiig",
+  "nationality": "ge",
+  "name": "StuG IIIG",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 13,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 8,
+    "side": 3,
+    "rear": 3
+   },
+   "turret": {
+    "front": 8,
+    "side": 3,
+    "rear": 3
+   }
+  },
+  "turret": "NT",
+  "targetSize": "small",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "barrel": "L",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 8
+      }
+     ]
+    },
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 6,
+       "from": {
+        "year": 1942
+       }
+      },
+      {
+       "n": 5,
+       "from": {
+        "year": 1943
+       }
+      },
+      {
+       "n": 4,
+       "from": {
+        "year": 1944
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "aamg": 2
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 7
+   }
+  ],
+  "cs": 4,
+  "note": 34,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ge.psw2342": {
+  "id": "ge.psw2342",
+  "nationality": "ge",
+  "name": "PSW 234/2",
+  "kind": "vehicle",
+  "tracked": false,
+  "mp": 33,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 4,
+    "side": 1,
+    "rear": 1
+   },
+   "turret": {
+    "front": 4,
+    "side": 1,
+    "rear": 1
+   }
+  },
+  "turret": "ST",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 50,
+   "barrel": "L",
+   "rof": 2,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 5,
+       "from": {
+        "year": 1943
+       }
+      },
+      {
+       "n": 4,
+       "from": {
+        "year": 1944
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "cmg": 5
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 7
+   }
+  ],
+  "cs": 4,
+  "note": 75,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "br.cromiv": {
+  "id": "br.cromiv",
+  "nationality": "br",
+  "name": "Cromwell IV",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 18,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 6,
+    "side": 4,
+    "rear": 4
+   },
+   "turret": {
+    "front": 8,
+    "side": 6,
+    "rear": 6
+   }
+  },
+  "turret": "T",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 75,
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 8
+      }
+     ]
+    },
+    {
+     "kind": "WP",
+     "steps": [
+      {
+       "n": 6
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 2,
+   "cmg": 4
+  },
+  "smoke": [
+   {
+    "kind": "sM",
+    "n": 8
+   },
+   {
+    "kind": "sD",
+    "n": 7
+   }
+  ],
+  "cs": 5,
+  "note": 19,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "br.sheriiaa": {
+  "id": "br.sheriiaa",
+  "nationality": "br",
+  "name": "Sherman IIA(a)",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 13,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 11,
+    "side": 4,
+    "rear": 4
+   },
+   "turret": {
+    "front": 8,
+    "side": 6,
+    "rear": 6
+   }
+  },
+  "turret": "T",
+  "targetSize": "large",
+  "ma": {
+   "type": "AT",
+   "caliber": 76,
+   "barrel": "L",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   },
+   "specialAmmo": [
+    {
+     "kind": "SMOKE",
+     "steps": [
+      {
+       "n": 5,
+       "from": {
+        "year": 1945
+       }
+      }
+     ]
+    },
+    {
+     "kind": "APCR",
+     "steps": [
+      {
+       "n": 4,
+       "from": {
+        "year": 1944
+       }
+      },
+      {
+       "n": 5,
+       "from": {
+        "year": 1945
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "mg": {
+   "bmg": 2,
+   "cmg": 4
+  },
+  "smoke": [
+   {
+    "kind": "sM",
+    "n": 8
+   }
+  ],
+  "cs": 6,
+  "note": 15,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "br.daimac": {
+  "id": "br.daimac",
+  "nationality": "br",
+  "name": "Daimler AC",
+  "kind": "vehicle",
+  "tracked": false,
+  "mp": 33,
+  "groundPressure": "normal",
+  "af": {
+   "hull": {
+    "front": 2,
+    "side": 1,
+    "rear": 1
+   },
+   "turret": {
+    "front": 2,
+    "side": 2,
+    "rear": 2
+   }
+  },
+  "turret": "ST",
+  "targetSize": "small",
+  "ma": {
+   "type": "AT",
+   "caliber": 40,
+   "barrel": "L",
+   "rof": 1,
+   "ammo": {
+    "he": false,
+    "ap": true
+   }
+  },
+  "mg": {
+   "cmg": 4
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 6
+   }
+  ],
+  "cs": 3,
+  "note": 52,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ja.ty97Bchiha": {
+  "id": "ja.ty97Bchiha",
+  "nationality": "ja",
+  "name": "Type 97B CHI-HA",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 14,
+  "groundPressure": "low",
+  "af": {
+   "hull": {
+    "front": 3,
+    "side": 2,
+    "rear": 2
+   },
+   "turret": {
+    "front": 4,
+    "side": 2,
+    "rear": 2
+   }
+  },
+  "turret": "ST",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 47,
+   "barrel": "L",
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "bmg": 2,
+   "rmg": 2
+  },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 5
+   }
+  ],
+  "cs": 4,
+  "note": 8,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ja.ty97Achiha": {
+  "id": "ja.ty97Achiha",
+  "nationality": "ja",
+  "name": "Type 97A CHI-HA",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 14,
+  "groundPressure": "low",
+  "af": {
+   "hull": {
+    "front": 3,
+    "side": 2,
+    "rear": 2
+   },
+   "turret": {
+    "front": 4,
+    "side": 3,
+    "rear": 3
+   }
+  },
+  "turret": "ST",
+  "targetSize": "normal",
+  "ma": {
+   "type": "AT",
+   "caliber": 57,
+   "rof": 1,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "bmg": 2,
+   "rmg": 2
+  },
+  "cs": 4,
+  "note": 8,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "ja.ty95hago": {
+  "id": "ja.ty95hago",
+  "nationality": "ja",
+  "name": "Type 95 HA-GO",
+  "kind": "vehicle",
+  "tracked": true,
+  "mp": 15,
+  "groundPressure": "low",
+  "af": {
+   "hull": {
+    "front": 1,
+    "side": 1,
+    "rear": 1
+   },
+   "turret": {
+    "front": 2,
+    "side": 2,
+    "rear": 2
+   }
+  },
+  "turret": "1MT",
+  "targetSize": "small",
+  "ma": {
+   "type": "AT",
+   "caliber": 37,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "bmg": 2,
+   "rmg": 2
+  },
+  "cs": 3,
+  "note": 5,
+  "ceDrm": 2,
+  "crewMorale": 8,
+  "cvp": 0
+ },
+ "am.M8AC": {
+  "id": "am.M8AC",
+  "nationality": "am",
+  "name": "M8 AC",
+  "kind": "vehicle",
+  "tracked": false,
+  "mp": 36,
+  "groundPressure": "low",
+  "af": {
+   "hull": {
+    "front": 2,
+    "side": 1,
+    "rear": 1
+   },
+   "turret": {
+    "front": 2,
+    "side": 2,
+    "rear": 2
+   }
+  },
+  "turret": "ST",
+  "targetSize": "small",
+  "ma": {
+   "type": "AT",
+   "caliber": 37,
+   "barrel": "LL",
+   "rof": 2,
+   "ammo": {
+    "he": true,
+    "ap": true
+   }
+  },
+  "mg": {
+   "cmg": 4,
+   "aamg": 4
+  },
+  "smoke": [
+   {
+    "kind": "sP",
+    "n": 5
+   }
+  ],
+  "cs": 4,
+  "note": 42,
+  "openTopped": true,
+  "ceDrm": 2,
+  "crewMorale": 7,
+  "cvp": 0
+ }
+}

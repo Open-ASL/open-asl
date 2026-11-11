@@ -1,0 +1,84 @@
+{
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs22",
+      "ignore": [
+        "src",
+        "node_modules",
+        "*.log",
+        "tsconfig.json",
+        "build.mjs"
+      ],
+      "predeploy": [
+        "pnpm --filter @asl/functions build"
+      ]
+    }
+  ],
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "database": {
+    "rules": "database.rules.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "hosting": {
+    "public": "apps/web/dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*"
+    ],
+    "rewrites": [
+      {
+        "source": "/profile/**",
+        "function": {
+          "functionId": "profilePage",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/aar/**",
+        "function": {
+          "functionId": "aarPage",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "!**/*.@(jpg|jpeg|png|webp|svg|ico|js|css|map|mp3|wav|ogg|json|txt|xml|pdf|woff|woff2)",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "emulators": {
+    "singleProjectMode": true,
+    "auth": {
+      "port": 9099
+    },
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "database": {
+      "port": 9000
+    },
+    "storage": {
+      "port": 9199
+    },
+    "hub": {
+      "port": 4400
+    },
+    "logging": {
+      "port": 4500
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4100
+    }
+  }
+}

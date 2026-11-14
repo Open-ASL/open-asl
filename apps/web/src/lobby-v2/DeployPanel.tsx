@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { fixturesFor, infantryOnly } from '@asl/content';
+import { fixturesFor } from '@asl/content';
 import { scenarioRuleset, type ScenarioDef } from '@asl/rules';
 import { COMPUTER_AVAILABLE, COMPUTER_NAME, COMPUTER_OPPONENTS, RANDOM_SIDE, rankFor, type Competition, type MatchMode, type MatchVisibility, type Pace } from '@asl/platform';
 import { useMember } from '../auth/AuthProvider';
@@ -43,8 +43,8 @@ export function DeployPanel({ scenario, challengeUid }: { scenario: ScenarioDef;
   const otherSide = (id: string) => scenario.sides.find((s) => s.side !== id)?.side ?? '';
   /** You play: each side with its emblem, or a random draw. */
   const sidePicker = <div><span className="option-label">You play</span><div className="seg">{scenario.sides.map((s) => <button key={s.side} className={side === s.side ? 'on' : ''} onClick={() => setSide(s.side)}>{badge(s.side)}</button>)}<button className={side === RANDOM_SIDE ? 'on' : ''} onClick={() => setSide(RANDOM_SIDE)}>Random</button></div></div>;
-  // The computer opponent plays Infantry-only scenarios for now (no Guns, no vehicles).
-  const computerSides = infantryOnly(scenario) ? (COMPUTER_OPPONENTS[scenario.id] ?? []) : [];
+  // The sides the computer opponent plays in this scenario (none: it is not offered here yet).
+  const computerSides = COMPUTER_OPPONENTS[scenario.id] ?? [];
   // Against the computer the player may take any side it can play against; the first side the card lists by default.
   const humanChoices = scenario.sides.filter((s) => computerSides.includes(otherSide(s.side))).map((s) => s.side);
   const [computerSide, setComputerSide] = useState<string | null>(null);

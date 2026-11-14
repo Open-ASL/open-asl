@@ -1,4 +1,5 @@
 import type { GunDef, IftResult, Tables, ToHitEntry } from '@asl/rules';
+import counterData from './generated/counters.json';
 
 /*
  * SK1 chart values, read from the chart images shipped in the VASL 6.7.3 module
@@ -62,11 +63,12 @@ function leaderCreation(nationality: string, unitMorale: number, dr: number, bro
   // TODO(ASLRB A18.2): the Leader Creation Table's "-1 Base unit has Morale Level ≥ 8" drm is not
   // applied (SK reading). Ledger row A18.2 tracks it.
   const final = dr + (LC_NATIONALITY_DRM[nationality] ?? 0) + (unitMorale <= 6 ? 1 : 0) + (broken ? 1 : 0) - ccColumnsBelowEven;
-  if (final <= 1) return `${nationality}.L81`;
-  if (final <= 3) return `${nationality}.L80`;
-  if (final <= 5) return `${nationality}.L70`;
-  if (final === 6) return `${nationality}.L61`;
-  return null;
+  const leader = final <= 1 ? 'L81' : final <= 3 ? 'L80' : final <= 5 ? 'L70' : final === 6 ? 'L61' : null;
+  if (!leader) return null;
+  // Only a counter the army really has (its VASL counter, with its art): never one made up from the pattern.
+  const id = `${nationality}.${leader}`;
+  if (!(id in counterData)) throw new Error(`Leader Creation: the ${nationality} army has no ${leader} counter (${id})`);
+  return id;
 }
 
 /*
@@ -273,8 +275,24 @@ function toKill(def: GunDef, ammo: 'AP' | 'APCR' | 'APDS' | 'HEAT' | 'HE', range
 /** The chart's Gun Type key for a counter: "br:40L"; an Anti-Tank Rifle's "All ATR" row. */
 export const toHitKey = (def: GunDef) => (def.type === 'ATR' ? 'ATR' : `${def.nationality}:${def.caliber}${def.barrel ?? ''}`);
 
+/**
+ * The chart row a Gun fires on. A counter carrying a Gun its own nationality's chart lacks fires on the maker's row:
+ * the British Sherman IIA(a), "(a)" for American-made, has the American 76L, which the British table does not list.
+ */
+const MAKERS = ['am', 'br', 'ru', 'ge', 'it', 'ja', 'fr'];
+function toHitRow(def: GunDef) {
+  const key = def.type === 'MG' ? 'MG' : toHitKey(def);
+  const own = TO_HIT[key];
+  if (own || def.type === 'MG' || def.type === 'ATR') return own;
+  for (const n of MAKERS) {
+    const r = TO_HIT[`${n}:${def.caliber}${def.barrel ?? ''}`];
+    if (r) return r;
+  }
+  return undefined;
+}
+
 function toHit(def: GunDef, targetType: 'ITT' | 'ATT' | 'VTT', range: number): ToHitEntry | null {
-  const r = TO_HIT[def.type === 'MG' ? 'MG' : toHitKey(def)];
+  const r = toHitRow(def);
   if (!r) throw new Error(`No To Hit Chart row for ${def.id} (${toHitKey(def)})`);
   if (targetType === 'VTT') {
     const i = VTT_BANDS.findIndex(([a, b]) => range >= a && range <= b);
@@ -298,7 +316,7 @@ function toHit(def: GunDef, targetType: 'ITT' | 'ATT' | 'VTT', range: number): T
 }
 
 function gunColumn(def: GunDef, targetType: 'ITT' | 'ATT' | 'CH'): number | null {
-  const r = TO_HIT[toHitKey(def)];
+  const r = toHitRow(def);
   if (!r) throw new Error(`No To Hit Chart row for ${def.id} (${toHitKey(def)})`);
   const c = targetType === 'ITT' ? r.fp.itt : targetType === 'ATT' ? r.fp.att : r.fp.ch;
   return c ?? null;

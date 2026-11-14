@@ -29,6 +29,18 @@ describe('chart binder', () => {
     expect(firstRow).toEqual(['1KIA', '2KIA', '2KIA', '3KIA', '3KIA', '3KIA', '4KIA', '4KIA', '5KIA', '6KIA', '7KIA']);
   });
 
+  it('draws the Close Combat and Hand-to-Hand Kill # rows from the engine tables: Hand-to-Hand two higher in every column (SK4 8.1.8.4)', () => {
+    act(() => root.render(createElement(ChartsDialog, { onClose: () => {} })));
+    press('2');
+    const tables = [...host.querySelectorAll('.ch-cct')];
+    expect(tables).toHaveLength(2);
+    const kills = (t: Element) => [...t.querySelectorAll('tr.kill td')].map((e) => Number(e.textContent));
+    const [cc, hth] = tables.map(kills);
+    expect(cc!.length).toBeGreaterThan(5);
+    expect(hth).toEqual(cc!.map((k) => k + 2));
+    expect(host.textContent).toContain('Hand-to-Hand CC Table');
+  });
+
   it('reads the Leader Creation bands off the engine table', () => {
     act(() => root.render(createElement(ChartsDialog, { onClose: () => {} })));
     press('3');

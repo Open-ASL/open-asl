@@ -1,7 +1,7 @@
-import type { Ctx, Decision, HexId, Piece, PieceId, QueryEnv, RuleModule } from '@asl/engine';
+import type { Ctx, Decision, HexId, Piece, PieceId, QueryEnv, RuleModule , SideId } from '@asl/engine';
 import { byId, statics, swHeldBy } from '../common/pieces';
 import type { SwDef } from '../common/statics';
-import { SETUP_PLACED, type SetupAction, type SetupPlacedFn } from '../sk1/scenario';
+import { SETUP_PLACED, setupGeography, type SetupAction, type SetupPlacedFn } from '../sk1/scenario';
 import { pieceOf, setTags } from '../sk1/status';
 import { SPINES, nearestSpine } from '../sk2/arc';
 import { T2 } from '../sk2/status';
@@ -43,10 +43,16 @@ export function vehicleMgDefs(d: { id: string; nationality: string; mg: { bmg?: 
 const isBuildingHex = (env: QueryEnv, hex: HexId) => !!statics(env).map.hex(hex)?.buildingId;
 
 /** The hexspine a vehicle set up in `hex` faces by default: into the map from an offboard hex, otherwise spine 0. */
-export function defaultVca(env: QueryEnv, hex: HexId): number {
+export function defaultVca(env: QueryEnv, hex: HexId, side?: SideId): number {
   const map = statics(env).map;
   const off = map.offboardHex(hex);
-  if (!off) return 0;
+  if (!off) {
+    // On the map: toward the enemy's nearest front hex, where the card gives one.
+    const at = map.hex(hex);
+    if (!at || !side) return 0;
+    const front = setupGeography(env, side).front.map((f) => map.hex(f)).filter((x): x is NonNullable<typeof x> => !!x).sort((a, b) => map.distance(hex, a.id) - map.distance(hex, b.id))[0];
+    return front ? (nearestSpine(at.cube, 0, front.cube) ?? 0) : 0;
+  }
   const onboard = map.offboardNeighbors(hex).onboard;
   const target = onboard.map((id) => map.hex(id)).find(Boolean);
   if (!target) return 0;
@@ -120,12 +126,12 @@ export const vehiclesModule: RuleModule = {
     r.contribute({
       id: 'sk3.setup.defaults.vehicles',
       query: 'setup.defaults',
-      apply(v, { todo, placements }, env) {
+      apply(v, { side, todo, placements }, env) {
         const vehicles: Record<PieceId, { vca: number }> = {};
         for (const id of todo) {
           const hex = placements[id];
           if (!hex || !vehicle(env, pieceOf(env, id))) continue;
-          vehicles[id] = { vca: defaultVca(env, hex) };
+          vehicles[id] = { vca: defaultVca(env, hex, side) };
         }
         return Object.keys(vehicles).length ? { ...v, vehicles } : v;
       },

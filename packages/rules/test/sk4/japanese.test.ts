@@ -233,6 +233,8 @@ describe('Miscellaneous (SK4 8.1.8)', () => {
     expect(env.query('sw.rof', { sw: 'g', user: 'a' }, 0)).toBe(1);
     expect(env.query('sw.breakdown', { sw: 'h', user: 'c' }, null)).toBe(11);
     expect(env.query('sw.rof', { sw: 'h', user: 'c' }, 0)).toBe(2);
+    // Both reductions are named, so the stack card can say why (SK4 8.1.8.2).
+    for (const q of ['sw.breakdown', 'sw.rof'] as const) expect(env.explain(q, { sw: 'g', user: 'a' }, q === 'sw.rof' ? 0 : null).trace.map((t) => t.label)).toContain('-1 Japanese squad/HS');
     const s = act(engine, s0, { type: 'test.fire', decl: { units: ['a'], sw: ['g'], target: 'yM5' }, mode: 'prep' }).state;
     expect(piece(s, 'g').loc.kind).toBe('eliminated');
     expect(piece(s, 'g').tags['malf']).toBeUndefined();

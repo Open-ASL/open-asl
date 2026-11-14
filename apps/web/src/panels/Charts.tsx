@@ -21,7 +21,7 @@ interface Props {
 type SectionId = 'fire' | 'cc' | 'morale' | 'move' | 'terrain' | 'guns' | 'vehicles' | 'afv' | 'sequence';
 const SECTIONS: { id: SectionId; name: string; blurb: string }[] = [
   { id: 'fire', name: 'Infantry Fire', blurb: 'IFT, DRM, FP' },
-  { id: 'cc', name: 'Close Combat', blurb: 'Kill #, CC DRM, Ambush' },
+  { id: 'cc', name: 'Close Combat', blurb: 'Kill #, Hand-to-Hand, Ambush' },
   { id: 'morale', name: 'Morale & Rally', blurb: 'MC, Rally, Wounds, Leaders' },
   { id: 'move', name: 'Movement & Rout', blurb: 'MF, PP, Rout' },
   { id: 'terrain', name: 'Terrain', blurb: 'TEM, MF, LOS' },
@@ -286,6 +286,27 @@ function CloseCombatSection() {
           </table>
         </div>
         <Bullets items={D.CC_RESOLUTION} />
+      </Card>
+      <Card title="Hand-to-Hand CC Table" refs="SK4 8.1.8.4" wide>
+        <div className="ch-scroll">
+          <table className="ch-cct">
+            <tbody>
+              <tr>
+                <th>Odds</th>
+                {cols.map((c) => (
+                  <td key={c}>{c.replace(':', '-')}</td>
+                ))}
+              </tr>
+              <tr className="kill">
+                <th>Kill #</th>
+                {cols.map((c) => (
+                  <td key={c}>{SK1_TABLES.ccKillHth(c)}</td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <Bullets items={D.HTH_RULES} />
       </Card>
       <Lists lists={D.CC_LISTS} />
     </div>

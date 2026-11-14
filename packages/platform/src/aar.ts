@@ -34,7 +34,7 @@ export interface AarSide {
 
 export interface AarResult {
   winner: string | null;
-  /** 'scenario end' | 'sudden death' | 'annihilation' | 'concession' | 'timeout'. */
+  /** 'scenario end' | 'sudden death' | 'annihilation' | 'nothing left to play' | 'concession' | 'timeout'. */
   reason: string;
   /** One sentence on how the game was decided, e.g. "Held F8, L6 and O6 at the end of Turn 6". */
   how: string;

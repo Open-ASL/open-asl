@@ -169,11 +169,6 @@
 .chat-panel > form { display: flex; gap: 6px; margin-top: 10px; }
 .chat-panel > form input { flex: 1; min-width: 0; padding: 11px; border: 1px solid var(--line-hi); background: var(--panel-2); color: var(--text); font-size: 16px; }
 .chat-panel > form button { font-size: 14px; padding-inline: 18px; }
-.replay-controls { position: fixed; z-index: 80; left: 50%; bottom: 12px; transform: translateX(-50%); width: min(900px, calc(100% - 24px)); box-sizing: border-box; display: flex; align-items: center; gap: 7px; padding: 10px 12px; border: 1px solid var(--line-hi); background: rgba(35,41,35,.98); box-shadow: 0 8px 34px rgba(0,0,0,.6); }
-.replay-controls > div { min-width: 180px; display: grid; }
-.replay-controls > div span, .replay-controls small { color: var(--ops-muted); font-size: 9px; }
-.replay-controls input { flex: 1; accent-color: var(--ops-brass); }
-.replay-controls button { width: 31px; height: 29px; padding: 0; border: 1px solid var(--ops-line); background: var(--ops-panel); color: var(--ops-cream); }
 .selected-scenario-banner { margin-bottom: 18px; padding: 14px 18px; display: grid; gap: 3px; border-left: 3px solid var(--ops-brass); background: rgba(201,162,74,.09); }
 .selected-scenario-banner span, .selected-scenario-banner small { color: var(--ops-muted); font-size: 13px; text-transform: uppercase; letter-spacing: .07em; }
 .listing-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(310px, .75fr); gap: 16px; margin-bottom: 36px; }
@@ -414,12 +409,50 @@
   box-shadow: inset 0 1px 4px rgba(0, 0, 0, .28);
 }
 
-.replay-controls {
-  color: var(--text);
-  background: linear-gradient(180deg, rgba(35, 41, 35, .98), rgba(20, 24, 20, .98));
-  border-color: var(--line-hi);
-  border-radius: 6px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, .58), inset 0 1px 0 rgba(255, 255, 255, .04);
+/* Replay controls: a dock along the bottom of the board. */
+/* Centred under the board, clear of the orders panel (--side-w is 0 once the panel drops below the board). */
+.replay-controls { position: fixed; z-index: 80; left: calc((100vw - var(--side-w)) / 2); bottom: 12px; transform: translateX(-50%); width: min(900px, calc(100vw - var(--side-w) - 24px)); box-sizing: border-box; display: grid; gap: 6px; padding: 9px 12px 10px; color: var(--text); border: 1px solid var(--line-hi); border-radius: 6px; background: linear-gradient(180deg, rgba(35, 41, 35, .97), rgba(20, 24, 20, .97)); box-shadow: 0 18px 60px rgba(0, 0, 0, .58), inset 0 1px 0 rgba(255, 255, 255, .04); user-select: none; }
+.replay-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; min-width: 0; }
+.replay-title, .replay-where { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.replay-title b, .replay-where b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.replay-where b { color: var(--ops-brass); }
+.replay-controls .replay-warn { color: var(--red-hi, #e0504a); }
+.replay-controls svg { display: block; margin: auto; }
+.replay-title span, .replay-where span { color: var(--ops-muted); font-size: 11px; white-space: nowrap; }
+.replay-row { display: flex; align-items: center; gap: 12px; }
+.replay-buttons, .replay-speed { display: flex; gap: 3px; flex: none; }
+.replay-controls button { min-width: 30px; height: 30px; padding: 0 6px; border: 1px solid var(--ops-line); border-radius: 4px; background: var(--ops-panel); color: var(--ops-cream); font-size: 15px; line-height: 1; cursor: pointer; }
+.replay-controls button:hover:not(:disabled) { border-color: var(--ops-brass); }
+.replay-controls button:disabled { opacity: .35; cursor: default; }
+.replay-controls .replay-play { min-width: 40px; color: var(--ops-brass); border-color: var(--ops-brass); font-size: 13px; }
+.replay-speed button { min-width: 0; font-size: 11px; color: var(--ops-muted); }
+.replay-speed button.on { color: var(--ops-brass); border-color: var(--ops-brass); }
+.replay-timeline { position: relative; flex: 1; min-width: 0; height: 30px; }
+.replay-track { position: absolute; left: 0; right: 0; top: 17px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .1); }
+.replay-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--ops-brass); opacity: .55; }
+.replay-tick { position: absolute; top: -2px; width: 1px; height: 10px; background: rgba(255, 255, 255, .45); }
+.replay-tick.turn { top: -6px; width: 2px; height: 18px; margin-left: -1px; background: var(--ops-cream); }
+.replay-timeline input[type=range] { position: absolute; inset: 10px 0 0; width: 100%; height: 20px; margin: 0; background: transparent; appearance: none; -webkit-appearance: none; cursor: pointer; }
+.replay-timeline input[type=range]::-webkit-slider-runnable-track { background: transparent; }
+.replay-timeline input[type=range]::-moz-range-track { background: transparent; }
+.replay-timeline input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--ops-brass); border: 2px solid #111; box-shadow: 0 0 0 1px var(--ops-brass); }
+.replay-timeline input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--ops-brass); border: 2px solid #111; }
+.replay-turns { position: absolute; left: 0; right: 0; top: -2px; height: 14px; pointer-events: none; }
+.replay-controls .replay-turns button { position: absolute; transform: translateX(-50%); min-width: 0; height: 14px; padding: 0 3px; border: 0; background: none; color: var(--ops-muted); font: 700 10px var(--font-head); pointer-events: auto; }
+.replay-controls .replay-turns button:hover { color: var(--ops-brass); }
+@media (max-width: 900px) {
+  /* The orders panel scrolls beneath the board: its end stays reachable above the dock. */
+  body:has(.replay-controls) .game > .side { padding-bottom: 150px; }
+}
+@media (max-width: 720px) {
+  .replay-controls { bottom: 6px; width: calc(100vw - 12px); padding: 8px; }
+  .replay-head { flex-wrap: wrap; gap: 2px 10px; }
+  .replay-title span { display: none; }
+  .replay-row { flex-wrap: wrap; gap: 6px 8px; }
+  .replay-timeline { order: -1; flex-basis: 100%; }
+  .replay-buttons { flex: 1; justify-content: space-between; }
+  .replay-buttons { gap: 2px; }
+  .replay-controls button { min-width: 32px; height: 34px; padding: 0 4px; }
 }
 
 .chat-messages p { color: var(--text); }

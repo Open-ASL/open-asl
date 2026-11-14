@@ -10,11 +10,14 @@ interface Props {
   /** Weather drawn over the map (snow, rain, fog). */
   weatherFx: boolean;
   onWeatherFx(on: boolean): void;
+  /** The "your call" strip over the board while a decision waits on this player. */
+  callStrip: boolean;
+  onCallStrip(on: boolean): void;
   onClose(): void;
 }
 
 /** Settings: sound volumes and mute, how much motion the interface plays, and the weather on the map. */
-export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, onClose }: Props) {
+export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, callStrip, onCallStrip, onClose }: Props) {
   const [audio, setAudio] = useAudioSettings();
   const samples = useSampleStatus();
   useEffect(() => {
@@ -101,6 +104,18 @@ export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, onClose }: Pro
             </label>
           </div>
           <p className="muted small">Falling snow, rain and fog drawn over the map when the scenario has them. Off with cinematics off.</p>
+        </section>
+
+        <section>
+          <h3>Prompts</h3>
+          <div className="set-row toggle">
+            <span className="set-label">"Your call" strip</span>
+            <label className="switch">
+              <input type="checkbox" checked={callStrip} onChange={(e) => onCallStrip(e.target.checked)} />
+              <span className="knob" />
+            </label>
+          </div>
+          <p className="muted small">The strip over the board when the game waits on you mid-phase (Defensive First Fire, a ROF choice). Off, the board edge still glows and Pass waits in the top bar, on the action wheel and in the orders panel.</p>
         </section>
       </div>
     </div>,

@@ -120,6 +120,8 @@ const ETO_PLACES: PlaceGeo[] = [
   { match: 'Potpot Luzon', region: 'Pacific', area: 'Philippines', latitude: 16.0, longitude: 120.55, theater: 'pto' },
   /** The Pacific demo (board o, no real battle): pinned on Guadalcanal. */
   { match: 'Training ground, Solomon Islands', region: 'Pacific', area: 'Solomon Islands', latitude: -9.43, longitude: 160.05, theater: 'pto' },
+  /** The Pacific vehicles demo (board o, no real battle): pinned on Saipan. */
+  { match: 'Training ground, Mariana Islands', region: 'Pacific', area: 'Marianas', latitude: 15.18, longitude: 145.75, theater: 'pto' },
 ];
 
 /**

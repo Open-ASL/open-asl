@@ -31,7 +31,14 @@ const MOUSE: Row[] = [
   [['Scroll'], 'Zoom the map around the pointer'],
 ];
 
-/** The keyboard and mouse controls, on one card. Opened with ? or the top-bar button. */
+const TOUCH: Row[] = [
+  [['Press and hold'], 'Open the action wheel on that hex'],
+  [['Tap'], 'Select your stack, or pick a target or destination hex'],
+  [['Drag'], 'Pan the map; in setup, carry a counter to a hex'],
+  [['Pinch'], 'Zoom the map'],
+];
+
+/** The keyboard, mouse and touch controls, on one card. Opened with ? or the top-bar button. */
 export function ShortcutsDialog({ onClose }: Props) {
   const table = (rows: Row[]) => (
     <table className="keys">
@@ -62,7 +69,11 @@ export function ShortcutsDialog({ onClose }: Props) {
         <h3>Mouse</h3>
         {table(MOUSE)}
       </section>
-      <p className="hint">End phase, Confirm setup and Pass also sit in the top bar when they apply.</p>
+      <section>
+        <h3>Touch</h3>
+        {table(TOUCH)}
+      </section>
+      <p className="hint">End phase, Confirm setup and Pass also sit in the top bar when they apply. The › at the top of the orders panel folds it away to give the map more room.</p>
     </Modal>
   );
 }

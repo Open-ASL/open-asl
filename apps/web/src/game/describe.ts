@@ -1,5 +1,5 @@
 import type { GameState, LoggedEvent, QueryEnv, SideId } from '@asl/engine';
-import { SKY_NAME, chartLabel, defOf, entryAfterFireParams, entryGroupsParams, secretLengthParams, fortifiedParams, hexOf, scatterParams, isVisibleTo, isWeaponDef, statics, weatherLabel, type CounterDef, type IftResult, type VariableReinforcementsEvent, type EntryOrderDrEvent, type EntryLossesEvent, entryOrderDrParams, entryOrderLabel, type ForceChartEvent, type ScatterState, type ScatterLanding, type EntryGroupsState, type Weather, NATION, PHASE_NAME, defLabel, hexLabel, humanize, nameIds, nationName, pieceLabel, sideNameOf, entryStretchParams, type LeaderReliefEvent, type OnceDrEvent, type OnceDrNmcEvent, type OnceDrRallyEvent, type LeaderPtcEvent } from '@asl/rules';
+import { SKY_NAME, chartLabel, defOf, entryAfterFireParams, entryGroupsParams, secretLengthParams, fortifiedParams, hexOf, scatterParams, isVisibleTo, isWeaponDef, statics, weatherLabel, type CounterDef, type IftResult, type VariableReinforcementsEvent, type EntryOrderDrEvent, type EntryLossesEvent, entryOrderDrParams, entryOrderLabel, type ForceChartEvent, type ScatterState, type ScatterLanding, type EntryGroupsState, type Weather, NATION, PHASE_NAME, defLabel, hexLabel, humanize, nameIds, nationName, pieceLabel, sideNameOf, entryStretchParams, type LeaderReliefEvent, type OnceDrEvent, type OnceDrNmcEvent, type OnceDrRallyEvent, type LeaderPtcEvent, type RoutStep } from '@asl/rules';
 
 // The naming helpers live in @asl/rules (labels.ts) so the server can name units too; re-exported for the many callers here.
 export { NATION, PHASE_NAME, defLabel, hexLabel, humanize, nameIds, nationName, pieceLabel, sideNameOf };
@@ -26,16 +26,24 @@ export interface LogLine {
   /** A shot's LOS, firing hexes to target, so the player can have it drawn on the map again. */
   /** `at`: the corner each firing hex traced to, firing at a stack in Bypass (full ASL, ASLRB A4.34). */
   los?: { from: string[]; to: string; at?: Record<string, [string, string]> };
-  /** Set by `newestFirst` on the line that opens an entry (a shot, a check, a move), not its results. */
+  /** Set by `phaseSections` on the line that opens an entry (a shot, a check, a move), not its results. */
   opens?: boolean;
+  /** On a `phase` line: the Player Turn and phase it opens, for the log's section headings. */
+  phase?: { turn: number; side: string; name: string };
+}
+
+/** One phase of the log: its heading (none for what came before the first phase) and its lines. */
+export interface LogSection {
+  head?: LogLine;
+  lines: LogLine[];
 }
 
 /**
- * The log newest first, without turning each entry upside down: phases newest first, each under its own
- * heading, and within a phase the entries newest first, each still reading top to bottom (a shot, then
- * its results and the checks it caused, which `describeEvents` indents).
+ * The log one section per phase, oldest first like the dice log, so each phase can be shown under its own heading.
+ * An entry is a line and the indented lines after it (a shot, then its results and the checks it caused, which
+ * `describeEvents` indents); its first line is marked `opens`.
  */
-export function newestFirst(lines: LogLine[]): LogLine[] {
+export function phaseSections(lines: LogLine[]): LogSection[] {
   const sections: { head?: LogLine; entries: LogLine[][] }[] = [{ entries: [] }];
   for (const l of lines) {
     const sec = sections[sections.length - 1]!;
@@ -43,7 +51,21 @@ export function newestFirst(lines: LogLine[]): LogLine[] {
     else if (l.text.startsWith(' ') && sec.entries.length) sec.entries[sec.entries.length - 1]!.push(l);
     else sec.entries.push([{ ...l, opens: true }]);
   }
-  return sections.reverse().flatMap((sec) => [...(sec.head ? [sec.head] : []), ...sec.entries.reverse().flat()]);
+  return sections
+    .filter((sec) => sec.head || sec.entries.length)
+    .map((sec) => ({ ...(sec.head ? { head: sec.head } : {}), lines: sec.entries.flat() }));
+}
+
+/**
+ * A provisional reinforcement's entry dr ("enter on a dr < the current Turn number", or a chart of circled numbers):
+ * the force, what it needed and whether it enters this Player Turn. The rules record only the roll, labelled
+ * "<force>: entry dr (needs < 3)" or "(needs ≤ 2)".
+ */
+export function entryRoll(label: string, dr: number): { force: string; need: string; enters: boolean } | null {
+  const m = /^(.*): entry dr \(needs (<|≤) (\d+)\)$/.exec(label);
+  if (!m) return null;
+  const n = Number(m[3]);
+  return { force: m[1]!, need: `${m[2]} ${n}`, enters: m[2] === '<' ? dr < n : dr <= n };
 }
 
 /** What the log calls each kind of fire attack. */
@@ -58,8 +80,11 @@ const FIRE_MODE_NAME: Record<string, string> = {
 };
 
 /** The labels of a list of explain notes (`{ id, label? }`) as the events carry them. */
-/** A DR written out colored die first, as ASL reads it: "5+3=8" for white 3, colored 5. */
-const drText = (dr: [number, number]) => `${dr[1]}+${dr[0]}=${dr[0] + dr[1]}`;
+/**
+ * A DR written out colored die first, as ASL reads it: "5+3=8" for white 3, colored 5. The log
+ * draws every "c+w=t" as the two dice, so each two-dice roll is written this way.
+ */
+const drText = (dr: readonly number[]) => `${dr[1]}+${dr[0]}=${dr[0]! + dr[1]!}`;
 const noteLabels = (xs: unknown) => ((xs as { label?: string }[] | undefined) ?? []).map((x) => x.label).filter((l): l is string => !!l);
 
 /**
@@ -100,12 +125,45 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
   };
   // The LOS of a shot from one hex, for the map, when it was fired from somewhere else than the target.
   const losOf = (from: string | undefined, to: string): Pick<LogLine, 'los'> => (from && from !== to ? { los: { from: [from], to } } : {});
+  // A DR an event records only as its total (a MC, a CC attack, the weather): the dice come from the
+  // roll that made it, the nearest earlier two-dice roll with that total, preferring one whose label
+  // names `mention` (the unit that checked). An Original DR reused (FPF, depletion) finds the roll it
+  // came from the same way. No such roll in sight: the total alone.
+  const dr2 = (total: unknown, mention?: string): string => {
+    let any: number[] | undefined;
+    for (let j = at - 1; j >= Math.max(0, at - 80); j--) {
+      const f = events[j]!;
+      if (f.type !== 'dice.rolled') continue;
+      const q = f.payload as { label: string; dice: number[] };
+      if (q.dice.length !== 2 || q.dice[0]! + q.dice[1]! !== total) continue;
+      if (!mention || q.label.includes(mention)) return drText(q.dice);
+      any ??= q.dice;
+    }
+    return any ? drText(any) : String(total);
+  };
+  /** The rout step a unit's move at event `i` was, from the rout state event that closes it (a few events on at most). */
+  const routStepAfter = (i: number, id: string): RoutStep | null => {
+    for (let j = i + 1; j < Math.min(events.length, i + 40); j++) {
+      const f = events[j]!;
+      if (f.type === 'sk1.rout.state') {
+        const step = (f.payload as { step?: RoutStep }).step;
+        return step?.unit === id ? step : null;
+      }
+      if (f.type === 'piece.moved' && (f.payload as { id: string }).id === id) return null;
+    }
+    return null;
+  };
   for (const [i, e] of events.entries()) {
     at = i;
     const p = e.payload as Record<string, unknown>;
     switch (e.type) {
       case 'turn.phaseStarted':
-        out.push({ seq: e.seq, kind: 'phase', text: `Turn ${p['turn']} — ${sideNameOf(env, p['attacker'] as string)} ${PHASE_NAME[p['phase'] as string] ?? p['phase']}` });
+        out.push({
+          seq: e.seq,
+          kind: 'phase',
+          text: `Turn ${p['turn']} — ${sideNameOf(env, p['attacker'] as string)} ${PHASE_NAME[p['phase'] as string] ?? p['phase']}`,
+          phase: { turn: p['turn'] as number, side: p['attacker'] as string, name: PHASE_NAME[p['phase'] as string] ?? String(p['phase']) },
+        });
         break;
       case 'sk1.fire.attack': {
         const dr = p['dr'] as [number, number];
@@ -132,7 +190,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         out.push({
           seq: e.seq,
           kind: 'fire',
-          text: `${FIRE_MODE_NAME[a.mode ?? ''] ?? 'Fire'} on ${hexLabel(a.target)} from ${from}: no LOS (${(p['blockedBy'] as string[]).join('; ')}) — ${a.parts.map(name).join(', ')} fired for nothing${p['dr'] ? ` (DR ${(p['dr'] as number[]).join('+')} for breakdown and ROF${p['cowered'] ? ', cowers' : ''})` : ''}`,
+          text: `${FIRE_MODE_NAME[a.mode ?? ''] ?? 'Fire'} on ${hexLabel(a.target)} from ${from}: no LOS (${(p['blockedBy'] as string[]).join('; ')}) — ${a.parts.map(name).join(', ')} fired for nothing${p['dr'] ? ` (DR ${drText(p['dr'] as number[])} for breakdown and ROF${p['cowered'] ? ', cowers' : ''})` : ''}`,
           los: { from: p['from'] as string[], to: a.target, ...(a.at ? { at: a.at } : {}) },
         });
         break;
@@ -177,7 +235,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
           seq: e.seq,
           kind: 'check',
           // An FPF NMC rolls nothing: it is the attack's Original DR, on the units that fired (SK1 3.3.1).
-          text: `  ${p['reason'] === 'FPF' ? 'FPF NMC on firer' : p['kind']} ${name(p['unit'] as string)}: ${p['reason'] === 'FPF' ? 'Original DR' : 'DR'} ${p['dr']} → ${p['final']} vs ${p['target']} — ${p['outcome'] === 'stepReduced' ? 'Step Reduced' : p['outcome']}`,
+          text: `  ${p['reason'] === 'FPF' ? 'FPF NMC on firer' : p['kind']} ${name(p['unit'] as string)}: ${p['reason'] === 'FPF' ? 'Original DR' : 'DR'} ${dr2(p['dr'], p['unit'] as string)} → ${p['final']} vs ${p['target']} — ${p['outcome'] === 'stepReduced' ? 'Step Reduced' : p['outcome']}`,
           detail: [p['reason'] as string, ...((p['explain'] as { label?: string }[] | undefined) ?? []).map((n) => n.label).filter(Boolean)].join(', '),
         });
         break;
@@ -185,6 +243,22 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         // Support weapons changing hands or being dropped (units moving is covered by the move log).
         const pc = env.state.pieces[p['id'] as string];
         const loc = p['loc'] as { kind: string; by?: string; hex?: string };
+        // A hex of a rout: its state event, after any Interdiction it drew, tells whether it was a Low Crawl and why
+        // it was or was not open to Interdiction (SK1 3.6).
+        const step = pc && !isWeaponDef(defOf(env, pc)) ? routStepAfter(i, pc.id) : null;
+        if (step && !hiddenFrom(step.unit)) {
+          const where = hexLabel(step.to);
+          const why =
+            step.interdiction === 'checked'
+              ? `Interdiction${step.by!.some(hiddenFrom) ? '' : ` by ${step.by!.map(name).join(', ')}`}`
+              : step.interdiction === 'lowCrawl'
+                ? 'no Interdiction (Low Crawl)'
+                : step.interdiction === 'notOpen'
+                  ? 'no Interdiction (not Open Ground)'
+                  : 'no Interdiction (no enemy able to interdict)';
+          out.push({ seq: e.seq, kind: 'info', text: `${step.lowCrawl ? 'Low Crawl' : 'Rout'}: ${name(step.unit)} to ${where} · ${why}` });
+          break;
+        }
         if (pc && isWeaponDef(defOf(env, pc))) {
           const gun = defOf(env, pc).kind === 'gun';
           if (loc.kind === 'held' && loc.by) out.push({ seq: e.seq, kind: 'info', text: `  ⇄ ${name(pc.id)} now ${gun ? 'manned' : 'carried'} by ${name(loc.by)}` });
@@ -342,7 +416,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         // A force the card gives no name (S68's "Enter on Turn 3 ...") is the side's reinforcements.
         const forces = statics(env).scenario.forces.filter((f) => !!f.id && !!sp?.forces.includes(f.id)).map((f) => f.group ?? 'the reinforcements');
         const span = (opt?.hexes.length ?? 0) > 1 ? ` (${hexLabel(opt!.hexes[0]!)}–${hexLabel(opt!.hexes[opt!.hexes.length - 1]!)})` : '';
-        out.push({ seq: e.seq, kind: 'info', text: `${sideNameOf(env, p['side'] as string)} entry stretch: ${forces.join(', ')} enter ${p['label']}${span}` });
+        out.push({ seq: e.seq, kind: 'info', text: `${sideNameOf(env, p['side'] as string)} entry ${span ? 'stretch' : 'hex'}: ${forces.join(', ')} enter ${p['label']}${span}` });
         break;
       }
       case 'ssr.length.revealed': {
@@ -374,7 +448,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
       }
       case 'ssr.leaderPtc': {
         const v = p as unknown as LeaderPtcEvent;
-        out.push({ seq: e.seq, kind: 'check', text: `${v.rule}: 1PTC ${name(v.unit)}: DR ${v.dr.join('+')} ${v.drm >= 0 ? '+' : ''}${v.drm} → ${v.final} vs ${v.morale} — ${v.pinned ? 'pinned for this Player Turn' : 'passed'}` });
+        out.push({ seq: e.seq, kind: 'check', text: `${v.rule}: 1PTC ${name(v.unit)}: DR ${drText(v.dr)} ${v.drm >= 0 ? '+' : ''}${v.drm} → ${v.final} vs ${v.morale} — ${v.pinned ? 'pinned for this Player Turn' : 'passed'}` });
         break;
       }
       case 'ssr.sw.assembled':
@@ -393,7 +467,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         out.push({
           seq: e.seq,
           kind: 'check',
-          text: `  NMC ${name(v.unit)}: DR ${v.dr} → ${v.final} vs ${v.morale} — ${v.failed ? (v.concealmentLost ? 'failed: loses its concealment' : 'failed (no effect)') : 'passed'}`,
+          text: `  NMC ${name(v.unit)}: DR ${dr2(v.dr, v.unit)} → ${v.final} vs ${v.morale} — ${v.failed ? (v.concealmentLost ? 'failed: loses its concealment' : 'failed (no effect)') : 'passed'}`,
           detail: v.rule,
         });
         break;
@@ -436,7 +510,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
       case 'weather.dr': {
         const sky = SKY_NAME[p['sky'] as keyof typeof SKY_NAME] ?? String(p['sky']);
         const change = p['change'] as 'begins' | 'ends' | null;
-        out.push({ seq: e.seq, kind: 'info', text: `Weather DR ${p['dr']}: ${change === 'begins' ? `${sky} begins` : change === 'ends' ? `${sky} ends` : 'no change'}` });
+        out.push({ seq: e.seq, kind: 'info', text: `Weather DR ${dr2(p['dr'], 'Weather DR')}: ${change === 'begins' ? `${sky} begins` : change === 'ends' ? `${sky} ends` : 'no change'}` });
         break;
       }
       case 'weather.changed': {
@@ -452,7 +526,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         });
         break;
       case 'sk1.cc.attack':
-        out.push({ seq: e.seq, kind: 'cc', text: `CC in ${p['hex']} (${sideNameOf(env, p['side'] as string)}): ${p['odds']}, DR ${p['dr']}${(p['drm'] as number) ? ` ${(p['drm'] as number) > 0 ? '+' : ''}${p['drm']}` : ''} vs kill ${p['kill']} — ${p['result']}` });
+        out.push({ seq: e.seq, kind: 'cc', text: `CC in ${p['hex']} (${sideNameOf(env, p['side'] as string)}): ${p['odds']}, DR ${dr2(p['dr'], `CC ${p['side']} in`)}${(p['drm'] as number) ? ` ${(p['drm'] as number) > 0 ? '+' : ''}${p['drm']}` : ''} vs kill ${p['kill']} — ${p['result']}` });
         break;
       case 'dice.rolled': {
         const label = p['label'] as string;
@@ -483,13 +557,19 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
           out.push({
             seq: e.seq,
             kind: 'info',
-            text: `Interdiction: ${name(id)}${where ? ` entering ${hexLabel(where)}` : ''} — NMC, DR ${dice.join('+')}${morale !== undefined ? ` vs broken morale ${morale}` : ''} → ${outcome}`,
+            text: `  Interdiction: ${name(id)}${where ? ` entering ${hexLabel(where)}` : ''} — NMC, DR ${drText(dice)}${morale !== undefined ? ` vs broken morale ${morale}` : ''} → ${outcome}`,
           });
+          break;
+        }
+        const entry = entryRoll(label, (p['dice'] as number[])[0]!);
+        if (entry) {
+          out.push({ seq: e.seq, kind: 'info', text: `${entry.force}: entry dr ${(p['dice'] as number[])[0]} (needs ${entry.need}) → ${entry.enters ? 'enters this turn' : 'does not enter this turn'}` });
           break;
         }
         // Leader Creation has its own line with the outcome.
         if (/Smoke|Recover|Repair|Ambush|wound/i.test(label)) {
-          out.push({ seq: e.seq, kind: 'info', text: `  ${label}: ${(p['dice'] as number[]).join('+')}` });
+          const dice = p['dice'] as number[];
+          out.push({ seq: e.seq, kind: 'info', text: `  ${label}: ${dice.length === 2 ? `DR ${drText(dice)}` : `dr ${dice.join(', ')}`}` });
         }
         break;
       }
@@ -524,7 +604,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
           never: `the Gun never had ${what} and has not fired`,
           malf: `the Gun malfunctions and is out of ${what}`,
         };
-        out.push({ seq: e.seq, kind: 'fire', text: `  ${what} depletion ${n}, original DR ${p['dr']}: ${RESULT[p['result'] as string] ?? p['result']}` });
+        out.push({ seq: e.seq, kind: 'fire', text: `  ${what} depletion ${n}, original DR ${dr2(p['dr'], 'To Hit')}: ${RESULT[p['result'] as string] ?? p['result']}` });
         break;
       }
       case 'sk2.smoke.placed':
@@ -539,7 +619,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         out.push({
           seq: e.seq,
           kind: 'fire',
-          text: `${name(p['weapon'] as string)} at ${hexLabel(p['target'] as string)}${p['ammo'] ? ` (${p['ammo']})` : ''}: no LOS (${p['blockedBy']}) — ${p['noAmmo'] ? 'and no ammo: it has not fired' : `the Gun has fired for nothing${p['dr'] ? ` (TH DR ${(p['dr'] as number[]).join('+')} for breakdown, depletion and ROF)` : ''}`}`,
+          text: `${name(p['weapon'] as string)} at ${hexLabel(p['target'] as string)}${p['ammo'] ? ` (${p['ammo']})` : ''}: no LOS (${p['blockedBy']}) — ${p['noAmmo'] ? 'and no ammo: it has not fired' : `the Gun has fired for nothing${p['dr'] ? ` (TH DR ${drText(p['dr'] as number[])} for breakdown, depletion and ROF)` : ''}`}`,
           ...losOf((p['from'] as string | undefined) ?? hexOfNow(p['weapon'] as string), p['target'] as string),
         });
         break;
@@ -557,7 +637,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         break;
       }
       case 'sk2.gun.malf':
-        out.push({ seq: e.seq, kind: 'info', text: `  ✖ ${name(p['gun'] as string)} ${p['removed'] ? 'is permanently removed' : 'malfunctions'} (original DR ${p['dr']})` });
+        out.push({ seq: e.seq, kind: 'info', text: `  ✖ ${name(p['gun'] as string)} ${p['removed'] ? 'is permanently removed' : 'malfunctions'} (original DR ${dr2(p['dr'], 'To Hit')})` });
         break;
       case 'sk3.toKill': {
         const dr = p['dr'] as [number, number] | null;
@@ -565,8 +645,8 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         const text = p['tk'] === null
           ? `${name(p['weapon'] as string)} hits ${name(p['target'] as string)} (${p['location']} ${p['facing']}): ${p['ammo']} has no To Kill number`
           : p['ammo'] === 'FT'
-            ? `Flamethrower To Kill ${name(p['target'] as string)}: TK ${p['finalTk']} (${noteLabels(p['explain']).join(', ')}), DR ${dr![0]}+${dr![1]}=${dr![0] + dr![1]} → ${r === 'kill' ? 'burns' : r === 'shock' ? 'Shock' : r === 'dud' ? 'dud' : 'no effect'}`
-          : `To Kill ${name(p['target'] as string)}: ${p['location']} ${p['facing']} AF ${p['af']}, ${p['ammo']}${p['ch'] ? ' CH ×2' : ''} TK ${p['modifiedTk']} − ${p['af']} = ${p['finalTk']}, DR ${dr![0]}+${dr![1]}=${dr![0] + dr![1]} → ${
+            ? `Flamethrower To Kill ${name(p['target'] as string)}: TK ${p['finalTk']} (${noteLabels(p['explain']).join(', ')}), DR ${drText(dr!)} → ${r === 'kill' ? 'burns' : r === 'shock' ? 'Shock' : r === 'dud' ? 'dud' : 'no effect'}`
+          : `To Kill ${name(p['target'] as string)}: ${p['location']} ${p['facing']} AF ${p['af']}, ${p['ammo']}${p['ch'] ? ' CH ×2' : ''} TK ${p['modifiedTk']} − ${p['af']} = ${p['finalTk']}, DR ${drText(dr!)} → ${
               r === 'kill' ? 'destroyed' : r === 'immobilized' ? 'Immobilized' : r === 'shock' ? 'Shock' : r === 'stun' ? 'Stun' : r === 'possibleShock' ? `Possible Shock (${p['shocked'] ? 'Shocked' : 'crew holds'})` : r === 'dud' ? 'dud' : 'no effect'
             }`;
         out.push({ seq: e.seq, kind: 'fire', text });
@@ -612,7 +692,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
       case 'sk3.collateral': {
         const dr = p['dr'] as [number, number];
         const res = p['result'] as IftResult;
-        out.push({ seq: e.seq, kind: 'fire', text: `Collateral Attack on the crew of ${name(p['target'] as string)}: ${p['column']} column, DR ${dr[0] + dr[1]} +${p['drm']} CE → ${res.kind === 'none' ? 'no effect' : res.kind === 'MC' ? `${res.n}MC` : res.kind === 'K' ? `K/${res.n}` : res.kind === 'KIA' ? `${res.n ?? ''}KIA` : res.kind}` });
+        out.push({ seq: e.seq, kind: 'fire', text: `Collateral Attack on the crew of ${name(p['target'] as string)}: ${p['column']} column, DR ${drText(dr)} +${p['drm']} CE → ${res.kind === 'none' ? 'no effect' : res.kind === 'MC' ? `${res.n}MC` : res.kind === 'K' ? `K/${res.n}` : res.kind === 'KIA' ? `${res.n ?? ''}KIA` : res.kind}` });
         break;
       }
       case 'sk3.areaHit': {
@@ -747,7 +827,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         out.push({
           seq: e.seq,
           kind: 'move',
-          text: `${name(p['gun'] as string)} manhandled toward ${hexLabel(p['to'] as string)}: DR ${p['dr']} ${(p['drm'] as number) >= 0 ? '+' : ''}${p['drm']} vs M${p['m']} — ${ok === 'moved' ? 'moved on' : ok === 'stopped' ? 'moved and stopped' : 'did not move'}`,
+          text: `${name(p['gun'] as string)} manhandled toward ${hexLabel(p['to'] as string)}: DR ${dr2(p['dr'], `Manhandle ${p['gun']}`)} ${(p['drm'] as number) >= 0 ? '+' : ''}${p['drm']} vs M${p['m']} — ${ok === 'moved' ? 'moved on' : ok === 'stopped' ? 'moved and stopped' : 'did not move'}`,
           detail: noteLabels(p['explain']).join(', '),
         });
         break;
@@ -757,7 +837,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         break;
       case 'sk4.usmc.deploy': {
         const halves = p['halves'] as string[] | undefined;
-        out.push({ seq: e.seq, kind: 'check', text: `  NTC ${asDef(p['unit'] as string, p['from'] as string | undefined)} to deploy: DR ${(p['dr'] as number[]).join('+')}${p['drm'] ? ` ${(p['drm'] as number) > 0 ? '+' : ''}${p['drm']}` : ''} vs ${p['morale']} — ${p['passed'] ? `passed: two ${halves ? name(halves[0]!) : 'half-squads'}` : 'failed (SK4 8.4)'}` });
+        out.push({ seq: e.seq, kind: 'check', text: `  NTC ${asDef(p['unit'] as string, p['from'] as string | undefined)} to deploy: DR ${drText(p['dr'] as number[])}${p['drm'] ? ` ${(p['drm'] as number) > 0 ? '+' : ''}${p['drm']}` : ''} vs ${p['morale']} — ${p['passed'] ? `passed: two ${halves ? name(halves[0]!) : 'half-squads'}` : 'failed (SK4 8.4)'}` });
         break;
       }
       case 'sk4.usmc.recombined':

@@ -139,10 +139,13 @@ export const concealmentModule: RuleModule = {
       apply(v, { piece, viewer }, env) {
         const p = env.state.pieces[piece];
         if (!p || !isConcealed(p) || viewer === p.side || !isInfantry(env, p) || p.loc.kind !== 'hex' || !concealmentActive(env)) return v;
-        // One stand-in per concealed stack of a side in a hex; 5/8" when a Gun is in it (8.3.3).
+        // One stand-in per concealed stack of a side in a hex; 5/8" when a Gun is in it (8.3.3). It tells how many
+        // counters lie under the "?" (the units and the weapons they hold): at the table the stack's height is plain to
+        // see, only what the counters are is hidden (8.3, ASLRB A12.1).
         const stack = concealedAt(env, locOf(env.state, p)!, p.side).filter((q) => isInfantry(env, q));
         const big = stack.some((q) => swHeldBy(env.state, q.id).some((w) => gun(env, w)));
-        return { id: `?:${p.side}:${locOf(env.state, p)!}`, defId: UNKNOWN_DEF_ID, side: p.side, loc: p.loc, tags: { [T4.concealed]: true, ...(big ? { big: true } : {}) } };
+        const counters = stack.reduce((n, q) => n + 1 + swHeldBy(env.state, q.id).length, 0);
+        return { id: `?:${p.side}:${locOf(env.state, p)!}`, defId: UNKNOWN_DEF_ID, side: p.side, loc: p.loc, tags: { [T4.concealed]: true, counters, ...(big ? { big: true } : {}) } };
       },
     });
     r.contribute({
@@ -199,18 +202,29 @@ export const concealmentModule: RuleModule = {
       gainConcealment(ctx, chosen, 'setup');
     });
     // "after all setup, no enemy unit has a LOS to it" (and so every unit when the enemy sets up nothing on board).
-    r.procedure<(c: Ctx) => void>('sk1.scenario.begin', (next) => (ctx) => {
-      if (concealmentActive(ctx)) {
-        for (const side of ctx.state.sides) {
-          const enemy = otherSide(ctx.state, side);
-          const unseen = Object.values(ctx.state.pieces)
-            .filter((p) => p.side === side && p.loc.kind === 'hex' && isInfantry(ctx, p) && !isConcealed(p) && !isHidden(p))
-            .filter((p) => !Object.values(ctx.state.pieces).some((e) => e.side === enemy && e.loc.kind === 'hex' && (isInfantry(ctx, e) || isVehicleDef(defOf(ctx, e))) && hasLos(ctx, locOf(ctx.state, e)!, locOf(ctx.state, p)!)))
-            .map((p) => p.id);
-          gainConcealment(ctx, unseen, 'setup-unseen');
-        }
+    const concealUnseen = (ctx: Ctx) => {
+      if (!concealmentActive(ctx)) return;
+      for (const side of ctx.state.sides) {
+        const enemy = otherSide(ctx.state, side);
+        const unseen = Object.values(ctx.state.pieces)
+          .filter((p) => p.side === side && p.loc.kind === 'hex' && isInfantry(ctx, p) && !isConcealed(p) && !isHidden(p))
+          .filter((p) => !Object.values(ctx.state.pieces).some((e) => e.side === enemy && e.loc.kind === 'hex' && (isInfantry(ctx, e) || isVehicleDef(defOf(ctx, e))) && hasLos(ctx, locOf(ctx.state, e)!, locOf(ctx.state, p)!)))
+          .map((p) => p.id);
+        gainConcealment(ctx, unseen, 'setup-unseen');
       }
+    };
+    r.procedure<(c: Ctx) => void>('sk1.scenario.begin', (next) => (ctx) => {
+      concealUnseen(ctx);
       next?.(ctx);
+    });
+    // A scenario whose every unit sets up in fixed hexes has no setup decision, so play starts from the turn
+    // module's own start hook and never reaches `sk1.scenario.begin`: its setup ends here, before that hook.
+    r.setup({
+      id: 'sk4.concealment.fixedSetup',
+      priority: 999,
+      run(ctx) {
+        if (ctx.state.decisions.length === 0) concealUnseen(ctx);
+      },
     });
 
     // ---------------------------------------------------------------- loss in the LOS of a non-HIP Good Order enemy
@@ -442,14 +456,19 @@ export const concealmentModule: RuleModule = {
         const st = ev.payload.state;
         if (!st || !st.hex) return;
         const inHex = (side: SideId) => personnelAt(ctx, st.hex!, side).map((p) => p.id);
+        // The enemy a concealed unit engages in CC is in its hex and sees it. That enemy is "in Melee", so not Good
+        // Order, and would never count as the Good Order enemy whose LOS takes a "?" off (SK4 8.3); any unbroken,
+        // non-HIP enemy in the hex does.
+        const engaged = (side: SideId) => personnelAt(ctx, st.hex!, otherSide(ctx.state, side)).some((e) => !isBroken(e) && !isHidden(e));
+        const drop = (side: SideId) => dropConcealment(ctx, inHex(side), 'cc', engaged(side) ? undefined : [st.hex!]);
         if (st.step === 'simultaneous-attacker' || st.step === 'sequential') {
-          // Declarations begin with no ambush: every concealed unit engaging in CC drops its "?" (if a Good Order enemy sees it).
-          for (const side of ctx.state.sides) dropConcealment(ctx, inHex(side), 'cc', [st.hex]);
+          // Declarations begin with no ambush: every concealed unit engaging in CC drops its "?".
+          for (const side of ctx.state.sides) drop(side);
         } else if (st.step === 'ambusher' && st.ambusher) {
-          dropConcealment(ctx, inHex(otherSide(ctx.state, st.ambusher)), 'cc', [st.hex]);
+          drop(otherSide(ctx.state, st.ambusher));
         } else if (st.step === 'other' && st.ambusher) {
           // The ambusher's attacks are done and an enemy still stands: it did not "both ambush and eliminate all enemy units".
-          dropConcealment(ctx, inHex(st.ambusher), 'cc', [st.hex]);
+          drop(st.ambusher);
         }
       },
     });
@@ -527,13 +546,12 @@ export const concealmentModule: RuleModule = {
       const g = ctx.state.pieces[gunId];
       const manner = g && g.loc.kind === 'held' ? g.loc.by : null;
       const emplaced = !!g && isEmplaced(g);
+      // A Gun placed on board under a "?" gets the "?" before its HIP comes off: a view built event by event must
+      // never show the real counter in between, so the crew and Gun go from hidden straight to concealed.
+      const conceals = concealmentActive(ctx) && !!manner && !!ctx.state.pieces[manner] && (reason === 'seen' || reason === 'advanced' || (reason === 'fire' && emplaced));
+      if (conceals) gainConcealment(ctx, [manner!], 'hip');
       next?.(ctx, gunId, reason);
-      if (!concealmentActive(ctx) || !manner || !ctx.state.pieces[manner]) return;
-      if (reason === 'seen' || reason === 'advanced') gainConcealment(ctx, [manner], 'hip');
-      else if (reason === 'fire' && emplaced) {
-        gainConcealment(ctx, [manner], 'hip');
-        setTags(ctx, gunId, { [T4.hipFired]: true });
-      }
+      if (conceals && reason === 'fire') setTags(ctx, gunId, { [T4.hipFired]: true });
     });
     r.on<{ unit: PieceId; reason: string }>({
       id: 'sk4.concealment.hip-unit',

@@ -4,7 +4,7 @@ import { defOf, type IftResult, type Statics, isVisibleTo } from '@asl/rules';
 import { playSfx } from '../audio/engine';
 import type { SfxName, SfxParams } from '../audio/sfx';
 import { counterImage } from '../game/assets';
-import { NATION, defLabel, hexLabel, humanize, pieceLabel, sideNameOf } from '../game/describe';
+import { NATION, defLabel, entryRoll, hexLabel, humanize, pieceLabel, sideNameOf } from '../game/describe';
 import type { FxLevel } from './settings';
 
 /* ----------------------------------------------------------------------------- types */
@@ -143,6 +143,13 @@ const hexOfPiece = (state: GameState, id: PieceId): HexId | undefined => {
 /* ----------------------------------------------------------------------------- hook */
 
 /**
+ * The page is in a background tab. The browser pauses the board's animation frames and the audio there but still
+ * runs (throttled) timers, so effects queued meanwhile would all play at once on return: while away, the game is
+ * followed silently, as with effects off, and the rolls go to the dice log.
+ */
+const away = () => typeof document !== 'undefined' && document.hidden;
+
+/**
  * Watches the game for things worth dramatising: phase and player-turn changes (phase wheel),
  * decisions handed to the other side (callouts), dice (toasts) and combat results (board effects).
  */
@@ -150,7 +157,11 @@ const hexOfPiece = (state: GameState, id: PieceId): HexId | undefined => {
  * `env` is the real game (the effects are built from the events that produced it); `present` is
  * what the screen shows, revealed beat by beat as the dice play, and `decision` its decision.
  */
-export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision | undefined, level: FxLevel, viewer: SideId | null, present: PresentationControl): GameFx {
+/**
+ * `seek`: a replay's jump counter (Session.seek). When it changes, the position jumped to is taken as it stands: no
+ * wheel, callout, dice or board effect for what was jumped over, and whatever was still playing is dropped.
+ */
+export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision | undefined, level: FxLevel, viewer: SideId | null, present: PresentationControl, seek = 0): GameFx {
   const enabled = level !== 'off';
   const state = env.state;
   const shownState = present.state;
@@ -197,12 +208,22 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
     chitSide.current = side;
     return from && from !== side ? { flipFrom: from } : {};
   };
+  const wheelSeek = useRef(seek);
   useEffect(() => {
     const now = { phase: shownState.phase, turn: shownState.turn, attacker: shownState.attacker, setupKey };
     const prev = prevTurn.current;
     prevTurn.current = now;
     const sides = shownState.sides;
     const defender = sides.find((s) => s !== shownState.attacker) ?? shownState.attacker;
+    if (seek !== wheelSeek.current || away()) {
+      // A replay jump, or a change while the tab is in the background: the wheel takes up the new position
+      // silently, so the next phase change reads from here.
+      wheelSeek.current = seek;
+      setWheel(null);
+      if (now.phase !== 'setup' && !setupKey) lastPlayerTurn.current = { turn: now.turn, attacker: now.attacker };
+      chitSide.current = setupKind && decision ? decision.owner : now.attacker;
+      return;
+    }
     if (shownState.result) return;
     if (setupKind && decision) {
       if (prev?.setupKey === setupKey) return;
@@ -237,25 +258,33 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
       ...chitFlip(now.attacker),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownState.phase, shownState.turn, shownState.attacker, shownState.result, shownState.sides, setupKey]);
+  }, [shownState.phase, shownState.turn, shownState.attacker, shownState.result, shownState.sides, setupKey, seek]);
 
   // --- callouts for decisions that switch the acting player inside a phase.
   const prevDecision = useRef<string | undefined>(undefined);
+  const calloutSeek = useRef(seek);
   useEffect(() => {
     const key = decision ? `${decision.id}` : undefined;
     if (key === prevDecision.current) return;
     prevDecision.current = key;
-    if (!decision || !enabled) return;
+    const jumped = seek !== calloutSeek.current;
+    calloutSeek.current = seek;
+    if (jumped) setCallout(null);
+    if (!decision || !enabled || jumped || away()) return;
     const name = sideNameOf(env, decision.owner);
     let c: Omit<Callout, 'id'> | null = null;
     const at = decision.data?.['hex'] ? hexLabel(String(decision.data['hex'])) : '';
-    // Addressed to the player it waits on ("your call"); the other side reads it as news.
-    const you = viewer === decision.owner ? 'Your call · ' : '';
-    if (decision.kind === 'firstFire') c = { side: decision.owner, title: name, text: decision.data?.['ending'] ? `${you}Move over in ${at} · last First Fire chance` : `${you}Defensive First Fire · ${at}` };
+    // The player it waits on has the standing "your call" cue (with its Pass or Done button) for Defensive First
+    // Fire and the defender's rallies; the banner is news for the other side and for spectators.
+    // That player still hears the chime.
+    const theirs = viewer !== decision.owner;
+    // The RPh is shared: once the attacker has rallied, the defender gets their turn at it.
+    const defenderRally = decision.kind === 'phase' && shownState.phase === 'RPh' && decision.owner !== shownState.attacker;
+    if (decision.kind === 'firstFire' && theirs) c = { side: decision.owner, title: name, text: decision.data?.['ending'] ? `Move over in ${at} · last First Fire chance` : `Defensive First Fire · ${at}` };
     else if (decision.kind === 'ccArrange') c = { side: decision.owner, title: name, text: `Arrange leaders for Close Combat · ${at}` };
     else if (decision.kind === 'ccDeclare') c = { side: decision.owner, title: name, text: `Declare Close Combat · ${at}` };
-    // The RPh is shared: once the attacker has rallied, the defender gets their turn at it.
-    else if (decision.kind === 'phase' && shownState.phase === 'RPh' && decision.owner !== shownState.attacker) c = { side: decision.owner, title: name, text: `${you}Rally Phase · your rallies` };
+    else if (defenderRally && theirs) c = { side: decision.owner, title: name, text: 'Rally Phase · their rallies' };
+    else if (decision.kind === 'firstFire' || defenderRally) playSfx('callout');
     if (c) {
       const id = nextId.current++;
       playSfx('callout');
@@ -264,15 +293,30 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
       return () => clearTimeout(t);
     }
     return undefined;
-  }, [decision, enabled]);
+  }, [decision, enabled, seek]);
 
   // --- events → dice toasts and board effects.
   const seen = useRef(0);
+  const eventSeek = useRef(seek);
   useEffect(() => {
     // After an undo the log is shorter than what was seen: start again from its new end, so
     // the actions replayed from there play their effects.
     const last = log[log.length - 1]?.seq ?? 0;
     const reveal = (seq: number) => presentRef.current.reveal(seq);
+    if (seek !== eventSeek.current) {
+      // A replay jump: drop what was still to play and start again from where it landed.
+      eventSeek.current = seek;
+      seen.current = last;
+      scheduled.current.forEach(clearTimeout);
+      scheduled.current = [];
+      unshown.current = [];
+      faceHolds.current.clear();
+      queueEnd.current = 0;
+      setToasts([]);
+      setBoardFx([]);
+      reveal(last);
+      return;
+    }
     if (last < seen.current) {
       // Whatever was still to be revealed belonged to the undone action.
       seen.current = last;
@@ -460,6 +504,12 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
           // Simultaneous CC rolls every DR before any result: each result goes back to its own side's roll.
           const cc = /^CC (\S+) in /.exec(p['label'] as string);
           if (cc) ccToasts[cc[1]!] = lastToast;
+          // A provisional reinforcement's entry dr: say whether the force comes on this turn.
+          const entry = entryRoll(p['label'] as string, dice[0]!);
+          if (entry) {
+            lastToast.results.push(entry.enters ? 'ENTERS THIS TURN' : 'NOT THIS TURN');
+            lastToast.tone = entry.enters ? 'good' : 'neutral';
+          }
           break;
         }
         case 'sk1.fire.attack': {
@@ -727,7 +777,7 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
           break;
         }
         case 'hex.marker':
-          if ((p['key'] === 'smoke' && p['value'] === true) || (p['key'] === 'smoke58' && p['value'])) snd('move.smoke', 0);
+          if (p['key'] === 'smoke' && p['value']) snd('move.smoke', 0);
           break;
         // ---------------------------------------------------------------- SK2: Guns and ordnance
         case 'sk2.ordnance.shot': {
@@ -964,6 +1014,9 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
           else if (kind === 'start' || kind === 'restart') snd('move.step', 0);
           break;
         }
+        case 'sk2.smoke.placed':
+          snd('move.smoke', 0);
+          break;
         case 'sk3.vehicle.smoke': {
           const placed = p['placed'] as boolean;
           if (lastToast) {
@@ -1002,8 +1055,9 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
       }
     }
     closeBeat(last);
-    // Effects off: nothing plays, but the rolls still go to the dice log (players keep it open to see them all).
-    if (!enabled) {
+    // Effects off, or the tab in the background: nothing plays, but the rolls still go to the dice log (players keep it
+    // open to see them all).
+    if (!enabled || away()) {
       const rolls = beats.flatMap((b) => (b.toast ? [b.toast] : []));
       if (rolls.length) setHistory((h) => [...h, ...rolls].slice(-DICE_LOG_LIMIT));
       faceHolds.current.clear();
@@ -1055,7 +1109,7 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
     at(revealedAt, () => reveal(last));
     queueEnd.current = Math.max(time, revealedAt);
     timers.current = timers.current.slice(-200);
-  }, [log, env, state, enabled, level]);
+  }, [log, env, state, enabled, level, seek]);
 
   const skip = () => {
     scheduled.current.forEach(clearTimeout);
@@ -1067,7 +1121,24 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
     presentRef.current.flush();
   };
 
+  // Leaving the tab ends what was still playing: the board jumps to the outcome, as with Skip.
+  const skipRef = useRef(skip);
+  skipRef.current = skip;
+  useEffect(() => {
+    const onVisibility = () => {
+      if (!document.hidden) return;
+      skipRef.current();
+      setToasts([]);
+      setBoardFx([]);
+      setWheel(null);
+      setCallout(null);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
   const ping = (hex: HexId, color: number, at?: { x: number; y: number }) => {
+    if (away()) return;
     setBoardFx((f) => [...f.slice(-40), { id: nextId.current++, kind: 'ping', hex, color, ...(at ? { at } : {}) }]);
     playSfx('ping');
   };

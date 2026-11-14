@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { Action, Ctx, RuleModule } from '@asl/engine';
 import { FP, type FireDeclaration, type FireMode, type ResolveFireFn } from '@asl/rules';
 import { act, makeEngine } from '../../../packages/rules/test/fixtures';
-import { describeEvents, newestFirst, type LogLine } from '../src/game/describe';
+import { newGame, PLAYABLE_SCENARIOS } from '@asl/content';
+import type { GameState } from '@asl/engine';
+import { describeEvents, entryRoll, phaseSections, type LogLine } from '../src/game/describe';
 
 /** Resolves a declared fire attack directly (the fire tests' harness action). */
 const testFire: RuleModule = {
@@ -38,7 +40,8 @@ describe('game log', () => {
     const lines = describeEvents(engine.env(t.state), t.events).map((l) => l.text.trim());
     expect(lines.find((l) => l.includes('4-4-7') && l.includes('PTC (final DR 8)') && l.includes('no effect'))).toMatch(/no effect: already pinned or broken/);
     expect(lines.filter((l) => /no effect: already pinned/.test(l))).toHaveLength(1);
-    expect(lines).toContainEqual(expect.stringMatching(/^PTC German 4-4-7: DR 3 → 3 vs 7 — passed$/));
+    // The check event keeps only the total; the dice come from its roll, colored die (2) first.
+    expect(lines).toContainEqual(expect.stringMatching(/^PTC German 4-4-7: DR 2\+1=3 → 3 vs 7 — passed$/));
   });
 
   it('names a unit as it was at each event and says when ELR replaced it', () => {
@@ -61,7 +64,7 @@ describe('game log', () => {
     expect(all.find((l) => /^[A-Z][\w ]* on P5: /.test(l.text))!.detail).toBe('FP: x2 Point Blank Fire · DRM: +3 TEM (Stone Building), +1 LOS Hindrance');
     // Before the replacement the unit is the 4-6-7 it was; the ELR line names both counters.
     expect(lines).toContainEqual(expect.stringMatching(/^German 4.?-6-7: NMC/));
-    expect(lines).toContainEqual(expect.stringMatching(/^MC German 4.?-6-7: DR 11 → 11 vs 7 — broken$/));
+    expect(lines).toContainEqual(expect.stringMatching(/^MC German 4.?-6-7: DR 5\+6=11 → 11 vs 7 — broken$/));
     expect(lines).toContainEqual(expect.stringMatching(/^↓ ELR: German 4.?-6-7 becomes 4-4-7 \(failed by 4, ELR 3\)$/));
     expect(lines.filter((l) => /becomes/.test(l))).toHaveLength(1);
     expect(lines.join('\n')).not.toMatch(/4-4-7 becomes/);
@@ -274,10 +277,10 @@ describe('game log: order of entry and losses on entry (SSR)', () => {
   });
 });
 
-describe('newestFirst', () => {
-  it('puts phases and entries newest first, each entry still reading top to bottom under its own heading', () => {
+describe('phaseSections', () => {
+  it('puts phases and entries oldest first, each entry opening on its first line, its results after it', () => {
     const l = (seq: number, kind: LogLine['kind'], text: string): LogLine => ({ seq, kind, text });
-    const out = newestFirst([
+    const out = phaseSections([
       l(1, 'phase', 'Turn 5 — German Movement Phase'),
       l(2, 'fire', 'Defensive First Fire on R7: ...'),
       l(3, 'fire', '  German 5-4-8: no effect'),
@@ -285,7 +288,81 @@ describe('newestFirst', () => {
       l(5, 'check', '  FPF NMC on firer American 3-3-7: ...'),
       l(6, 'phase', 'Turn 5 — German Defensive Fire Phase'),
     ]);
-    expect(out.map((x) => x.seq)).toEqual([6, 1, 4, 5, 2, 3]);
-    expect(out.filter((x) => x.opens).map((x) => x.seq)).toEqual([4, 2]);
+    expect(out.map((s) => s.head?.seq)).toEqual([1, 6]);
+    expect(out[0]!.lines.map((x) => x.seq)).toEqual([2, 3, 4, 5]);
+    expect(out[0]!.lines.filter((x) => x.opens).map((x) => x.seq)).toEqual([2, 4]);
+  });
+
+  it('gives each phase its own section, oldest first, and keeps a phase where nothing happened', () => {
+    const l = (seq: number, kind: LogLine['kind'], text: string): LogLine => ({ seq, kind, text });
+    const out = phaseSections([
+      l(1, 'info', 'German secretly designated 2 fortified buildings (SSR)'),
+      l(2, 'phase', 'Turn 1 — German Rally Phase'),
+      l(3, 'phase', 'Turn 1 — German Prep Fire Phase'),
+      l(4, 'fire', 'Prep Fire on R7: ...'),
+      l(5, 'fire', '  American 6-6-6: no effect'),
+    ]);
+    expect(out.map((s) => s.head?.seq ?? null)).toEqual([null, 2, 3]);
+    expect(out.map((s) => s.lines.map((x) => x.seq))).toEqual([[1], [], [4, 5]]);
+  });
+});
+
+describe('provisional reinforcements', () => {
+  it('reads an entry dr against what it needed, for both forms of the rule', () => {
+    expect(entryRoll('Ad hoc shock group: entry dr (needs < 3)', 2)).toEqual({ force: 'Ad hoc shock group', need: '< 3', enters: true });
+    expect(entryRoll('Ad hoc shock group: entry dr (needs < 3)', 3)).toMatchObject({ enters: false });
+    expect(entryRoll('Battle group: entry dr (needs ≤ 2)', 2)).toMatchObject({ need: '≤ 2', enters: true });
+    expect(entryRoll('Smoke placement dr', 2)).toBeNull();
+  });
+
+  it('logs each entry dr of a force that enters "on a dr < twice the Turn number", and whether it enters', () => {
+    const sc = PLAYABLE_SCENARIOS.find((s) => s.id === 'lma-7')!;
+    const outcomes = new Set<boolean>();
+    for (const seed of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) {
+      const { engine, state } = newGame(sc, seed, { los: 'grid' });
+      let s: GameState = state;
+      for (let i = 0; i < 40; i++) {
+        const d = engine.currentDecision(s)!;
+        const acts = engine.legalActions(s, d.owner);
+        const t = engine.submit(s, acts.find((x) => x.type === 'endPhase') ?? acts.find((x) => /setup|pass|done/i.test(x.type)) ?? acts[0]!);
+        const roll = t.events.find((e) => e.type === 'dice.rolled' && / entry dr /.test((e.payload as { label: string }).label));
+        s = t.state;
+        if (!roll) continue;
+        const line = describeEvents(engine.env(s), t.events).find((l) => l.text.includes('entry dr'))!;
+        const due = Object.values(s.pieces).some((p) => p.tags['entryRoll'] === 'drBelowTurnTimes' && p.tags['entryTurn'] === s.turn);
+        expect(line.text).toBe(`Reinforcements: entry dr ${(roll.payload as { dice: number[] }).dice[0]} (needs < ${2 * s.turn}) → ${due ? 'enters this turn' : 'does not enter this turn'}`);
+        outcomes.add(due);
+        break;
+      }
+    }
+    // The seeds cover a roll that brings the force on and one that does not.
+    expect([...outcomes].sort()).toEqual([false, true]);
+  });
+});
+
+describe('rout steps in the log', () => {
+  const setup = (g1 = 'yP5') =>
+    makeEngine({
+      startPhase: 'RtPh',
+      terrain: { yL5: { terrain: 'woods' } },
+      // The Interdiction NMC in M5: DR 3, passed.
+      dice: [2, 1],
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5', tags: { broken: true, dm: true } },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: g1 },
+      ],
+    });
+  const step = (engine: ReturnType<typeof setup>['engine'], s: GameState, to: string, lowCrawl = false) =>
+    act(engine, s, engine.legalActions(s, 'am').find((a) => a.type === 'rout.step' && a['to'] === to && !!a['lowCrawl'] === lowCrawl)!);
+  const lines = (engine: ReturnType<typeof setup>['engine'], t: { state: GameState; events: Parameters<typeof describeEvents>[1] }) => describeEvents(engine.env(t.state), t.events).filter((l) => l.kind !== 'phase').map((l) => l.text);
+
+  it('says of each hex whether it was a Low Crawl, and whether it drew Interdiction or why not (SK1 3.6)', () => {
+    const { engine, state } = setup();
+    const t1 = step(engine, state, 'yM5');
+    expect(lines(engine, t1)).toEqual(['Rout: American 7²-4-7 to M5 · Interdiction by German 4¹-6-7', expect.stringMatching(/^ {2}Interdiction: American 7²-4-7 entering M5 — NMC, DR 1\+2=3 vs broken morale 7 → passed$/)]);
+    expect(lines(engine, step(engine, t1.state, 'yL5'))).toEqual(['Rout: American 7²-4-7 to L5 · no Interdiction (not Open Ground)']);
+    expect(lines(engine, step(engine, state, 'yM5', true))).toEqual(['Low Crawl: American 7²-4-7 to M5 · no Interdiction (Low Crawl)']);
+    const far = setup('yA1');
+    expect(lines(far.engine, step(far.engine, far.state, 'yO5'))).toEqual(['Rout: American 7²-4-7 to O5 · no Interdiction (no enemy able to interdict)']);
   });
 });

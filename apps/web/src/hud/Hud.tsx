@@ -1,7 +1,9 @@
+import { useEffect, useRef, type ReactNode } from 'react';
 import type { SideId } from '@asl/engine';
 import type { ScenarioDef, Weather } from '@asl/rules';
 import { NATION } from '../game/describe';
 import type { FxLevel } from '../fx/settings';
+import { DiceIcon } from '../ui/DiceIcon';
 import { GearIcon } from '../ui/GearIcon';
 import { fmtSe, goalText, type SideTally } from '../panels/CasualtyLedger';
 import { WeatherChip } from './WeatherChip';
@@ -17,6 +19,8 @@ interface Props {
   /** Side that owns the pending decision. */
   acting?: SideId;
   sideName(s: SideId): string;
+  /** Who plays each side (the computer's seat by its name), shown under the side's name; a side missing here shows none. */
+  players?: Record<SideId, string>;
   /**
    * Each side's victory point tally, when its conditions turn on one: exit VP for a side that
    * wins by exiting, else casualty VP where a CVP condition exists; null shows nothing.
@@ -53,6 +57,8 @@ interface Props {
   onToggleMarkers(): void;
   /** The step can be finished by the acting player (end the phase, confirm the setup): a button, besides the wheel. */
   endPhase?: { label: string; icon?: string; blocked: string | null; hint?: string; onClick(): void; attention?: boolean } | null;
+  /** Buttons a deployment adds to the tool row, before Settings. */
+  tools?: ReactNode;
 }
 
 const PHASE_SHORT: Record<string, string> = { RPh: 'RPh', PFPh: 'PFPh', MPh: 'MPh', DFPh: 'DFPh', AFPh: 'AFPh', RtPh: 'RtPh', APh: 'APh', CCPh: 'CCPh' };
@@ -186,13 +192,23 @@ export function northWords(north: number): string {
   return n === 0 ? 'North is up' : n === 90 ? 'North is to the right' : n === 180 ? 'North is down' : n === 270 ? 'North is to the left' : `North is ${n}° clockwise from up`;
 }
 
-export function Hud({ scenario, length, phases, phase, turn, attacker, acting, sideName, tally, onTally, pf, oba, weather, windAngle, fx, onFx, onRotate, onSettings, onShortcuts, onCharts, onBriefing, diceLog, onToggleDiceLog, unitsHidden, onToggleUnits, markersHidden, onToggleMarkers, endPhase }: Props) {
+export function Hud({ scenario, length, phases, phase, turn, attacker, acting, sideName, players, tally, onTally, pf, oba, weather, windAngle, fx, onFx, onRotate, onSettings, onShortcuts, onCharts, onBriefing, diceLog, onToggleDiceLog, unitsHidden, onToggleUnits, markersHidden, onToggleMarkers, endPhase, tools }: Props) {
   const [code, ...rest] = scenario.title.split(' ');
   const defender = scenario.sides.find((s) => s.side !== attacker)?.side ?? attacker;
   const idx = phases.indexOf(phase);
   const setup = phase === 'setup';
+  // The bar wraps onto more rows in a narrow window: what sits under it (the "your call" strip) reads its height.
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    const pane = el?.parentElement;
+    if (!el || !pane || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => pane.style.setProperty('--hud-h', `${el.offsetHeight}px`));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   return (
-    <div className="hud">
+    <div className="hud" ref={ref}>
       <div className="hud-bar">
         <button className="title-block" onClick={onBriefing} title="Mission briefing (B)">
           <span className="scenario-code">{code}</span>
@@ -213,8 +229,17 @@ export function Hud({ scenario, length, phases, phase, turn, attacker, acting, s
           {scenario.sides.map((s) => (
             <span key={s.side} className={`side-chip side-${s.side} ${acting === s.side ? 'acting' : ''}`}>
               <span className="sw" />
-              {sideName(s.side)}
-              <span className="role">{setup ? '' : s.side === attacker ? 'attacking' : 'defending'}</span>
+              <span className="who">
+                <span className="side-line">
+                  {sideName(s.side)}
+                  <span className="role">{setup ? '' : s.side === attacker ? 'attacking' : 'defending'}</span>
+                </span>
+                {players?.[s.side] && (
+                  <span className="player" title={`${players[s.side]} plays the ${sideName(s.side)} side`}>
+                    {players[s.side]}
+                  </span>
+                )}
+              </span>
               {tally[s.side] && <TallyChip t={tally[s.side]!} side={sideName(s.side)} onClick={() => onTally(s.side)} />}
               {oba?.[s.side] && (
                 <span
@@ -285,7 +310,8 @@ export function Hud({ scenario, length, phases, phase, turn, attacker, acting, s
           </span>
         </div>
         <button className={`log-btn ${diceLog ? 'on' : ''}`} onClick={onToggleDiceLog} title={diceLog ? 'Close the dice log (L)' : 'Dice log: the last rolls (L)'} aria-label="Dice log" aria-pressed={diceLog}>
-          ⚄
+          <DiceIcon />
+          <span>Dice</span>
         </button>
         <button className="keys-btn charts-btn" onClick={onCharts} title="Charts: IFT, To Hit, terrain and more (C)" aria-label="Charts">
           Charts
@@ -293,6 +319,7 @@ export function Hud({ scenario, length, phases, phase, turn, attacker, acting, s
         <button className="keys-btn" onClick={onShortcuts} title="Controls: keyboard and mouse (?)" aria-label="Controls">
           ?
         </button>
+        {tools}
         <button className="gear-btn" onClick={onSettings} title="Settings (sound, motion)" aria-label="Settings">
           <GearIcon />
         </button>

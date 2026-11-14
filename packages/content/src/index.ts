@@ -7,6 +7,7 @@ export * from './game';
 export * from './scenarios/demo';
 export * from './scenarios/demoVehicles';
 export * from './scenarios/demoPacific';
+export * from './scenarios/demoJungle';
 export * from './scenarios/commercial';
 export * from './scenarios/skFree';
 export * from './scenarios/lma';

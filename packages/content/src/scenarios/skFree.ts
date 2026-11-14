@@ -618,7 +618,7 @@ export const SK_S28: ScenarioDef = {
     },
   ],
   exits: [{ side: 'ge', hexes: S28_INFANTRY_EXITS, infantryOnly: true }],
-  victory: [{ kind: 'exitVp', side: 'ge', edge: 'S', hexes: S28_EXITS, vp: 33, vehicleVp: { 'ge.pzvg': 8, 'ge.jgpz38': 7 } }],
+  victory: [{ kind: 'exitVp', side: 'ge', edge: 'S', hexes: S28_EXITS, vp: 33, immediate: true, vehicleVp: { 'ge.pzvg': 8, 'ge.jgpz38': 7 } }],
   ssr: [
     { module: 'immobilization-dr', params: { terrains: ['open', 'brush', 'grain'], notHill: true, atLeast: 11, rule: 'SSR 1' }, text: 'AFV must make a DR for each non-Hill Open Ground, Brush, or Grain hex entered. On a DR ≥ 11 that vehicle is immobilized in that hex.' },
     { module: 'terrain-cost', params: { terrains: ['grain', 'brush'], mf: 1.5, vehicleMp: 2, rule: 'SSR 2' }, text: 'All Grain/Brush represent wetland hexes and are treated as Grain hexes for Hindrance purposes and cost 1.5MF for infantry to enter and 2MP for vehicles to enter (in addition to SSR 1).' },
@@ -804,7 +804,7 @@ export const SK_S30: ScenarioDef = {
       setup: { kind: 'enter', turn: 1, edge: 'S,W', hexes: S30_AM_ENTRY, description: 'enter on Turn 1 along the south/west edges on/between hexes A2/I6 on board v' },
     },
   ],
-  victory: [{ kind: 'exitVp', side: 'am', edge: 'E', hexes: S30_EXIT, vp: 10, afvVpAtLeast: 6, afvVp: { ma: 3, noMa: 3 } }],
+  victory: [{ kind: 'exitVp', side: 'am', edge: 'E', hexes: S30_EXIT, vp: 10, immediate: true, afvVpAtLeast: 6, afvVp: { ma: 3, noMa: 3 } }],
   ssr: [{ module: 'mp-limit', params: { side: 'am', fraction: 0.5, woodsHalfIsAll: true, rule: 'SSR 1' }, text: 'Due to the soggy ground, the Americans tanks may only use a maximum of half of their printed MP per MPh. An AFV expending half of its printed MP when entering woods is considered to have expended “all” for Bog purposes.' }],
   balance: [
     { side: 'ge', text: 'In the Victory Conditions change “10” to “13”.', changes: [{ op: 'setExitVp', side: 'am', vp: 13 }] },
@@ -1210,7 +1210,7 @@ export const SK_S34: ScenarioDef = {
       setup: { kind: 'enter', turn: 1, edge: 'N', description: 'enter on/after Turn 1 along the north edge' },
     },
   ],
-  victory: [{ kind: 'exitVp', side: 'ge', edge: 'S', vp: 40, afvVp: { ma: 6, noMa: 5 } }],
+  victory: [{ kind: 'exitVp', side: 'ge', edge: 'S', vp: 40, immediate: true, afvVp: { ma: 6, noMa: 5 } }],
   ssr: [
     { module: 'attack-drm', params: { drm: 1, label: 'approaching night', minRange: 7, notResidual: true, rule: 'SSR 1' }, text: 'Due to the approaching night, there is a +1 DRM to all IFT/TH rolls at a range of ≥ 7 hexes. This penalty applies to the To Hit attempt and not on the IFT on an Infantry or Area Target Type attack. It does not affect Residual FP or Interdiction and does not negate FFMO.' },
     { module: 'secret-sw', params: { side: 'am', types: ['BAZ'], rule: 'SSR 2' }, text: 'The American player may secretly record which units possess Bazookas during setup. They are revealed if the possessing unit fires them, becomes broken, or an enemy unit enters its hex.' },
@@ -1477,7 +1477,7 @@ export const SK_S36: ScenarioDef = {
       setup: { kind: 'enter', turn: 1, edge: 'S', mpSpent: 'half', description: 'enter on Turn 1 along the south edge with AFV having expended half of their MP (see SSR 1)' },
     },
   ],
-  victory: [{ kind: 'exitVp', side: 'ru', edge: 'N', vp: 20, vehicleVp: { 'ru.T3485': { ma: 7, noMa: 6 }, 'ru.IS2': { ma: 8, noMa: 7 } } }],
+  victory: [{ kind: 'exitVp', side: 'ru', edge: 'N', vp: 20, immediate: true, vehicleVp: { 'ru.T3485': { ma: 7, noMa: 6 }, 'ru.IS2': { ma: 8, noMa: 7 } } }],
   ssr: [
     {
       module: 'secret-length',

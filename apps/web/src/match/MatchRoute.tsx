@@ -8,6 +8,7 @@ import { useMember } from '../auth/AuthProvider';
 import { Splash } from '../auth/RequireMember';
 import { api, db, errorOf } from '../firebase';
 import { GameScreen } from '../GameScreen';
+import { seatNames } from './seatNames';
 import { useOnlineGame, type OnlineSession } from '../game/onlineSession';
 import { useOnlineGameLegacy } from '../game/onlineSessionLegacy';
 import { Modal } from '../ui/Modal';
@@ -161,7 +162,7 @@ function HotseatMatch({ matchId, match, scenario, actions, onReload }: { matchId
   if (session.replayError) return <OutdatedGate matchId={matchId} text={`${session.replayError} ${OLD_RULES}`} canEnd={match.status === 'active'} />;
   return (
     <>
-      <GameScreen scenario={scenario} session={session} matchId={matchId} onQuit={() => navigate('/app')} aar={aarCue(matchId, match, scored === 'done' || match.status === 'complete', scoreFailure(scored))} />
+      <GameScreen scenario={scenario} players={seatNames(match)} session={session} matchId={matchId} onQuit={() => navigate('/app')} aar={aarCue(matchId, match, scored === 'done' || match.status === 'complete', scoreFailure(scored))} />
       {lock && <LockedBoard lock={lock} onReload={lock === 'moved' || match.result ? onReload : null} />}
       {fixtureError && <div className="save-warning">Dev fixture: {fixtureError}</div>}
       {!lock && (writeError || (scored !== 'pending' && scored !== 'done')) && <div className="save-warning">{writeError ? `Not saved: ${writeError}` : `Result not recorded: ${scored}`}</div>}
@@ -205,7 +206,7 @@ function ComputerMatch({ matchId, match, scenario, actions, onReload }: { matchI
   const theirTurn = session.engine.currentDecision(session.state)?.owner === ai?.side;
   return (
     <>
-      <GameScreen scenario={scenario} session={session} matchId={matchId} onQuit={() => navigate('/app')} onResolvingChange={setRevealing} slow={speed === 'slow'} aar={aarCue(matchId, match, scored === 'done' || match.status === 'complete', scoreFailure(scored))} />
+      <GameScreen scenario={scenario} players={seatNames(match)} session={session} matchId={matchId} onQuit={() => navigate('/app')} onResolvingChange={setRevealing} slow={speed === 'slow'} aar={aarCue(matchId, match, scored === 'done' || match.status === 'complete', scoreFailure(scored))} />
       {!session.state.result && (
         <div className={`online-strip ${computer.thinking ? '' : 'mine'}`}>
           <span>
@@ -349,7 +350,7 @@ function OnlineMatchBody({ matchId, match, scenario, mySide, session }: { matchI
 
   return (
     <>
-      <GameScreen scenario={scenario} session={mySide && match.status === 'active' ? { ...session, canUndo: undo.canUndo, askUndo: undo.askUndo } : session} matchId={matchId} onQuit={() => navigate('/app')} aside={mySide ? <ChatDock variant="rail" channelId={matchId} title="Table chat" storageKey="asl.matchChat" /> : undefined} aar={aarCue(matchId, match, match.status === 'complete' && !!match.result)} />
+      <GameScreen scenario={scenario} players={seatNames(match)} session={mySide && match.status === 'active' ? { ...session, canUndo: undo.canUndo, askUndo: undo.askUndo } : session} matchId={matchId} onQuit={() => navigate('/app')} aside={mySide ? <ChatDock variant="rail" channelId={matchId} title="Table chat" storageKey="asl.matchChat" /> : undefined} aar={aarCue(matchId, match, match.status === 'complete' && !!match.result)} />
       <div className={`online-strip ${toMove && toMove === mySide && !session.sending ? 'mine' : ''}`}>
         {mySide ? (
           <span>

@@ -6,7 +6,7 @@ import { Avatar } from '../profile/Avatar';
 import { Emblem } from '../ui/Emblem';
 import { GearIcon } from '../ui/GearIcon';
 import { SettingsPanel } from '../settings/SettingsPanel';
-import { useFxLevel, useWeatherFx } from '../fx/settings';
+import { useFxLevel, useWeatherFx, useYourCallStrip } from '../fx/settings';
 import { usePublicProfile } from '../profile/usePublicProfile';
 import { LobbyIdleGuard } from './LobbyIdleGuard';
 import { OutgoingInvites } from '../invites/InviteListener';
@@ -28,6 +28,7 @@ export function LobbyShell() {
   const [settings, setSettings] = useState(false);
   const [fx, setFx] = useFxLevel();
   const [weatherFx, setWeatherFx] = useWeatherFx();
+  const [callStrip, setCallStrip] = useYourCallStrip();
   const rank = rankFor(profile.xp);
   const publicRecord = usePublicProfile(user.uid, true).profile;
   // Full ASL is open only behind the development gate; anything else unknown goes back to the choice.
@@ -57,7 +58,7 @@ export function LobbyShell() {
         <span>Ruleset</span><b>{rulesetName(ruleset)}</b>{ruleset === 'full-asl' && <small className="ruleset-dev">In development</small>}
         <Link to="/app?change=1">Change</Link>
       </div>
-      {settings && <SettingsPanel fx={fx} onFx={setFx} weatherFx={weatherFx} onWeatherFx={setWeatherFx} onClose={() => setSettings(false)} />}
+      {settings && <SettingsPanel fx={fx} onFx={setFx} weatherFx={weatherFx} onWeatherFx={setWeatherFx} callStrip={callStrip} onCallStrip={setCallStrip} onClose={() => setSettings(false)} />}
       <div className="shell-notices"><OutgoingInvites /></div>
       <Outlet />
       <LobbyChatDock />

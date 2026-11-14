@@ -33,6 +33,7 @@ const SK_RULESETS: Record<string, [string, string]> = {
   'demo-gun-line': ['asl-sk2', 'cc125c396df1cbf891300997019e7788227129ba17d78d6c9954f285380397a9'],
   'demo-armor': ['asl-sk3', '31c6b1cc3a0e388b7199e55139fbb4dfa2ae1aa578b6d203835a052d580f35fb'],
   'demo-pacific': ['asl-sk4', '850baf78972726ea0adead05548d9419679e869be9ee975dc35b6bd99f34879a'],
+  'demo-jungle': ['asl-sk4', '850baf78972726ea0adead05548d9419679e869be9ee975dc35b6bd99f34879a'],
   'lma-5': ['asl-sk3', 'ccd10f12fdc8440d9eb2d481d47ecf52d775b76cfec8208c30fd2fc7535d809e'],
 };
 

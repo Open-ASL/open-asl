@@ -445,6 +445,10 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
         hl(winner, m, 'Annihilation', `${name(last.side)} ${last.label} in ${last.hex ?? '?'} was the last unit standing: ${last.cause}.`, 10);
       }
       break;
+    case 'nothing left to play':
+      // One side's units had all exited or died with the result settled (sk1.vc.nothing-left): the VC decided it there.
+      how = `${winner ? (met[0] ? winningClause(env, scenario, met[0], true) : `${plural(name(winner))} held on`) : 'Neither side met its victory conditions'}; with nothing left to play, the game ended in Turn ${state.turn}`;
+      break;
     case 'concession':
       how = `${loserNick} conceded in Turn ${state.turn} ${phaseName}`;
       break;

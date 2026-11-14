@@ -273,6 +273,7 @@ export const japaneseModule: RuleModule = {
       id: 'sk4.ja.mg-rof',
       query: 'sw.rof',
       ref: 'SK4 8.1.8.2',
+      label: '-1 Japanese squad/HS',
       when: ({ sw: id, user }, env) => jaSquadUser(env, id, user),
       apply: (v) => Math.max(0, v - 1),
     });

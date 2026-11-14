@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RU_VS_GE, act, makeEngine } from './fixtures';
-import { moveState, roadBonusEarned } from '../src';
+import { assaultMoving, moveState, roadBonusEarned } from '../src';
 
 // SK1 MPh/DFPh example, figure 2 (board z).
 const terrain = {
@@ -632,5 +632,202 @@ describe('Follow-up Defensive First Fire (SK1 3.3.1, ASLRB A8.14)', () => {
     s = act(engine, s, { type: 'move.step', to: 'yN7' }).state;
     expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', data: { hex: 'yN7', units: ['r2'] } });
     expect(Object.keys(results(act(engine, s, { type: 'defFire', decl: { units: ['g2'], sw: [], target: 'yN7' } })))).toEqual(['r2']);
+  });
+});
+
+describe('Assault Movement shown to the defender (SK1 3.3: no FFNAM against it, 3.3.1)', () => {
+  const setup = () =>
+    makeEngine({
+      startPhase: 'MPh',
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5' },
+        { id: 'a2', def: 'am.747', side: 'am', hex: 'yM5' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yN8' },
+      ],
+    });
+  const am = (s: Parameters<typeof moveState>[0]['state']) => {
+    const ms = moveState({ state: s } as never);
+    return !!ms && assaultMoving(ms);
+  };
+
+  it('holds while the stack is asked about by Defensive First Fire, and not for a stack moving normally', () => {
+    const { engine, state } = setup();
+    let s = act(engine, state, { type: 'move.start', units: ['a1'], assault: true }).state;
+    expect(am(s)).toBe(true);
+    s = act(engine, s, { type: 'move.step', to: 'yN6' }).state;
+    expect(engine.currentDecision(s)?.kind).toBe('firstFire');
+    expect(am(s)).toBe(true);
+    s = act(engine, s, { type: 'defPass' }).state;
+    if (moveState({ state: s } as never)) s = act(engine, s, { type: 'move.end' }).state;
+    while (engine.currentDecision(s)?.kind === 'firstFire') s = act(engine, s, { type: 'defPass' }).state;
+    expect(am(s)).toBe(false);
+
+    // The next stack moves normally: nothing to show.
+    s = act(engine, s, { type: 'move.start', units: ['a2'] }).state;
+    expect(am(s)).toBe(false);
+    s = act(engine, s, { type: 'move.step', to: 'yM6' }).state;
+    expect(am(s)).toBe(false);
+  });
+
+  it('is gone by the next Player Turn, and the unit moves again normally', () => {
+    const { engine, state } = setup();
+    let s = act(engine, state, { type: 'move.start', units: ['a1'], assault: true }).state;
+    s = act(engine, s, { type: 'move.step', to: 'yN6' }).state;
+    for (let i = 0; i < 60 && !(s.turn === 1 && s.attacker !== state.attacker && s.phase === 'MPh') && !(s.turn > 1 && s.phase === 'MPh'); i++) {
+      const d = engine.currentDecision(s)!;
+      const a = engine.legalActions(s, d.owner).find((x) => x.type === 'defPass' || x.type === 'move.end' || x.type === 'endPhase') ?? engine.legalActions(s, d.owner)[0]!;
+      s = engine.submit(s, a).state;
+    }
+    expect(s.phase).toBe('MPh');
+    expect(am(s)).toBe(false);
+    expect(moveState({ state: s } as never)).toBeFalsy();
+  });
+});
+
+// Assault Movement: one hex, "and the move does not take all of the unit's MF" (SK1 3.3; ASLRB A4.61). What a unit
+// spends in place counts too: Smoke grenades, a Recovery, a DC.
+describe('Assault Movement may not use all MF, Smoke and the rest included', () => {
+  // A grenade dr of 1 (a 6 would end the unit's move, SK1 3.3), then 3s.
+  const setup = () =>
+    makeEngine({
+      startPhase: 'MPh',
+      dice: [1, ...new Array(20).fill(3)],
+      terrain: { yN6: { terrain: 'building-stone' } },
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yN9' },
+      ],
+    });
+  const check = (engine: ReturnType<typeof setup>['engine'], s: Parameters<typeof moveState>[0]['state'], a: Record<string, unknown>) =>
+    engine.validate(s, { ...a, side: 'am', decisionId: engine.currentDecision(s)!.id } as never);
+  const pass = (engine: ReturnType<typeof setup>['engine'], s: Parameters<typeof moveState>[0]['state']) => {
+    while (engine.currentDecision(s)?.kind === 'firstFire') s = act(engine, s, { type: 'defPass' }).state;
+    return s;
+  };
+
+  it('into a building for 2 of 4 MF, then no Smoke in the next hex (2 MF more); Smoke in its own hex (1 MF) is fine', () => {
+    const { engine, state } = setup();
+    let s = act(engine, state, { type: 'move.start', units: ['a1'], assault: true }).state;
+    s = pass(engine, act(engine, s, { type: 'move.step', to: 'yN6' }).state);
+    expect(moveState({ state: s } as never)!.spent['a1']).toBe(2);
+    expect(check(engine, s, { type: 'move.smoke', unit: 'a1', target: 'yN7' })).toMatch(/Assault Movement may not use all MF/);
+    expect(check(engine, s, { type: 'move.smoke', unit: 'a1', target: 'yN6' })).toBeNull();
+    // Moving normally, the same Smoke is allowed: it is the Assault Movement that limits it.
+    const { engine: e2, state: s2 } = setup();
+    let t = act(e2, s2, { type: 'move.start', units: ['a1'] }).state;
+    t = pass(e2, act(e2, t, { type: 'move.step', to: 'yN6' }).state);
+    expect(check(e2, t, { type: 'move.smoke', unit: 'a1', target: 'yN7' })).toBeNull();
+  });
+
+  it('Smoke first counts toward the step: 1 MF of Smoke, then a 2 MF building is still under 4; open ground after 3 MF of Smoke is not', () => {
+    const { engine, state } = setup();
+    let s = act(engine, state, { type: 'move.start', units: ['a1'], assault: true }).state;
+    s = pass(engine, act(engine, s, { type: 'move.smoke', unit: 'a1', target: 'yN5' }).state);
+    expect(check(engine, s, { type: 'move.step', to: 'yN6' })).toBeNull();
+    // A 3-MF spend in place is not possible with grenades; a step after 3 MF already spent would take all 4.
+    const ms = moveState({ state: s } as never)!;
+    const spent3 = { ...s, ext: { ...s.ext, 'sk1.move': { ...ms, spent: { a1: 3 } } } };
+    expect(check(engine, spent3, { type: 'move.step', to: 'yM5' })).toMatch(/Assault Movement may not use all MF|lacks the MF/);
+  });
+});
+
+// A unit moves by expending MF (ASLRB A4.1, A4.11): choosing the stack is not yet movement, so the choice may be
+// taken back until it spends any. After that the move ends only with `move.end`, and the units have moved.
+describe('Cancelling a move before any MF is spent', () => {
+  const setup = () =>
+    makeEngine({
+      board: 'z',
+      terrain,
+      scenario: RU_VS_GE,
+      startPhase: 'MPh',
+      pieces: [
+        { id: 'r1', def: 'ru.447', side: 'ru', hex: 'zI4' },
+        { id: 'r2', def: 'ru.447', side: 'ru', hex: 'zI4' },
+        { id: 'rL', def: 'ru.L91', side: 'ru', hex: 'zI4', tags: { stackedOn: 'r1' } },
+        { id: 'rLMG', def: 'ru.LMG', side: 'ru', heldBy: 'r2' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'zK5' },
+      ],
+    });
+  const check = (engine: ReturnType<typeof setup>['engine'], s: Parameters<typeof act>[1], type: string) => {
+    const d = engine.currentDecision(s)!;
+    return engine.validate(s, { type, side: d.owner, decisionId: d.id } as never);
+  };
+
+  it('puts the stack back as it was: no move, no CX, the leader on his old MMC, nothing marked moved', () => {
+    const { engine, state } = setup();
+    let s = act(engine, state, { type: 'move.start', units: ['r2', 'rL'], doubleTime: true }).state;
+    expect(s.pieces['r2']!.tags['cx']).toBe(true);
+    expect(s.pieces['rL']!.tags['stackedOn']).toBe('r2');
+    expect(check(engine, s, 'move.cancel')).toBeNull();
+    s = act(engine, s, { type: 'move.cancel' }).state;
+    expect(moveState({ state: s } as never)).toBeFalsy();
+    expect(engine.currentDecision(s)).toMatchObject({ kind: 'phase', owner: 'ru' });
+    for (const id of ['r2', 'rL', 'rLMG']) {
+      expect(s.pieces[id]!.tags['cx']).toBeUndefined();
+      expect(s.pieces[id]!.tags['moved']).toBeUndefined();
+    }
+    expect(s.pieces['rL']!.tags['stackedOn']).toBe('r1');
+    // Any of them may now move, in another stack or the same one.
+    expect(engine.legalActions(s, 'ru').some((a) => a.type === 'move.start' && (a['units'] as string[]).includes('r2'))).toBe(true);
+    s = act(engine, s, { type: 'move.start', units: ['r1', 'rL'] }).state;
+    s = act(engine, s, { type: 'move.step', to: 'zJ3' }).state;
+    if (engine.currentDecision(s)?.kind === 'firstFire') s = act(engine, s, { type: 'defPass' }).state;
+    expect(s.pieces['r1']!.loc).toMatchObject({ kind: 'hex', hex: 'zJ3' });
+  });
+
+  it('a SW dropped before any MF is spent does not commit the move', () => {
+    const { engine, state } = setup();
+    let s = act(engine, state, { type: 'move.start', units: ['r2'] }).state;
+    s = act(engine, s, { type: 'move.drop', sw: 'rLMG' }).state;
+    expect(check(engine, s, 'move.cancel')).toBeNull();
+    s = act(engine, s, { type: 'move.cancel' }).state;
+    expect(s.pieces['r2']!.tags['moved']).toBeUndefined();
+  });
+
+  it('once MF are spent the move is committed: no cancel, and the units cannot move again this turn', () => {
+    const { engine, state } = setup();
+    let s = act(engine, state, { type: 'move.start', units: ['r1'] }).state;
+    s = act(engine, s, { type: 'move.step', to: 'zJ3' }).state;
+    if (engine.currentDecision(s)?.kind === 'firstFire') s = act(engine, s, { type: 'defPass' }).state;
+    expect(check(engine, s, 'move.cancel')).toMatch(/MF have been spent/);
+    s = act(engine, s, { type: 'move.end' }).state;
+    if (engine.currentDecision(s)?.kind === 'firstFire') s = act(engine, s, { type: 'defPass' }).state;
+    expect(s.pieces['r1']!.tags['moved']).toBe(true);
+    expect(engine.legalActions(s, 'ru').some((a) => a.type === 'move.start' && (a['units'] as string[]).includes('r1'))).toBe(false);
+  });
+
+  it('a unit stopped also commits the move', () => {
+    const { engine, state } = setup();
+    let s = act(engine, state, { type: 'move.start', units: ['r1', 'r2'] }).state;
+    s = act(engine, s, { type: 'move.stopUnits', units: ['r1'] }).state;
+    expect(check(engine, s, 'move.cancel')).toMatch(/can no longer be cancelled/);
+  });
+
+  it('is never offered among the legal actions (the computer opponent has no use for it)', () => {
+    const { engine, state } = setup();
+    const s = act(engine, state, { type: 'move.start', units: ['r1'] }).state;
+    expect(engine.legalActions(s, 'ru').some((a) => a.type === 'move.cancel')).toBe(false);
+    expect(check(engine, state, 'move.cancel')).toMatch(/No stack is moving/);
+  });
+
+  it('across turns: after a cancel the units move and are fired on normally in the next Player Turn', () => {
+    const { engine, state } = setup();
+    let s = act(engine, state, { type: 'move.start', units: ['r1', 'r2', 'rL'], doubleTime: true }).state;
+    s = act(engine, s, { type: 'move.cancel' }).state;
+    // Play on to the Russians' next MPh, passing and ending phases.
+    for (let i = 0; i < 200 && !(s.turn > state.turn && s.attacker === 'ru' && s.phase === 'MPh'); i++) {
+      const d = engine.currentDecision(s)!;
+      const a = engine.legalActions(s, d.owner).find((x) => x.type === 'defPass' || x.type === 'move.end' || x.type === 'endPhase') ?? engine.legalActions(s, d.owner)[0]!;
+      s = engine.submit(s, a).state;
+    }
+    expect(s.phase).toBe('MPh');
+    expect(s.attacker).toBe('ru');
+    expect(moveState({ state: s } as never)).toBeFalsy();
+    for (const id of ['r1', 'r2', 'rL']) expect(s.pieces[id]!.tags['moved']).toBeUndefined();
+    s = act(engine, s, { type: 'move.start', units: ['r1'], doubleTime: true }).state;
+    expect(moveState({ state: s } as never)!.cancel).toBeDefined();
+    s = act(engine, s, { type: 'move.step', to: 'zJ3' }).state;
+    expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', owner: 'ge' });
+    expect(check(engine, s, 'move.cancel')).not.toBeNull();
   });
 });

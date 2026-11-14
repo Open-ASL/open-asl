@@ -2,6 +2,8 @@
 
 /** The computer opponent's code version (commit, plus a hash of uncommitted bot changes), set by vite.config.ts. */
 declare const __BOT_VERSION__: string;
+/** The commit the app was built from (`+dirty` when tracked code had changed), set by vite.config.ts. */
+declare const __APP_VERSION__: string;
 
 declare module 'world-atlas/countries-110m.json' {
   const value: import('topojson-specification').Topology;

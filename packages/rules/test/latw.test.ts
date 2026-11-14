@@ -46,6 +46,33 @@ describe('Light Anti-Tank Weapons (SK4 4.4)', () => {
     expect(t.state.pieces['u']!.tags['ownFpForfeit']).toBeUndefined();
   });
 
+  it('LATW To Hit Example: having used its SW, the squad then fires its inherent FP, at another target or the same one; no Intensive Fire for the BAZ', () => {
+    // A miss from a stone building at +2 (no Backblast), as in play; the squad's own FP is still free (SK4 4.0: "any one
+    // Weapon at no cost to its own FP"), and Mandatory Fire Group does not bind Ordnance (SK4 4.4 example).
+    const inside = { yK5: STONE, yM5: STONE };
+    const { engine, state } = bazGame('ge.467', { b1: 'yM5', b2: 'yN5' }, [5, 3, ...Array(40).fill(6)], inside);
+    let s = act(engine, state, { type: 'fire.ordnance', shot: { weapon: 'z', target: 'yM5', targetType: 'ITT', backblast: false } }).state;
+    const env = engine.env(s);
+    expect(fireMarker(s.pieces['u']!)).toBeUndefined();
+    // A SW never uses Intensive Fire (SK4 glossary: "a Gun or vehicle"; the 50mm MTR example: "Since the 50mm MTR is a SW, it cannot Intensive Fire").
+    expect(illegal(engine, s, { weapon: 'z', target: 'yM5', targetType: 'ITT', backblast: false, intensive: true })).toMatch(/SW cannot use Intensive Fire/);
+    expect(engine.legalActions(s, 'ge').filter((a) => a.type === 'fire.ordnance')).toHaveLength(0);
+    // The squad's own FP is offered at both enemy hexes, and either shot is accepted.
+    const offered = engine.legalActions(s, 'ge').filter((a) => a.type === 'fire').map((a) => (a as unknown as { decl: unknown }).decl);
+    expect(offered).toEqual(expect.arrayContaining([{ units: ['u'], sw: [], target: 'yM5' }, { units: ['u'], sw: [], target: 'yN5' }]));
+    expect(simpleDeclarations(env, 'ge', ['yM5', 'yN5'], 'prep')).toContainEqual({ units: ['u'], sw: [], target: 'yN5' });
+    expect(act(engine, s, { type: 'fire', decl: { units: ['u'], sw: [], target: 'yM5' } }).state.pieces['u']!.tags['fire']).toBe('prep');
+    s = act(engine, s, { type: 'fire', decl: { units: ['u'], sw: [], target: 'yN5' } }).state;
+    expect(fireMarker(s.pieces['u']!)).toBe('prep');
+    expect(engine.legalActions(s, 'ge').some((a) => a.type === 'fire' && JSON.stringify(a).includes('"u"'))).toBe(false);
+    // Into the next German Player Turn: every marker is off, and the squad fires the BAZ and its own FP again.
+    for (let i = 0; i < 40 && !(s.turn === 2 && s.attacker === 'ge' && s.phase === 'PFPh'); i++) s = act(engine, s, { type: 'endPhase' }).state;
+    expect([s.turn, s.attacker, s.phase]).toEqual([2, 'ge', 'PFPh']);
+    for (const id of ['u', 'z']) expect([fireMarker(s.pieces[id]!), s.pieces[id]!.tags['firedSw'], s.pieces[id]!.tags['firedSwAs']]).toEqual([undefined, undefined, undefined]);
+    expect(illegal(engine, s, { weapon: 'z', target: 'yM5', targetType: 'ITT', backblast: false })).toBeNull();
+    expect(engine.legalActions(s, 'ge').some((a) => a.type === 'fire' && JSON.stringify(a).includes('"u"'))).toBe(true);
+  });
+
   it('a Critical Hit is an original 2 that hits: the 16 column with the TEM reversed', () => {
     const { engine, state } = bazGame('ge.467', { b1: 'yM5' }, [1, 1, 4, 4, 6, 6], { yM5: STONE });
     const t = act(engine, state, { type: 'fire.ordnance', shot: { weapon: 'z', target: 'yM5', targetType: 'ITT' } });

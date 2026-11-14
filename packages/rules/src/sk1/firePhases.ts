@@ -5,7 +5,7 @@ import { isVisibleTo } from './known';
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
 import { FP, iftColumn, simpleDeclarations, type ApplyResultFn, type AttackResolvedFn, type FireAttackCtx, type FireDeclaration, type FireMode, type ResolveFireFn } from './fire';
 import { P as MP, type FlushFn } from './morale';
-import { T, actionIllegal, fireMarker, inMelee, isGoodOrder, mmc, pieceOf, setTags, smc, sw } from './status';
+import { T, actionIllegal, fireMarker, gun, inMelee, isGoodOrder, mmc, pieceOf, setTags, smc, sw } from './status';
 
 export type FireAction = Action & { decl: FireDeclaration };
 
@@ -92,14 +92,15 @@ export const firePhasesModule: RuleModule = {
 
     // SK1 4.0: SW may be voluntarily destroyed by their possessing unit during the PFPh or DFPh;
     // doing so counts as use of a SW (the unit has "fired" a SW; a HS, or a squad on its second
-    // SW use, forfeits its own FP; a leader forfeits his leadership DRM for the phase).
+    // SW use, forfeits its own FP; a leader forfeits his leadership DRM for the phase). Guns are
+    // "destroyed as if a SW" (SK4 1.2.6), so a Gun its possessor holds (a captured one too) goes the same way.
     r.action<Action & { type: 'sw.destroy'; sw: string }>({
       type: 'sw.destroy',
       decisionKinds: [PHASE_DECISION],
       validate(env, a) {
-        if (env.state.phase !== 'PFPh' && env.state.phase !== 'DFPh') return 'SW can only be destroyed in the PFPh or DFPh';
+        if (env.state.phase !== 'PFPh' && env.state.phase !== 'DFPh') return 'A SW or Gun can only be destroyed in the PFPh or DFPh';
         const s = env.state.pieces[a.sw];
-        if (!s || !sw(env, s) || s.loc.kind !== 'held') return 'Not a possessed SW';
+        if (!s || !(sw(env, s) || gun(env, s)) || s.loc.kind !== 'held') return 'Not a possessed SW or Gun';
         if (isFixedWeapon(env, s)) return 'A vehicular MG is part of its vehicle';
         const holder = pieceOf(env, s.loc.by);
         if (holder.side !== phaseOwner(env) || s.side !== holder.side) return 'Not your unit';

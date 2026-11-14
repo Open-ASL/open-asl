@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
-import { Link, useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
 import { COL, COMPUTER_NAME, type AarCasualty, type AarDoc, type AarHighlight, type AarSide, type MatchDoc } from '@asl/platform';
 import { useAuth } from '../auth/AuthProvider';
 import { db } from '../firebase';
@@ -42,12 +42,13 @@ export function AarPage() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
+  const location = useLocation();
   const member = auth.status === 'member';
   return (
     <div className="public-profile-shell aar-shell">
       <header>
         <Link to="/" className="command-brand" aria-label="Open ASL"><Emblem /><span><b>OPEN ASL</b><small>After action report</small></span></Link>
-        <nav>{member ? <Link to="/app">Enter Lobby</Link> : <Link to="/login">Sign in</Link>}</nav>
+        <nav>{member ? <Link to="/app">Enter Lobby</Link> : <Link to={loginPath(location.pathname)}>Sign in</Link>}</nav>
       </header>
       <div className="aar-page">{children}</div>
     </div>

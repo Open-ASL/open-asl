@@ -60,7 +60,8 @@ export const RP = {
   /** (ctx, unit, leader) => void — after a failed rally attempt (not an original 12); nothing by default (a Commissar replaces the unit). */
   rallyFailed: 'sk1.rally.failed',
 } as const;
-export type FieldPromotionFn = (ctx: Ctx, unit: PieceId, morale: number, opts?: { ccColumnsBelowEven?: number }) => PieceId | null;
+/** `broken`: the unit's state when it rolled the original 2 (it defaults to its state now). */
+export type FieldPromotionFn = (ctx: Ctx, unit: PieceId, morale: number, opts?: { ccColumnsBelowEven?: number; broken?: boolean }) => PieceId | null;
 export type RallyFailedFn = (ctx: Ctx, unit: PieceId, leader: PieceId | null) => void;
 
 type RallyAction =
@@ -204,7 +205,7 @@ export const rallyModule: RuleModule = {
       // A promoted leader is of the unit's own counter nationality (a Greek squad creates an Allied Minor leader).
       const nat = defOf(ctx, p).nationality;
       const dr = ctx.roll(`Leader Creation for ${unit}`, 1).total;
-      const def = statics(ctx).tables.leaderCreation(nat, morale, dr, p.tags[T.broken] === true, opts?.ccColumnsBelowEven ?? 0);
+      const def = statics(ctx).tables.leaderCreation(nat, morale, dr, opts?.broken ?? p.tags[T.broken] === true, opts?.ccColumnsBelowEven ?? 0);
       const id = def ? `${unit}.L${ctx.state.seq}` : null;
       if (def && id) ctx.emit('piece.created', { piece: { id, defId: def, side: p.side, loc: { kind: 'hex', hex }, tags: {} } });
       // What the dr produced, for the log and the dice toast: the new leader, or none.
@@ -449,10 +450,13 @@ export function attemptRally(ctx: Ctx, unit: PieceId, leader: PieceId | null, se
     ctx.proc<FlushFn>(MP.flushLeaderLoss)(ctx);
     return;
   }
-  // Field promotion: an MMC rolling an original 2 on the first self-rally attempt of the RPh (see firstSelfRallyOfSide).
-  if (roll.total === 2 && self && firstSelfRally && mmc(ctx, p)) {
-    ctx.proc<FieldPromotionFn>(RP.fieldPromotion)(ctx, unit, mmc(ctx, p)!.morale);
-  }
+  // The rally takes effect first, so the unit is shown rallied (its DM gone) before the leader it creates appears.
   if (final <= morale) setTags(ctx, unit, { [T.broken]: null, [T.dm]: null });
   else ctx.proc<RallyFailedFn>(RP.rallyFailed)(ctx, unit, leader);
+  // Field promotion: an MMC rolling an original 2 on the first self-rally attempt of the RPh (see firstSelfRallyOfSide).
+  // The new leader stands on the unit that created him (SK1 3.8 stacking), not on whichever MMC sorts first.
+  if (roll.total === 2 && self && firstSelfRally && mmc(ctx, p) && ctx.state.pieces[unit]?.loc.kind === 'hex') {
+    const created = ctx.proc<FieldPromotionFn>(RP.fieldPromotion)(ctx, unit, mmc(ctx, p)!.morale, { broken: true });
+    if (created) setTags(ctx, created, { [T.stackedOn]: unit });
+  }
 }

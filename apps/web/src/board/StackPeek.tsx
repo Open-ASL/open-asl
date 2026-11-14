@@ -1,10 +1,10 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
-import { AMMO_NAME, acquisitionsAt, ammoOut, defOf, gunIdent, isWeaponDef, moveState, shownFireMarker, stackOrder, swHeldBy, terrainOf, type Statics, type VehicleDef } from '@asl/rules';
+import { AMMO_NAME, acquisitionsAt, ammoOut, defOf, fireMarker, gunIdent, isWeaponDef, moveState, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, terrainOf, type Statics, type VehicleDef } from '@asl/rules';
 import { counterImage, cxMarker, markerImage } from '../game/assets';
 import { identCss } from './ident';
 import { pieceLabel } from '../game/describe';
-import { smoke58Marker } from '../game/smoke';
+import { smoke58Chits } from '../game/smoke';
 import { HexArt, type ArtPlacement } from './HexArt';
 
 interface Props {
@@ -54,7 +54,9 @@ function statusOf(env: QueryEnv, p: Piece): { label: string; marker?: string }[]
   if (t['cx']) out.push({ label: 'CX', marker: cxMarker(defOf(env, p).nationality) });
   if (t['malf']) out.push({ label: 'malfunctioned' });
   const fire = shownFireMarker(p);
-  if (fire === 'prep') out.push({ label: 'Prep Fire', marker: 'FirePrep' });
+  // Only its SW has fired: its own FP is free until the phase ends (SK4 4.0).
+  if (fire && !fireMarker(p) && defOf(env, p).kind !== 'sw') out.push({ label: 'SW fired; own FP may still fire', marker: fire === 'adv' ? 'FireAdv' : 'FirePrep' });
+  else if (fire === 'prep') out.push({ label: 'Prep Fire', marker: 'FirePrep' });
   if (fire === 'adv') out.push({ label: 'Advancing Fire', marker: 'FireAdv' });
   if (fire === 'first') out.push({ label: 'First Fire', marker: 'First' });
   if (fire === 'final') out.push({ label: 'Final Fire', marker: 'Final' });
@@ -69,7 +71,7 @@ function statusOf(env: QueryEnv, p: Piece): { label: string; marker?: string }[]
   if (t['emplaced']) out.push({ label: 'emplaced' });
   // Limited ammo the Gun has run out of (SK4 6.2 depletion).
   if (ammoOut(p).length) out.push({ label: `out of ${ammoOut(p).map((k) => AMMO_NAME[k]).join(', ')}` });
-  if (t['hip']) out.push({ label: 'hidden' });
+  if (t['hip']) out.push({ label: 'hidden (HIP): the enemy cannot see it' });
   if (t['concealed']) out.push({ label: 'concealed' });
   if (t['banzai'] !== undefined) out.push({ label: t['banzai'] === 'charging' ? 'Banzai Charge' : 'Banzai (charged)', marker: 'Banzai' });
   if (t['caLocked']) out.push({ label: 'turned (cannot move)' });
@@ -199,9 +201,11 @@ function locationMarkers(env: QueryEnv, hex: HexId): { marker: string; label: st
     const letter = gunIdent(env, a.gun);
     out.push({ marker: a.level === 2 ? 'acq2wh' : 'acq1wh', label: `Acquired -${a.level} by Gun ${letter} (${pieceLabel(env, a.gun)})${a.type === 'ATT' ? ', Area' : ''}`, ...(letter ? { tint: identCss(letter) } : {}) });
   }
-  if (m['smoke']) out.push({ marker: 'Smk2', label: 'Smoke grenades (+2)' });
-  const s58 = smoke58Marker(m);
-  if (s58) out.push(s58);
+  const grenades = smokeGrenades(m);
+  for (let i = 0; i < grenades; i++) out.push({ marker: 'Smk2', label: grenades > 1 ? `Smoke grenades ${i + 1} of ${grenades}: +${smokeDrm(env, hex)} in all, at most +3` : 'Smoke grenades (+2)' });
+  const s58 = smoke58Chits(m);
+  const several = grenades + s58.length > 1;
+  for (const c of s58) out.push(several ? { ...c, label: `${c.label}: +${smokeDrm(env, hex)} in all, at most +3` } : c);
   if (m['cc']) out.push({ marker: 'CC', label: 'Close Combat' });
   if (m['melee']) out.push({ marker: 'Melee', label: 'Melee' });
   const rfp = m['residualFp'] as number | undefined;
@@ -252,7 +256,8 @@ export function StackPeek({ env, hex, at, bounds, placements, rotation, interact
     // An enemy's concealed stack (SK4 8.3.2) is one "?" counter, nothing beneath it to list.
     const nat = d.kind === 'unknown' ? ((env.statics as Statics).scenario.sides.find((x) => x.side === p.side)?.nationality ?? d.nationality) : d.nationality;
     const img = d.kind === 'unknown' ? markerImage(`qmark-${nat}`) : counterImage(p.defId, flipped);
-    const st = d.kind === 'unknown' ? [{ label: 'concealed stack, cannot be inspected (SK4 8.3.2)' }] : statusOf(env, p);
+    const under = p.tags['counters'];
+    const st = d.kind === 'unknown' ? [{ label: `concealed stack${typeof under === 'number' ? ` of ${under} counter${under === 1 ? '' : 's'}` : ''}, cannot be inspected (SK4 8.3.2)` }] : statusOf(env, p);
     const crew = d.kind === 'vehicle' ? crewOf(p) : null;
     if (d.kind === 'vehicle' && p.tags['vca'] !== undefined && !p.tags['wreck']) {
       const vca = SPINE_NAME[Number(p.tags['vca'])] ?? '?';

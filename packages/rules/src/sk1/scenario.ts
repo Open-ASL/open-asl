@@ -1,5 +1,5 @@
 import type { Action, Ctx, Decision, HexId, Piece, PieceId, QueryEnv, RuleModule, SideId } from '@asl/engine';
-import { byId, defOf, isMmcDef, isPersonnelDef, isVehicleDef, isWeaponDef, otherSide, personnelAt, statics, swHeldBy, unitsAt, unitsInHex } from '../common/pieces';
+import { byId, defOf, isGunDef, isMmcDef, isPersonnelDef, isVehicleDef, isWeaponDef, otherSide, personnelAt, statics, swHeldBy, unitsAt, unitsInHex } from '../common/pieces';
 import { hexOfLoc, isGroundLoc, locExists, locKey, locationAt, type LocId } from '../common/location';
 import { advancePhase } from '../common/turn';
 import { losFirepower } from './losFirepower';
@@ -703,7 +703,15 @@ export function defaultPlacement(
   // Units that must set up near a vehicle (LMA4 SSR 3) go after the vehicles.
   const nearVehicle = sc.forces.some((f) => f.side === side && (f.setup.kind === 'hexes' || f.setup.kind === 'area') && f.setup.constraints?.some((c) => c.kind === 'nearVehicle'));
   const vehicleFirst = (p: Piece) => (nearVehicle && !isVehicleDef(defOf(env, p)) ? 1 : 0);
-  const order = [...todo].sort((a, b) => vehicleFirst(a) - vehicleFirst(b) || Number(spacingOf(a).length === 0) - Number(spacingOf(b).length === 0) || Number(!mmc(env, a)) - Number(!mmc(env, b)) || anchored(b) - anchored(a));
+  // Within a kind, the best units first: they take the best hexes, and the leaders then join the stacks worth leading.
+  const worth = (p: Piece) => {
+    const m = mmc(env, p);
+    const l = smc(env, p);
+    return m ? m.fp * 2 + m.morale + swHeldBy(env.state, p.id).length * 3 : l ? -l.leadership * 10 + l.morale : 0;
+  };
+  const order = [...todo].sort((a, b) => vehicleFirst(a) - vehicleFirst(b) || Number(spacingOf(a).length === 0) - Number(spacingOf(b).length === 0) || Number(!mmc(env, a)) - Number(!mmc(env, b)) || anchored(b) - anchored(a) || worth(b) - worth(a));
+  const geo = setupGeography(env, side);
+  const tactical = (h: HexId, p: Piece) => tacticalRank(env, geo, h, p, placements);
   for (const p of order) {
     if (placements[p.id]) continue;
     const options = placementHexes(env, p);
@@ -723,7 +731,9 @@ export function defaultPlacement(
     // Anchor minimums (`minWithin`): prefer the anchor where this piece (and the SW it carries) fills the most shortfalls.
     const fills = anchorFills(env, side, p, placements);
     const anchorRank = (h: HexId) => (fills.length === 0 ? 0 : 10 * (Math.max(...fills.map((f) => f.gain)) - Math.max(0, ...fills.filter((f) => map.distance(h, f.anchor) <= f.range).map((f) => f.gain))));
-    const rank = (h: HexId) => (p.loc.kind === 'offboard' && p.loc.edge !== 'setup' && mid ? Math.abs(options.indexOf(h) - options.indexOf(mid)) : 0) + spacingRank(h) + anchorRank(h);
+    // The card's constraints decide first; among the hexes they allow, the tactical rank (cover, the goals, the enemy's
+    // front, spreading the stacks) picks; the middle of an edge only breaks ties for a force entering with no goals.
+    const rank = (h: HexId) => 100 * (spacingRank(h) + anchorRank(h)) + tactical(h, p) + (p.loc.kind === 'offboard' && p.loc.edge !== 'setup' && mid ? 0.01 * Math.abs(options.indexOf(h) - options.indexOf(mid)) : 0);
     const used = (h: HexId) => Object.values(placements).filter((x) => x === h).length;
     const sorted = [...options].sort((a, b) => rank(a) - rank(b) || used(a) - used(b) || (a < b ? -1 : 1));
     const hex = sorted.find((h) => !placementIllegal(env, side, todo, { ...placements, [p.id]: h }, true) && !env.query('setup.hexIllegal', { side, unit: p.id, hex: h }, null));
@@ -731,6 +741,105 @@ export function defaultPlacement(
     placements[p.id] = hex;
   }
   return placements;
+}
+
+/** The enemy's likely front (its setup or entry hexes, sampled) and the hexes the card's victory conditions name, for ranking setup hexes. */
+export function setupGeography(env: QueryEnv, side: SideId): { front: HexId[]; goals: HexId[]; holder: boolean } {
+  const sc = statics(env).scenario;
+  const map = statics(env).map;
+  const sample = (hs: HexId[], n: number): HexId[] => {
+    const on = [...new Set(hs)].filter((h) => map.hex(h));
+    if (on.length <= n) return on;
+    const step = on.length / n;
+    return Array.from({ length: n }, (_, i) => on[Math.floor(i * step)]!);
+  };
+  const front: HexId[] = [];
+  for (const f of sc.forces) {
+    if (f.side === side) continue;
+    if (f.setup.kind === 'area' || f.setup.kind === 'hexes') front.push(...sample(f.setup.hexes, 8));
+    else if (f.setup.kind === 'enter') front.push(...sample(f.setup.hexes?.length ? f.setup.hexes : map.edge(f.setup.edge), 8));
+  }
+  const goals: HexId[] = [];
+  for (const vc of victoryLeaves(sc)) {
+    switch (vc.kind) {
+      case 'exitVp':
+        goals.push(...(vc.hexes?.length ? vc.hexes : map.edge(vc.edge)));
+        break;
+      case 'clearAreas':
+        for (const a of vc.areas) goals.push(...a.hexes);
+        break;
+      case 'controlBuildings':
+        for (const h of map.hexes()) if (h.buildingId && vc.buildings.includes(h.buildingId)) goals.push(h.id);
+        break;
+      case 'vpTally':
+        for (const src of vc.sources) if (src.kind === 'controlledHexes') goals.push(...src.hexes);
+        break;
+      default:
+        if ('hexes' in vc && Array.isArray(vc.hexes)) goals.push(...(vc.hexes as HexId[]));
+    }
+  }
+  // A side with no victory condition of its own naming places holds them against the other side.
+  const holder = !victoryLeaves(sc).some((vc) => vc.side === side);
+  return { front: [...new Set(front)], goals: sample(goals, 16), holder };
+}
+
+/**
+ * How poor a setup hex is for a piece, lower being better: cover (Infantry and Guns want TEM, vehicles the open), the
+ * way to the card's goals and toward the enemy's front, and the stack already there (two MMC make a fire group, a
+ * third is one attack's worth of casualties; a leader joins MMC with no leader yet; a Gun or a vehicle stands alone).
+ */
+function tacticalRank(env: QueryEnv, geo: { front: HexId[]; goals: HexId[]; holder: boolean }, h: HexId, p: Piece, placements: Record<PieceId, LocId>): number {
+  const map = statics(env).map;
+  const vehicleP = isVehicleDef(defOf(env, p));
+  const gunP = swHeldBy(env.state, p.id).some((w) => isGunDef(defOf(env, w)));
+  const leaderP = !!smc(env, p);
+  const onMap = !!map.hex(h);
+  // Hex distance by cubes: an offboard entry hex has a cube too, and `map.distance` knows only map hexes.
+  const cube = (x: HexId) => (map.hex(x) ?? map.offboardHex(x))?.cube;
+  const ch = cube(h);
+  const dist = (hs: HexId[]) => {
+    if (!ch || !hs.length) return 0;
+    let best = Infinity;
+    for (const g of hs) {
+      const cg = cube(g);
+      if (cg) best = Math.min(best, Math.max(Math.abs(cg.q - ch.q), Math.abs(cg.r - ch.r), Math.abs(cg.s - ch.s)));
+    }
+    return Number.isFinite(best) ? best : 0;
+  };
+  let r = 0;
+  if (onMap) {
+    const tem = env.query('hex.tem', { hex: h }, 0);
+    r += vehicleP ? (tem > 0 ? 2 : 0) : -Math.min(tem, 3);
+  }
+  // A taker heads for the goals. A holder garrisons them and screens a few hexes in front of them, toward the enemy,
+  // where the screen gets turns of fire before the goals are reached; failing goals, toward the enemy.
+  if (geo.goals.length) {
+    const d = dist(geo.goals);
+    r += geo.holder ? 0.4 * Math.min(d, Math.abs(d - 3)) + 0.15 * dist(geo.front) : 0.5 * d + 0.1 * dist(geo.front);
+    // A goal no MMC of the side guards yet (none within 1 hex) is worth a garrison before a second one elsewhere.
+    if (geo.holder && d === 0 && !vehicleP && onMap) {
+      const guarded = Object.entries(placements).some(([id, x]) => {
+        const q = env.state.pieces[id];
+        return !!q && !!mmc(env, q) && !!map.hex(hexOfLoc(x)) && map.distance(hexOfLoc(x), h) <= 1;
+      });
+      if (!guarded) r -= 2;
+    }
+  }
+  else r += 0.3 * dist(geo.front);
+  // The stack there already: the pieces placed so far, and any of the side's already on the map (a fixture, an earlier force).
+  const there = [
+    ...Object.entries(placements).filter(([, x]) => x === h).map(([id]) => env.state.pieces[id]).filter((q): q is Piece => !!q),
+    ...Object.values(env.state.pieces).filter((q) => q.side === p.side && q.loc.kind === 'hex' && q.loc.hex === h && !(q.id in placements)),
+  ];
+  const mmcs = there.filter((q) => mmc(env, q)).length;
+  const leaders = there.filter((q) => smc(env, q)).length;
+  const guns = there.filter((q) => swHeldBy(env.state, q.id).some((w) => isGunDef(defOf(env, w)))).length;
+  const vehicles = there.filter((q) => isVehicleDef(defOf(env, q))).length;
+  if (vehicleP) r += vehicles ? 6 : 0;
+  else if (gunP) r += guns || mmcs ? 4 : 0;
+  else if (leaderP) r += mmcs === 0 ? 3 : leaders ? 2 : 0;
+  else r += mmcs >= 2 ? 4 : mmcs === 1 ? 0.5 : 0;
+  return r;
 }
 
 /**
@@ -1154,6 +1263,23 @@ export const scenarioModule: RuleModule = {
         ctx.endGame({ winner: sides.find((s) => s !== gone[0]) ?? null, reason: 'annihilation' });
       },
     });
+    // A side with nothing left in play (its units all exited or eliminated, none to come) can no longer change
+    // anything. Where every victory condition is then settled (the tallies of units lost and exited, a "no enemy in"
+    // condition now true for good), the game ends at once and the VC decide it as they stand: playing on to the last
+    // turn changes nothing. A condition the other side could still meet by playing on (Control, its own exits) keeps
+    // the game going. Checked when the next decision is asked, like annihilation.
+    r.on({
+      id: 'sk1.vc.nothing-left',
+      event: 'decision.pushed',
+      handler(ctx) {
+        if (ctx.state.result || ctx.state.phase === 'setup') return;
+        const sc = statics(ctx).scenario;
+        const sides = sc.sides.map((s) => s.side);
+        const out = sides.filter((side) => sc.forces.some((f) => f.side === side) && hasUnitsLeft(ctx, side) && !hasUnitsInPlay(ctx, side));
+        if (out.length !== 1 || !sc.victory.every((vc) => settledWithout(vc, out[0]!))) return;
+        ctx.endGame({ winner: evaluateVictory(ctx), reason: 'nothing left to play' });
+      },
+    });
     r.contribute({
       id: 'sk1.vc.winner',
       query: 'game.winner',
@@ -1166,12 +1292,8 @@ export const scenarioModule: RuleModule = {
       layer: 0,
       apply(v, { phase }, env) {
         if (v) return v;
-        // CVP and exit VP thresholds win immediately once reached, as do Control conditions the
-        // card words "win immediately".
+        // Only a condition the card words "win immediately" ends the game early; the rest wait for game end.
         for (const vc of statics(env).scenario.victory) {
-          if (vc.kind === 'eliminateCvp' && !vc.atGameEnd && casualtyVp(env, otherSide(env.state, vc.side)) >= cvpGoal(env, vc)) return vc.side;
-          if (vc.kind === 'exitVp' && exitVpMet(env, vc)) return vc.side;
-          if (vc.kind === 'exitForce' && achieved(env, vc)) return vc.side;
           // An immediate VP tally counts its game-end sources (Control at game end) only when the game ends.
           if (vc.kind === 'vpTally') {
             if (vc.immediate && vpTally(env, vc, { midGame: true }).total >= vc.vp) return vc.side;
@@ -1635,6 +1757,49 @@ export function evaluateVictory(env: QueryEnv): SideId | null {
  * Whether a side has a unit left: personnel or a vehicle that is not a wreck, on the map, waiting
  * offboard, aboard a vehicle or exited; or reinforcements still to be rolled for. Weapons do not count.
  */
+/**
+ * Whether a side still has a unit that may act: as `hasUnitsLeft`, less the units that have left the map for good
+ * (exited for victory points, SK1 3.3).
+ */
+export function hasUnitsInPlay(env: QueryEnv, side: SideId): boolean {
+  for (const p of Object.values(env.state.pieces)) {
+    if (p.side !== side || p.loc.kind === 'eliminated' || p.tags['wreck'] === true) continue;
+    if (p.loc.kind === 'offboard' && p.loc.edge === 'exited') continue;
+    if (p.tags['entryRoll'] === 'ssr' && p.tags['entryTurn'] === 0) continue;
+    const d = defOf(env, p);
+    if (isPersonnelDef(d) || isVehicleDef(d)) return true;
+  }
+  return env.query('side.reinforcementsPending', { side }, false);
+}
+
+/**
+ * Whether a victory condition can no longer change once side `out` has nothing left in play: the tallies of
+ * units lost and exited (nobody is left to lose, kill or exit them), `out`'s own exits, and a "no enemy in" or
+ * "clear of the enemy" condition of the other side, now true for good. Control, the other side's exits and the
+ * like may still change, so they are not settled.
+ */
+export function settledWithout(vc: VictoryCondition, out: SideId): boolean {
+  switch (vc.kind) {
+    case 'afvLead':
+    case 'fewerLosses':
+    case 'fewerMmcLost':
+    case 'eliminateCvp':
+    case 'cvpBelow':
+      return true;
+    case 'exitVp':
+    case 'exitForce':
+      return vc.side === out;
+    case 'noGoodOrderEnemyIn':
+    case 'clearAreas':
+      return vc.side !== out;
+    case 'all':
+    case 'any':
+      return vc.of.every((c) => settledWithout(c, out));
+    default:
+      return false;
+  }
+}
+
 export function hasUnitsLeft(env: QueryEnv, side: SideId): boolean {
   for (const p of Object.values(env.state.pieces)) {
     if (p.side !== side || p.loc.kind === 'eliminated' || p.tags['wreck'] === true) continue;

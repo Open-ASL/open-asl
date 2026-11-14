@@ -1,5 +1,5 @@
 import type { Piece, PieceId, QueryEnv } from '@asl/engine';
-import { defOf, fireMarker, isGoodOrder, ordnanceOf, swHeldBy } from '@asl/rules';
+import { defOf, fireMarker, isGoodOrder, isRofShot, ordnanceOf, swHeldBy } from '@asl/rules';
 
 /**
  * What a click on an own stack picks up in a fire phase, so the stack is ready to shoot as
@@ -23,4 +23,17 @@ export function fireSelectable(env: QueryEnv, here: Piece[], opts: { firstFire: 
   // unmarked, SK1 1.2.4): a squad may fire its own FP and its SW in separate attacks (SK1 3.2, 4.2; player
   // report 2026-11-06: a Para's FT after the squad fired). The rules judge whether its holder still may.
   return here.filter((p) => isGoodOrder(env, p)).flatMap((p) => (!done(p) ? [p.id, ...swReady(p)] : swReady(p)));
+}
+
+/**
+ * The leaders in the hex a "Fire" entry offers to direct `units` (the fire selection there): those in the selection
+ * or selectable themselves, and for weapons firing again alone on the ROF they kept, any leader there. He may direct
+ * a MG "as many times as the MG can fire, even if he also directed other units as part of a FG in the MG's previous
+ * attack" (ASLRB A7.53; SK1 1.2.1 "to direct ROF"), though his Prep Fire marker leaves him unselectable. Whether each
+ * one may direct is the rules' call (`directorIllegal`), shown on the entry.
+ */
+export function fireLeaders(env: QueryEnv, leaders: Piece[], units: PieceId[], own: PieceId[]): Piece[] {
+  const sws = units.filter((id) => env.state.pieces[id] && defOf(env, env.state.pieces[id]!).kind === 'sw');
+  const rofShot = sws.length === units.length && isRofShot(env, { units: [], sw: sws });
+  return leaders.filter((l) => rofShot || units.includes(l.id) || own.includes(l.id));
 }

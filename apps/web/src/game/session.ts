@@ -41,6 +41,11 @@ export interface Session {
   sendPing?(hex: string, at?: MapPoint): void;
   /** Online play: pings received from the other player, oldest first; the screen draws each once by its id. */
   pings?: Ping[];
+  /**
+   * A replay: rises each time the watcher jumps (a scrub, a step back, a turn skipped). The screen then shows the new
+   * position at once, without playing the dice, effects or phase wheel of the actions jumped over.
+   */
+  seek?: number;
 }
 
 /** A point in map pixels: the board's own coordinates, the same on every screen whatever its zoom or turn. */

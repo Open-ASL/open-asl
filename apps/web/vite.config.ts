@@ -77,11 +77,23 @@ function botVersion(): string {
   }
 }
 
+// The commit this build was made from, marked when tracked code differs from it: the code a game was played with.
+function appVersion(): string {
+  try {
+    const cwd = fileURLToPath(new URL('../..', import.meta.url));
+    const commit = execSync('git rev-parse --short HEAD', { cwd, encoding: 'utf8' }).trim();
+    const dirty = execSync('git status --porcelain --untracked-files=no -- apps packages', { cwd, encoding: 'utf8' }).trim();
+    return dirty ? `${commit}+dirty` : commit;
+  } catch {
+    return 'unknown';
+  }
+}
+
 // Dev-server settings from apps/web/.env*.local (see .env.example).
 const DEV_ENV = loadEnv('development', fileURLToPath(new URL('.', import.meta.url)), 'VITE_DEV_');
 
 export default defineConfig({
-  define: { __BOT_VERSION__: JSON.stringify(botVersion()) },
+  define: { __BOT_VERSION__: JSON.stringify(botVersion()), __APP_VERSION__: JSON.stringify(appVersion()) },
   plugins: [react(), localAssets(), artPages()],
   // VASL-derived boards, counters and markers (LGPL-2.1, see NOTICE.md). Copied into dist/ by the build.
   publicDir: 'art',

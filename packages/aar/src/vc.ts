@@ -94,13 +94,13 @@ export function conditionText(env: QueryEnv, scenario: ScenarioDef, vc: VictoryC
     case 'controlHexes':
       return `Control ${vc.atLeast >= vc.hexes.length ? 'all' : `≥ ${vc.atLeast}`} of ${vc.hexesLabel ? `the ${vc.hexes.length} ${vc.hexesLabel}` : vc.hexes.length > 12 ? `${vc.hexes.length} hexes` : list(vc.hexes.map(hexLabelOf))}${vc.immediate ? '' : vc.atEndOfTurn ? ` at the end of Turn ${vc.atEndOfTurn}` : ' at game end'}`;
     case 'eliminateCvp':
-      return `Eliminate ${cvpGoal(env, vc)} CVP of ${plural(sideName(scenario, other))}${vc.atGameEnd ? ' by game end' : ''}`;
+      return `Eliminate ${cvpGoal(env, vc)} CVP of ${plural(sideName(scenario, other))}${vc.immediate ? '' : ' by game end'}`;
     case 'cvpBelow':
       return `Lose fewer than ${vc.cvp} CVP`;
     case 'exitVp':
-      return `Exit ${vc.vp} VP off the ${{ N: 'north', E: 'east', S: 'south', W: 'west' }[vc.edge] ?? vc.edge} edge`;
+      return `Exit ${vc.vp} VP off the ${{ N: 'north', E: 'east', S: 'south', W: 'west' }[vc.edge] ?? vc.edge} edge${vc.immediate ? '' : ' by game end'}`;
     case 'exitForce':
-      return `Exit ${vc.hsEquivalents} half-squad equivalents and ${vc.smc} leader${vc.smc === 1 ? '' : 's'}`;
+      return `Exit ${vc.hsEquivalents} half-squad equivalents and ${vc.smc} leader${vc.smc === 1 ? '' : 's'}${vc.immediate ? '' : ' by game end'}`;
     case 'noGoodOrderEnemyIn':
       return `No ${vc.unbroken ? 'unbroken' : 'Good Order'} ${plural(sideName(scenario, other))} in ${vc.hexesLabel ? `the ${vc.hexes.length} ${vc.hexesLabel}` : vc.buildings ? 'the objective buildings' : vc.hexes.length > 12 ? 'the objective' : list(vc.hexes.map(hexLabelOf))} at game end`;
     case 'clearAreas':

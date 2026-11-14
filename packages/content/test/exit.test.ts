@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Engine, buildRuleset, type Action, type GameState, type RuleModule } from '@asl/engine';
-import { piecesModule, sk1CoreModules, turnModule } from '@asl/rules';
+import { evaluateVictory, piecesModule, sk1CoreModules, turnModule } from '@asl/rules';
 import { SK_S8, staticsFor } from '../src';
 
 const act = (engine: Engine, state: GameState, action: Record<string, unknown>) => {
@@ -46,15 +46,16 @@ describe('S8: a whole stack steps off Q10', () => {
     const t = act(engine, state, { type: 'move.start', units: ['c'] });
     expect(engine.legalActions(t, 'am').filter((x) => x.type === 'move.step' && !(engine.statics as { map: { hex(h: string): unknown } }).map.hex(x['to'] as string))).toEqual([]);
   });
-  it('the step exits the whole stack, and the Americans win as the phase ends', () => {
+  it('the step exits the whole stack; the Americans win at game end (the card does not say "immediately")', () => {
     const { engine, state } = s8Game(stack);
     const s = act(engine, state, { type: 'move.start', units: ['l', 'a', 'b'] });
     const off = engine.legalActions(s, 'am').find((x) => x.type === 'move.step' && !(engine.statics as { map: { hex(h: string): unknown } }).map.hex(x['to'] as string))!;
     const out = act(engine, s, { type: 'move.step', to: off['to'] });
     for (const id of ['l', 'a', 'b']) expect(out.pieces[id]!.loc).toEqual({ kind: 'offboard', edge: 'exited' });
-    // Exit victory is judged as the phase ends (sudden death).
+    // Judged at game end, not as the phase ends: the Germans may yet exit HS and raise the count.
     const end = act(engine, out, { type: 'endPhase' });
-    expect(end.result?.winner).toBe('am');
+    expect(end.result).toBeNull();
+    expect(evaluateVictory(engine.env(end))).toBe('am');
   });
 });
 
@@ -106,6 +107,7 @@ describe('S8: advancing off Q10 in the APh', () => {
     const out = act(engine, state, { type: 'advance', units: all['units'], to: all['to'] });
     for (const id of ['l', 'a', 'b']) expect(out.pieces[id]!.loc).toEqual({ kind: 'offboard', edge: 'exited' });
     const end = act(engine, out, { type: 'endPhase' });
-    expect(end.result?.winner).toBe('am');
+    expect(end.result).toBeNull();
+    expect(evaluateVictory(engine.env(end))).toBe('am');
   });
 });

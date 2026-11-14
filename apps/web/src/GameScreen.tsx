@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Action, GameState, HexId, Piece, PieceId, QueryEnv, SideId } from '@asl/engine';
 import { fixtureActions } from '@asl/content';
 import {
@@ -42,6 +42,7 @@ import {
   moveState,
   objectiveAreas,
   roadBonusEarned,
+  assaultMoving,
   isOrchardRoad,
   isWoodsRoad,
   firstFireTargets,
@@ -125,15 +126,18 @@ import {
 } from '@asl/rules';
 import { caChangeFor, gunHexOf, shotOptions, spineLabel, spineToward, thPreview } from './game/ordnance';
 import { DirectorPicker, GunComposer } from './panels/GunComposer';
-import { CONCEAL_RTPH_DECISION, LEADER_PTC_DECISION, ONCE_DR_DECISION, actionIllegal, onceDrRules, ordnanceWeaponIllegal, banzaiSteps, banzaiState, concealRtphUnits, concealmentActive, declareIllegal as banzaiIllegal, isJapanese, obConcealment, redactState } from '@asl/rules';
+import type { SmokeThrow } from '@asl/rules';
+import { CONCEAL_RTPH_DECISION, LEADER_PTC_DECISION, ONCE_DR_DECISION, actionIllegal, onceDrRules, ordnanceWeaponIllegal, banzaiSteps, banzaiState, banzaiWindowsPending, concealRtphUnits, concealmentActive, declareIllegal as banzaiIllegal, isJapanese, obConcealment, redactState } from '@asl/rules';
 import { BoardView, type BoardOverlay, type HexBadge, type HexControl, type Placement } from './board/BoardView';
 import { ActionWheel, action, group, type WheelItem } from './board/ActionWheel';
 import { StackPeek, stackIn } from './board/StackPeek';
-import { NATION, PHASE_NAME, defLabel, describeEvents, hexLabel, humanize, newestFirst, pieceLabel } from './game/describe';
+import { NATION, PHASE_NAME, defLabel, describeEvents, hexLabel, humanize, phaseSections, pieceLabel } from './game/describe';
+import { LogText } from './game/LogText';
 import { RofChoice, type RofChoiceItem } from './panels/RofChoice';
-import { fireSelectable } from './game/fireSelection';
+import { fireLeaders, fireSelectable } from './game/fireSelection';
 import { endPhaseWarning, type EndPhaseWarning } from './game/endPhaseGuard';
 import { Modal } from './ui/Modal';
+import { ErrorBoundary } from './ui/ErrorBoundary';
 import type { MapPoint, Session } from './game/session';
 import { SetupTray, type TrayGroup } from './panels/SetupTray';
 import { useScatterPlanner } from './panels/ScatterPlanner';
@@ -156,9 +160,10 @@ import { playSfx } from './audio/engine';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { ShortcutsDialog } from './panels/Shortcuts';
 import { ChartsDialog } from './panels/Charts';
-import { useFxLevel, useWeatherFx } from './fx/settings';
+import { useFxLevel, useWeatherFx, useYourCallStrip } from './fx/settings';
 import { northScreenAngle, weatherFxKind, windScreenAngle } from './game/weatherView';
 import { CompassRose } from './hud/CompassRose';
+import { HudTools } from './deployment';
 
 interface Props {
   scenario: ScenarioDef;
@@ -167,7 +172,7 @@ interface Props {
   matchId?: string;
   /**
    * The key the map's orientation is remembered under in this browser, when it is not the match id: a replay or a
-   * watched match (no `matchId`, and a replay remounts the screen at every step) keeps the viewer's rotation.
+   * watched match (no `matchId`) keeps the viewer's rotation from one visit to the next.
    */
   viewKey?: string;
   /** Back to the lobby. A persisted game stays where it is. */
@@ -183,6 +188,8 @@ interface Props {
   aside?: ReactNode;
   /** The after action report's place on the victory screen (see GameOver). */
   aar?: AarCue | null;
+  /** Who plays each side, for the top bar (see `seatNames`). */
+  players?: Record<string, string>;
 }
 
 const VIEW_KEY = (matchId: string) => `asl.view.${matchId}`;
@@ -196,6 +203,35 @@ function readQuarterTurns(matchId: string | undefined): number {
   } catch {
     return 0;
   }
+}
+
+const SIDE_KEY = 'asl.sideCollapsed';
+
+/**
+ * The orders panel folded away to a strip, for a small screen. Remembered in this browser; the page root carries it
+ * as a class, since the panel's width (--side-w) also places things outside the game screen.
+ */
+function useSideCollapsed(): [boolean, (on: boolean) => void] {
+  const [on, setOn] = useState(() => {
+    try {
+      return localStorage.getItem(SIDE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle('side-collapsed', on);
+    return () => document.documentElement.classList.remove('side-collapsed');
+  }, [on]);
+  const set = (v: boolean) => {
+    setOn(v);
+    try {
+      localStorage.setItem(SIDE_KEY, v ? '1' : '0');
+    } catch {
+      /* private mode etc.: not remembered */
+    }
+  };
+  return [on, set];
 }
 
 const GREEN = 0x5fd35f;
@@ -216,11 +252,20 @@ const MOVE_GOES_ON = new Set(['move.step', 'move.manhandle', 'move.smoke', 'move
 /** Ping colours: one per player by seat order, chosen to stand out on any terrain (none is a map colour); the last is a spectator's. */
 const PING_COLORS = [0xff2fd6, 0x19e8ff, 0xfff23a];
 
-export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onResolvingChange, slow = false, aside, aar = null }: Props) {
+/** The game screen; a render error anywhere in it shows a notice to try again or reload, not a blank page. */
+export function GameScreen(props: Props) {
+  return (
+    <ErrorBoundary what="the game screen">
+      <GameScreenView {...props} />
+    </ErrorBoundary>
+  );
+}
+
+function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvingChange, slow = false, aside, aar = null, players }: Props) {
   const { engine } = session;
   const [fxLevel, setFxLevel] = useFxLevel();
   // The screen shows the game as far as the dice have been revealed (see usePresentation).
-  const present = usePresentation(engine, session.state, session.log, fxLevel === 'off');
+  const present = usePresentation(engine, session.state, session.log, fxLevel === 'off', session.seek);
   const state = present.state;
   const resolving = present.resolving;
   const statics = engine.statics as Statics;
@@ -437,6 +482,17 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
   const [error, setError] = useState<string | null>(null);
   const [lowCrawl, setLowCrawl] = useState(false);
   const [mode, setMode] = useState<'normal' | 'smoke' | 'dc' | 'bffMg'>('normal');
+  /**
+   * Smoke grenade attempts declared so far for the stack's next MF expenditure, and the unit to throw next: every
+   * attempt declared together is one expenditure of the stack (ASLRB A4.2), thrown with the Throw button.
+   */
+  const [smokePlan, setSmokePlan] = useState<SmokeThrow[]>([]);
+  const [smokeNext, setSmokeNext] = useState<PieceId | null>(null);
+  useEffect(() => {
+    if (mode === 'smoke') return;
+    setSmokePlan([]);
+    setSmokeNext(null);
+  }, [mode]);
   // Esc leaves picking a Smoke or DC target for ordinary moving.
   useEffect(() => {
     if (mode !== 'smoke' && mode !== 'dc') return;
@@ -453,6 +509,10 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
   /** A Panzerfaust try lined up (SK4 4.4.2): the unit and what it aims at, waiting for the target hex. */
   const [pfShot, setPfShot] = useState<{ unit: PieceId; targetType: 'VTT' | 'ITT'; backblast?: boolean; director?: PieceId } | null>(null);
   const [weatherFx, setWeatherFx] = useWeatherFx();
+  const [callStrip, setCallStrip] = useYourCallStrip();
+  /** The phase the player hid the "your call" strip in: it stays hidden until the next one. */
+  const [callHiddenIn, setCallHiddenIn] = useState<string | null>(null);
+  const [sideCollapsed, setSideCollapsed] = useSideCollapsed();
   const [reviewing, setReviewing] = useState(false);
   /** The Close Combat overlay is up: a game it ends waits for it to clear before the result covers the board. */
   const [ccShown, setCcShown] = useState(false);
@@ -473,15 +533,26 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
   const waitingOn = !resolving && decision && !owner ? decision.owner : undefined;
   const legal = useMemo(() => (owner ? engine.legalActions(state, owner) : []), [engine, state, owner]);
   const ms = moveState(env);
-  /** The mover that would throw Smoke grenades: the best Smoke exponent among those that have not tried this MPh (SK1 3.3). */
-  const smokeThrower = (): PieceId | undefined =>
-    ms?.units
-      .filter((u) => env.query('unit.smoke', { unit: u }, 0) && !ms.smokeTriedBy?.includes(u))
-      .sort((a, b) => env.query('unit.smoke', { unit: b }, 0) - env.query('unit.smoke', { unit: a }, 0))[0];
+  /** The movers that may still throw Smoke grenades this MPh (SK1 3.3: once per unit) and are not in the plan, best Smoke exponent first. */
+  const smokeThrowers = (): PieceId[] =>
+    (ms?.units ?? [])
+      .filter((u) => env.query('unit.smoke', { unit: u }, 0) && !ms!.smokeTriedBy?.includes(u) && !smokePlan.some((t) => t.unit === u))
+      .sort((a, b) => env.query('unit.smoke', { unit: b }, 0) - env.query('unit.smoke', { unit: a }, 0));
+  /** The mover whose Smoke target the next amber click picks: the player's choice, else the best exponent. */
+  const smokeThrower = (): PieceId | undefined => {
+    const left = smokeThrowers();
+    return smokeNext && left.includes(smokeNext) ? smokeNext : left[0];
+  };
+  const throwSmoke = (plan: SmokeThrow[]) => {
+    setMode('normal');
+    run(plan.length === 1 ? { type: 'move.smoke', ...plan[0]! } : { type: 'move.smoke', throws: plan }, true);
+  };
   const phase = state.phase;
+  /** This phase of this Player Turn, for what the player hid "until the next phase". */
+  const phaseKey = `${state.turn}.${state.attacker}.${phase}`;
   const isFireDecision = (decision?.kind === 'phase' && phase in FIRE_MODE) || decision?.kind === 'firstFire';
   const phases = useMemo(() => env.query('turn.phases', {}, [] as string[]), [env]);
-  const fx = useGameFx(realEnv, session.log, decision, fxLevel, session.mySide !== undefined ? session.mySide : (decision?.owner ?? null), present);
+  const fx = useGameFx(realEnv, session.log, decision, fxLevel, session.mySide !== undefined ? session.mySide : (decision?.owner ?? null), present, session.seek);
   const showingWheel = !!fx.wheel;
   useEffect(() => onResolvingChange?.(resolving || showingWheel || ccLingering), [resolving, showingWheel, ccLingering, onResolvingChange]);
   /** An engine message made readable (unit names and hexes instead of ids). */
@@ -692,7 +763,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
   /** A vehicle's CE/BU switch, in its owner's MPh or APh (ASLRB D5.33). */
   const ceEntry = (v: Piece, pile: boolean): WheelItem => {
     const ceErr = plain(session.check({ type: 'vmove.ce', vehicle: v.id, ce: !v.tags['ce'] }));
-    return action(vehicleEntry(v, pile, v.tags['ce'] ? 'Button Up' : 'Crew Exposed'), () => run({ type: 'vmove.ce', vehicle: v.id, ce: !v.tags['ce'] }, true), { icon: v.tags['ce'] ? 'BU' : 'CE', disabled: !!ceErr, hint: ceErr ?? 'Once per phase (SK4 7.7)' });
+    return action(vehicleEntry(v, pile, v.tags['ce'] ? 'Button Up' : 'Go Crew Exposed'), () => run({ type: 'vmove.ce', vehicle: v.id, ce: !v.tags['ce'] }, true), { icon: v.tags['ce'] ? 'BU' : 'CE', disabled: !!ceErr, hint: ceErr ?? 'Once per phase (SK4 7.7)' });
   };
   const gunTodo = swTodo.filter((s) => gunDef(env, s));
   const vehicleTodo = todo.filter((p) => vehicleDef(env, p));
@@ -825,12 +896,15 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
         loc: statics.map.hex(hexOfLoc(hex)) ? locationAt(hex) : { kind: 'offboard', edge: p.loc.kind === 'offboard' ? p.loc.edge : undefined, hex },
       };
     }
-    // A vehicle wears the facing and CE chosen for it while it is being set up.
+    // A vehicle wears the facing and CE chosen for it while it is being set up: CE as soon as it is chosen, even while
+    // the vehicle keeps its default facing (an offboard entry, say), or the board shows it BU while it will enter CE.
     if (placing)
       for (const v of vehicleTodo) {
         const p = pieces[v.id];
-        if (!p || pendingCa[v.id] === undefined) continue;
-        pieces[v.id] = { ...p, tags: { ...p.tags, vca: pendingCa[v.id]!, ca: pendingCa[v.id]!, ...(pendingCe.has(v.id) ? { ce: true } : {}) } };
+        if (!p) continue;
+        const ca = pendingCa[v.id];
+        if (ca === undefined && !pendingCe.has(v.id)) continue;
+        pieces[v.id] = { ...p, tags: { ...p.tags, ...(ca !== undefined ? { vca: ca, ca } : {}), ...(pendingCe.has(v.id) ? { ce: true } : {}) } };
       }
     // A stack given an OB concealment counter (SK4 8.3) wears its "?" while it is being set up.
     if (placing)
@@ -1083,6 +1157,28 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, owner, session.actionCount]);
+  /**
+   * At a Banzai Impulse's end the DEFENDER may fire at any Banzai hex (SK4 8.1.8.6): a shot at one whose window is still
+   * to come first goes to that window (`banzai.window`), then fires once it is open.
+   */
+  const [afterWindow, setAfterWindow] = useState<{ hex: HexId; gun: boolean } | null>(null);
+  const toBanzaiWindow = (hex: HexId, then: 'fire' | 'gun' | null) => {
+    const err = run({ type: 'banzai.window', hex }, true);
+    if (!err && then) setAfterWindow({ hex, gun: then === 'gun' });
+  };
+  useEffect(() => {
+    if (!afterWindow || resolving) return;
+    if (decision?.kind !== 'firstFire' || ms?.hex !== afterWindow.hex) {
+      // The window never opened (nobody left who could fire there): nothing to fire.
+      if (decision?.kind !== 'firstFire') setAfterWindow(null);
+      return;
+    }
+    const { hex, gun } = afterWindow;
+    setAfterWindow(null);
+    if (gun) fireGunAt(hex);
+    else fireAt(hex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [decision?.id, resolving]);
   // An undo (here, or one the opponent allowed online) leaves nothing selected from the position it took back.
   const lastCount = useRef(session.actionCount);
   useEffect(() => {
@@ -1115,10 +1211,15 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
       return { title: 'Rally Phase · your rallies', text: todo ? `Their Rally Phase passes to you: ${todo}, then Done` : 'Their Rally Phase passes to you: nothing to rally, so just Done' };
     }
     switch (decision.kind) {
-      case 'firstFire':
+      case 'firstFire': {
+        // A Banzai Impulse's end (SK4 8.1.8.6): one hex's window at a time, any of them first.
+        const others = banzaiWindowsPending(env);
+        if (banzaiState(env)?.dff)
+          return { title: `Banzai Impulse over · ${at}`, text: others.length ? `Fire at the Banzai units here, or at ${others.map(hexLabel).join(', ')} first (right-click it); pass to move on` : 'Fire at the Banzai units here, or pass' };
         return decision.data?.['ending']
-          ? { title: `Move over in ${at}`, text: 'Their move ends there: your last chance to fire at them, or pass' }
-          : { title: `Defensive First Fire · ${at}`, text: 'Enemy units are moving: fire at them now, or pass to let them move on' };
+          ? { title: `Move over in ${at}`, text: `Their move ends there${ms && assaultMoving(ms) ? ' (Assault Movement: no FFNAM)' : ''}: your last chance to fire at them, or pass` }
+          : { title: `Defensive First Fire · ${at}`, text: `Enemy units are moving${ms && assaultMoving(ms) ? ' by Assault Movement (no FFNAM)' : ''}: fire at them now, or pass to let them move on` };
+      }
       case 'rofResidual':
         return { title: 'Keep ROF, or leave Residual FP?', text: `Keep the Rate of Fire, or give it up for the Residual FP in ${at}` };
       case 'motionFacing':
@@ -1126,7 +1227,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
       default:
         return null;
     }
-  }, [owner, decision, resolving, phase, state.attacker, state.pieces]);
+  }, [owner, decision, resolving, phase, state.attacker, state.pieces, ms]);
   // Online, the tab title says when the game waits on this player, so a tab switched away from shows it.
   useEffect(() => {
     if (typeof session.mySide !== 'string') return;
@@ -1885,7 +1986,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
       const first = units[0];
       if (first) {
         const alike = units.every((u) => left(u) === left(first) && ms.allowance[u] === ms.allowance[first]);
-        const text = (ms.vehicle ? `MP ${left(first)}/${ms.allowance[first] ?? 0}` : alike ? `MF ${left(first)}/${ms.allowance[first] ?? 0}` : `MF ${units.map(left).join(' · ')}`) + (ms.bypass ? ' · BYPASS' : '');
+        const text = (ms.vehicle ? `MP ${left(first)}/${ms.allowance[first] ?? 0}` : alike ? `MF ${left(first)}/${ms.allowance[first] ?? 0}` : `MF ${units.map(left).join(' · ')}`) + (ms.bypass ? ' · BYPASS' : '') + (assaultMoving(ms) ? ' · ASSAULT MOVEMENT' : '');
         // Smoke grenades: once per unit per MPh (SK1 3.3), so the stack says who has thrown already.
         const smokers = units.filter((u) => env.query('unit.smoke', { unit: u }, 0) > 0);
         const tried = smokers.filter((u) => ms.smokeTriedBy?.includes(u)).length;
@@ -1907,7 +2008,8 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
     // click meant as a move is not taken for a throw.
     const smokeAt = mode === 'smoke' && ms?.hex ? smokeThrower() : null;
     if (smokeAt && ms?.hex)
-      for (const h of [ms.hex, ...statics.map.neighbors(ms.hex)]) if (!session.check({ type: 'move.smoke', target: h, unit: smokeAt })) highlights.set(h, AMBER);
+      for (const h of [ms.hex, ...statics.map.neighbors(ms.hex)]) if (!session.check({ type: 'move.smoke', throws: [...smokePlan, { unit: smokeAt, target: h }] })) highlights.set(h, AMBER);
+    if (mode === 'smoke') for (const t of smokePlan) badges.push({ hex: t.target, text: `smoke: ${pieceLabel(env, state.pieces[t.unit]).replace(/^\S+ /, '')}` });
     for (const a of legal) {
       // Full ASL: the stairs of the stack's own hex are a wheel entry, not a green hex (ASLRB B23.4).
       // A Bypass is a corner handle, not a green hex; the obstacle a stack in Bypass may enter is green (full ASL).
@@ -1950,6 +2052,8 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
     // (SK1/SK4 1.1.1).
     const onRoad = ms?.viaRoad && ms.hex && (isWoodsRoad(env, ms.hex) || isOrchardRoad(env, ms.hex)) ? new Set<PieceId>(ms.units) : null;
     const smokeTried = ms?.smokeTriedBy?.length ? new Set<PieceId>(ms.smokeTriedBy.filter((u) => ms.units.includes(u))) : null;
+    // The weapons they carry wear it too, so the tag shows whichever counter tops the pile.
+    const amUnits = ms && assaultMoving(ms) ? new Set<PieceId>([...ms.units, ...Object.values(state.pieces).filter((p) => p.loc.kind === 'held' && ms.units.includes(p.loc.by)).map((p) => p.id)]) : null;
     // Full ASL Bypass: the stack on its corner with its path, the costs of what it may do next,
     // the corners it may bypass to, and the points a defender's fire may be traced to.
     const inBypass = ms?.bypass ? new Set<PieceId>([...ms.units, ...Object.keys(ms.stoppedBypass ?? {})]) : null;
@@ -1963,8 +2067,8 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
       }
     }
     controls.push(...bypassControls);
-    return { controls, badges, ...(arrows.length ? { arrows } : {}), selectedHex, highlights, selectedPieces: selected, los, ...(declaredFire ? { declaredFire } : {}), ...(spent.size ? { spent } : {}), ...(ghost.size ? { ghost } : {}), ...(onRoad ? { onRoad } : {}), ...(smokeTried?.size ? { smokeTried } : {}), ...(bypass ? { bypass, inBypass: inBypass! } : {}) };
-  }, [ms, legal, selected, lowCrawl, target, selectedHex, isFireDecision, state, env, placing, picked, pending, todo, phase, routs, routing, routShown, theirDraft, fortifying, fortifiable, fortPicks, ssrMarks, caFor, pendingCa, swHexes, ring, owner, decision, session, turnable, mode, anchors, obaShown, banzaiDraft, banzaiUnit, bypassControls]);
+    return { controls, badges, ...(arrows.length ? { arrows } : {}), selectedHex, highlights, selectedPieces: selected, los, ...(declaredFire ? { declaredFire } : {}), ...(spent.size ? { spent } : {}), ...(ghost.size ? { ghost } : {}), ...(onRoad ? { onRoad } : {}), ...(smokeTried?.size ? { smokeTried } : {}), ...(amUnits?.size ? { assaultMoving: amUnits } : {}), ...(bypass ? { bypass, inBypass: inBypass! } : {}) };
+  }, [ms, legal, selected, lowCrawl, target, selectedHex, isFireDecision, state, env, placing, picked, pending, todo, phase, routs, routing, routShown, theirDraft, fortifying, fortifiable, fortPicks, ssrMarks, caFor, pendingCa, swHexes, ring, owner, decision, session, turnable, mode, anchors, obaShown, banzaiDraft, banzaiUnit, bypassControls, smokePlan, smokeNext]);
 
   // ------------------------------------------------------------------ board clicks
   const onHexClick = (hex: HexId, e: { shift: boolean; ctrl: boolean; at: MapPoint; screen?: { x: number; y: number } }) => {
@@ -2060,13 +2164,21 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
         return;
       }
       if (mode === 'smoke') {
-        setMode('normal');
         const unit = smokeThrower();
-        // A hex the grenades cannot reach only cancels Smoke: the click then counts as usual (a step, say).
-        if (unit && !session.check({ type: 'move.smoke', target: hex, unit })) {
-          run({ type: 'move.smoke', target: hex, unit }, true);
+        const plan = unit ? [...smokePlan, { unit, target: hex }] : smokePlan;
+        if (unit && !session.check({ type: 'move.smoke', throws: plan })) {
+          // The last unit that may throw: the declaration is complete, so it is thrown at once.
+          if (smokeThrowers().length <= 1) throwSmoke(plan);
+          else {
+            setSmokePlan(plan);
+            setSmokeNext(null);
+          }
           return;
         }
+        // Throws already declared wait for Throw or Cancel; with none, a hex the grenades cannot reach only cancels
+        // Smoke and the click counts as usual (a step, say).
+        if (smokePlan.length) return;
+        setMode('normal');
       }
       if (mode === 'dc') {
         const dc = ms.units.flatMap((u) => swHeldBy(state, u)).find((s) => (defOf(env, s) as { type?: string }).type === 'DC');
@@ -2400,6 +2512,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
     if (ms?.hex === connection) {
       for (const a of legal.filter((x) => x.type === 'move.step')) out.push({ label: `Into ${locName(a['to'] as string)} · all MF`, run: () => run(a, true), hint: 'They emerge concealed (S70 SSR 2)' });
       if (legal.some((a) => a.type === 'move.end')) out.push({ label: 'End move', run: () => run({ type: 'move.end' }) });
+      if (session.check({ type: 'move.cancel' }) === null) out.push({ label: 'Cancel move', run: () => run({ type: 'move.cancel' }), hint: 'No MF spent yet: they may still move later this phase' });
     }
     if (phase === 'APh' && units.length)
       for (const to of adjacentLocs(env, connection)) if (session.check({ type: 'advance', units, to }) === null) out.push({ label: `Advance into ${locName(to)}`, run: () => run({ type: 'advance', units, to }) });
@@ -2517,7 +2630,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
       for (const v of vehicle ? [vehicle] : []) {
         const pile = vehiclesHere.length > 1;
         items.push(action(pile ? `Face ${pieceLabel(env, v).replace(/^\S+ /, '')} toward…` : 'Face toward…', () => setCaFor(v.id), { icon: '◠', hint: `Vehicle Covered Arc: ${spineLabel(env, hex, pendingCa[v.id] ?? defaultVca(env, hex))} · pick a hexspine on the map` }));
-        items.push(action(vehicleEntry(v, pile, pendingCe.has(v.id) ? 'Button Up' : 'Crew Exposed'), () => toggleCe(v.id), { icon: pendingCe.has(v.id) ? 'BU' : 'CE', active: pendingCe.has(v.id), hint: 'CE: the crew sees and fires better (no +1 BU To Hit, road rate ½ MP) but can be hit (+2 DRM); BU: safe from fire except as the AFV is (SK4 7.7)' }));
+        items.push(action(vehicleEntry(v, pile, pendingCe.has(v.id) ? 'Button Up' : 'Go Crew Exposed'), () => toggleCe(v.id), { icon: pendingCe.has(v.id) ? 'BU' : 'CE', active: pendingCe.has(v.id), hint: 'CE: the crew sees and fires better (no +1 BU To Hit, road rate ½ MP) but can be hit (+2 DRM); BU: safe from fire except as the AFV is (SK4 7.7)' }));
         if (canDigIn(v.id))
           items.push(action(vehicleEntry(v, pile, pendingDugIn.has(v.id) ? 'not dug in' : 'Dig in'), () => toggleDugIn(v.id), { icon: '⛏', active: pendingDugIn.has(v.id), hint: `A dug-in AFV never moves from its setup hex or changes its VCA; +${digInRule!.thDrm} To Hit against it and any hull hit is a miss (${digInRule!.rule ?? 'SSR'})` }));
       }
@@ -2703,6 +2816,12 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
             ], { icon: '⚑' }),
           );
           if (own.length > 1) items.push(selectAll);
+        } else {
+          // Units here that may not start because of a Gun they hold and cannot push: Move greyed with the reason, next to
+          // the Drop that frees them (SK4 4.0: dropped before expending MF, the Gun was never possessed this phase).
+          const stuck = Object.values(state.pieces).filter((p) => p.side === owner && p.loc.kind === 'hex' && p.loc.hex === hex && !p.tags['moved'] && !isVehiclePiece(p.id) && swHeldBy(state, p.id).some((w) => gunDef(env, w)));
+          const why = stuck.length ? plain(session.check({ type: 'move.start', units: stuck.map((p) => p.id) })) : null;
+          if (why) items.push(action('Move', () => {}, { icon: '➜', disabled: true, hint: why }));
         }
       } else {
         const movers = ms.units.map((u) => state.pieces[u]!);
@@ -2731,6 +2850,9 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
               }),
             );
         }
+        // Until the stack spends MF it has not moved: the choice can be taken back (offered only while it can).
+        if (session.check({ type: 'move.cancel' }) === null)
+          items.push(action(`Cancel move${elsewhere ? there : ''}`, () => run({ type: 'move.cancel' }), { icon: '↶', hint: `No MF spent yet: ${names(ms.units)} may still move later this phase` }));
         // Full ASL: up or down the stairs of this building hex for one MF (ASLRB B23.4), a new Location where the
         // defender may fire at the stack (A8.12).
         if (!elsewhere && ms.hex)
@@ -2768,7 +2890,9 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
                 icon: '☁',
                 active: mode === 'smoke',
                 disabled: !!smokeErr,
-                hint: smokeErr ?? `${thrower ? `${pieceLabel(env, state.pieces[thrower])} throws (Smoke exponent ${env.query('unit.smoke', { unit: thrower }, 0)})` : 'Grenades'}: 1 MF into this hex or 2 MF next to it, spent by the whole moving stack. Then click an amber hex`,
+                hint:
+                  smokeErr ??
+                  `${thrower ? `${pieceLabel(env, state.pieces[thrower])} throws (Smoke exponent ${env.query('unit.smoke', { unit: thrower }, 0)})` : 'Grenades'}: 1 MF into this hex or 2 MF next to it, spent by the whole moving stack, which may then be fired on. Then click an amber hex${smokers.length > 1 ? '; other units may throw for the same MF (ASLRB A4.2)' : ''}`,
               }),
             );
         }
@@ -2825,7 +2949,14 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
 
     if (isFireDecision) {
       const inGroup = own.some((id) => selected.has(id));
-      if (enemyHere && declared && pfShot) {
+      // Another Banzai hex whose Impulse-end window is still to come (SK4 8.1.8.6): fire there first.
+      const banzaiNext = decision.kind === 'firstFire' && banzaiWindowsPending(env).includes(hex);
+      if (banzaiNext && declared && !pfShot) {
+        items.push(action('Fire at this hex', () => toBanzaiWindow(hex, gunShot ? 'gun' : 'fire'), { icon: '✦', hint: `Banzai Impulse over: the defender may fire at any Banzai hex (SK4 8.1.8.6). ${hexLabel(ms?.hex ?? '')} comes up again after this one` }));
+      } else if (banzaiNext && !declared) {
+        items.push(action('Fire at this Banzai hex now', () => toBanzaiWindow(hex, null), { icon: '✦', hint: `Turn to this Banzai hex first, then pick the firers; ${hexLabel(ms?.hex ?? '')} comes up again after it (SK4 8.1.8.6)` }));
+        items.push(...previewItems(hex, selected.size === 0));
+      } else if (enemyHere && declared && pfShot) {
         const pf = { ...pfShot, target: hex };
         const why = plain(pfIllegal(env, owner!, pf, decision.kind === 'firstFire' ? 'first' : FIRE_MODE[phase]!, decision.kind === 'firstFire' ? ms?.units : undefined));
         const { drm, notes } = pfCheckDrm(env, pfShot.unit, pfShot.targetType === 'VTT');
@@ -2900,7 +3031,12 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
           // A weapon that cannot fire at all now (a Mortar or Gun that moved, in the AFPh; malfunctioned; its crew broken):
           // the entry is greyed with the reason, rather than leading through the shot to a refusal.
           const cannot = owner ? plain(ordnanceWeaponIllegal(env, g.id, mode, owner)) : null;
-          if (cannot) items.push(action(`Fire ${name}`, () => {}, { icon: '✦', disabled: true, hint: cannot }));
+          // Intensive Fire is a Gun's or vehicle's (SK4 3.2.4); a SW that has fired (BAZ, PSK, PIAT, ATR, Light Mortar) is
+          // done for the phase, and its holder's own FP is offered by the stack's Fire (SK4 4.4 LATW To Hit Example).
+          const holder = g.loc.kind === 'held' ? state.pieces[g.loc.by] : undefined;
+          const ownFp = holder && !fireMarker(holder) && !holder.tags['ownFpForfeit'] ? 'the unit holding it may still fire its own FP' : 'the unit holding it has fired its own FP this phase too';
+          const swDone = fired && !!ordnanceOf(env, g)?.light ? `The ${name} has fired this phase (a SW cannot use Intensive Fire); ${ownFp}` : null;
+          if (cannot || swDone) items.push(action(`Fire ${name}`, () => {}, { icon: '✦', disabled: true, hint: (cannot ?? swDone)! }));
           else if (fired && !g.tags['intensive'] && decision.kind !== 'firstFire' && phase !== 'AFPh')
             items.push(fireMenu(`Intensive Fire: ${name}`, opts.filter((o) => !/IFE/.test(o.label)), 'One more shot after losing ROF: +2 To Hit, B# -2 (SK4 3.2.4)'));
           else if (fired && decision.kind === 'firstFire')
@@ -2968,7 +3104,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
       if (own.length && !declared) {
         // Declare fire with the units here (the ticked ones, or the whole stack), led by a leader or not.
         const label = `Fire${units.length < own.length ? ` (${units.length})` : ''}`;
-        const leaders = leadersHere(hex).filter((l) => units.includes(l.id) || own.includes(l.id));
+        const leaders = fireLeaders(env, leadersHere(hex), units, own);
         const halted = plain(actionIllegal(env, units));
         if (halted) items.push(action(label, () => {}, { icon: '✦', disabled: true, hint: halted }));
         else if (leaders.length)
@@ -2979,7 +3115,24 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
             }),
           );
         else items.push(action(label, () => declareFire(hex, units, ''), { icon: '✦', hint: 'Mark these units as firing, then pick the target' }));
-      } else if (own.length && !inGroup) {
+      }
+      // A FT never combines with another attack nor forms a Fire Group, and no leader directs it (SK1 4.2): it has its
+      // own entry that fires it alone, whatever else is ticked. The stack's Fire leaves it out (`swLeftOut`).
+      if (!declared) {
+        const fts = Object.values(state.pieces).filter((p) => p.loc.kind === 'held' && own.includes(p.loc.by) && (defOf(env, p) as { type?: string }).type === 'FT');
+        for (const ft of fts) {
+          const holder = state.pieces[(ft.loc as { by: PieceId }).by]!;
+          const why = holder.tags['pinned'] === true ? 'A pinned unit cannot fire a FT (SK1 4.2)' : plain(actionIllegal(env, [holder.id]));
+          items.push(
+            action(fts.length > 1 ? `Fire flamethrower (${pieceLabel(env, holder).replace(/^\S+ /, '')})` : 'Fire flamethrower', () => declareFire(hex, [ft.id], ''), {
+              icon: '🔥',
+              disabled: !!why,
+              hint: why ?? 'The FT fires alone, with no Fire Group and no leader (SK1 4.2): pick the target, 24 FP at 1 hex or 12 at 2',
+            }),
+          );
+        }
+      }
+      if (own.length && declared && !inGroup) {
         const add = () => setSelected((s) => new Set([...s, ...own]));
         const leaders = directors.length ? leadersHere(hex) : [];
         // A directed Fire Group needs a directing leader in every hex (SK1 3.2): adding a stack
@@ -3144,7 +3297,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
         items.push(
           group('Destroy…', destroys.map((sw) => action(pieceLabel(env, sw), () => run({ type: 'sw.destroy', sw: sw.id }, true))), {
             icon: '✖',
-            hint: 'Wreck a SW so it cannot be captured; counts as using it (SK1 4.0)',
+            hint: 'Wreck a SW or Gun so the enemy cannot use it; counts as using a weapon (SK1 4.0; Guns as SW, SK4 1.2.6)',
           }),
         );
     }
@@ -3211,7 +3364,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
           action('Destroy', () => run({ type: 'sw.destroy', sw: p.id }, true), {
             icon: '✖',
             disabled: !!destroyErr,
-            hint: destroyErr ?? 'Wreck it so it cannot be captured; counts as using it (SK1 4.0)',
+            hint: destroyErr ?? 'Wreck it so the enemy cannot use it; counts as using a weapon (SK1 4.0; Guns as SW, SK4 1.2.6)',
           }),
         );
       }
@@ -3289,12 +3442,35 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
     return action(`Directed by ${pieceLabel(env, l).replace(/^\S+ /, '')}`, run, why ? { disabled: true, hint: why } : {});
   };
 
-  const lines = useMemo(() => newestFirst(describeEvents(env, present.log, viewer).slice(-200)), [env, present.log, viewer]);
+  const sections = useMemo(() => phaseSections(describeEvents(env, present.log, viewer).slice(-200)), [env, present.log, viewer]);
+  // The log reads oldest first, like the dice log, and follows the newest line: it stays pinned to the bottom unless
+  // the player has scrolled up to read back, and pins again once they scroll down to the end.
+  const logRef = useRef<HTMLElement | null>(null);
+  const logPinned = useRef(true);
+  const logResize = useRef<ResizeObserver | null>(null);
+  const pinLog = () => {
+    const el = logRef.current;
+    if (el && logPinned.current) el.scrollTop = el.scrollHeight;
+  };
+  useLayoutEffect(pinLog, [sections]);
+  // The panel also changes height (the stack card above it grows, a folded panel opens): keep the end in view.
+  const attachLog = useCallback((el: HTMLElement | null) => {
+    logRef.current = el;
+    logResize.current?.disconnect();
+    logResize.current = null;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    if (typeof ResizeObserver === 'undefined') return;
+    logResize.current = new ResizeObserver(() => {
+      if (logPinned.current) el.scrollTop = el.scrollHeight;
+    });
+    logResize.current.observe(el);
+  }, []);
   // A shot picked in the log has its LOS drawn on the map, traced again over the map as it stands
   // (terrain never changes; Smoke or wrecks placed since could differ), red from where it is blocked.
   const [losReview, setLosReview] = useState<number | null>(null);
   const losThreads = useMemo(() => {
-    const line = losReview === null ? undefined : lines.find((l) => l.seq === losReview);
+    const line = losReview === null ? undefined : sections.flatMap((s) => s.lines).find((l) => l.seq === losReview);
     if (!line?.los) return null;
     const { from, to } = line.los;
     // The ends are Locations (full ASL: an upper level is traced from its height); the map draws them by hex.
@@ -3314,7 +3490,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
         ...(toLevel ? { toLevel } : {}),
       };
     });
-  }, [losReview, lines, env]);
+  }, [losReview, sections, env]);
   const boardOverlay = useMemo(() => (losThreads ? { ...overlay, los: losThreads } : overlay), [overlay, losThreads]);
   const result = state.result;
   const sideName = (s?: string) => (s ? (scenario.sides.find((x) => x.side === s)?.name ?? NATION[s] ?? s) : '');
@@ -3418,46 +3594,63 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
           hideMarkers={markersHidden || peekBare}
           weather={weatherFx && fxLevel !== 'off' ? { kind: weatherFxKind(weather), windAngle } : null}
         />
-        <Hud
-          length={gameTurns(env)}
-          scenario={scenario}
-          phases={phases}
-          phase={phase}
-          turn={state.turn}
-          attacker={state.attacker}
-          acting={decision?.owner}
-          sideName={sideName}
-          tally={tally}
-          onTally={setLedger}
-          pf={pfLeft}
-          oba={Object.fromEntries(obaShown.map((o) => [o.side, o.missions]))}
-          weather={weather}
-          windAngle={windAngle}
-          fx={fxLevel}
-          onFx={setFxLevel}
-          onSettings={() => setSettings(true)}
-          onShortcuts={() => setShortcuts(true)}
-          onCharts={() => setCharts((o) => !o)}
-          onBriefing={() => setBriefing((o) => !o)}
-          diceLog={diceLog}
-          onToggleDiceLog={() => setDiceLog((o) => !o)}
-          unitsHidden={unitsHidden || peekTerrain}
-          onToggleUnits={() => setUnitsHidden((h) => !h)}
-          markersHidden={markersHidden || peekBare}
-          onToggleMarkers={() => setMarkersHidden((h) => !h)}
-          onRotate={(dir) => setQuarterTurns((q) => q + dir)}
-          endPhase={
-            !owner
-              ? null
-              : decision?.kind === 'phase'
-              ? { label: endLabel, blocked: endBlocked, onClick: endPhase, attention: !!yourCall }
-              : canPass
-              ? { label: passLabel, icon: '—', blocked: null, onClick: passFirstFire, hint: passHint, attention: true }
-              : facingDone
-              ? { label: 'Done turning', icon: '✓', blocked: null, onClick: facingDone, hint: 'Keep this facing and go back to Defensive First Fire' }
-              : scatterUi.confirm ?? entryUi.confirm ?? turnsUi.confirm ?? lengthUi.confirm ?? stretchUi.confirm ?? confirmFortify ?? confirmSetup
-          }
-        />
+        <ErrorBoundary what="the top bar" inline>
+          <Hud
+            length={gameTurns(env)}
+            scenario={scenario}
+            phases={phases}
+            phase={phase}
+            turn={state.turn}
+            attacker={state.attacker}
+            acting={decision?.owner}
+            sideName={sideName}
+            players={players}
+            tally={tally}
+            onTally={setLedger}
+            pf={pfLeft}
+            oba={Object.fromEntries(obaShown.map((o) => [o.side, o.missions]))}
+            weather={weather}
+            windAngle={windAngle}
+            fx={fxLevel}
+            onFx={setFxLevel}
+            onSettings={() => setSettings(true)}
+            onShortcuts={() => setShortcuts(true)}
+            onCharts={() => setCharts((o) => !o)}
+            onBriefing={() => setBriefing((o) => !o)}
+            diceLog={diceLog}
+            onToggleDiceLog={() => setDiceLog((o) => !o)}
+            unitsHidden={unitsHidden || peekTerrain}
+            onToggleUnits={() => setUnitsHidden((h) => !h)}
+            markersHidden={markersHidden || peekBare}
+            onToggleMarkers={() => setMarkersHidden((h) => !h)}
+            onRotate={(dir) => setQuarterTurns((q) => q + dir)}
+            tools={
+              <HudTools
+                game={{
+                  ...(matchId ? { matchId } : {}),
+                  scenarioId: scenario.id,
+                  scenarioTitle: scenario.title,
+                  turn: session.state.turn,
+                  phase: session.state.phase,
+                  actionCount: session.actionCount,
+                  ...(session.mySide !== undefined ? { mySide: session.mySide } : {}),
+                  ruleset: engine.ruleset.versionHash,
+                }}
+              />
+            }
+            endPhase={
+              !owner
+                ? null
+                : decision?.kind === 'phase'
+                ? { label: endLabel, blocked: endBlocked, onClick: endPhase, attention: !!yourCall }
+                : canPass
+                ? { label: passLabel, icon: '—', blocked: null, onClick: passFirstFire, hint: passHint, attention: true }
+                : facingDone
+                ? { label: 'Done turning', icon: '✓', blocked: null, onClick: facingDone, hint: 'Keep this facing and go back to Defensive First Fire' }
+                : scatterUi.confirm ?? entryUi.confirm ?? turnsUi.confirm ?? lengthUi.confirm ?? stretchUi.confirm ?? confirmFortify ?? confirmSetup
+            }
+          />
+        </ErrorBoundary>
         <CompassRose north={northAngle} onRotate={(dir) => setQuarterTurns((q) => q + dir)} />
         {rofChoiceUi.length > 0 && (
           <RofChoice
@@ -3477,7 +3670,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
             {moveHover && <span className="rout-why barred">{moveHover}</span>}
           </div>
         )}
-        {peek && !wheel && !caFor && !ring && (
+        {peek && !unitsHidden && !peekTerrain && !wheel && !caFor && !ring && (
           <StackPeek
             env={shownEnv}
             hex={peek.hex}
@@ -3546,29 +3739,32 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
         {yourCall && owner && (
           <>
             <div className={`board-glow side-${owner}`} aria-hidden="true" />
-            <YourCall
-              side={owner}
-              who={session.mySide === undefined ? sideName(owner) : null}
-              title={yourCall.title}
-              text={yourCall.text}
-              action={
-                canPass
-                  ? { label: passLabel, onClick: passFirstFire, hint: passHint }
-                  : facingDone
-                    ? { label: 'Done turning', onClick: facingDone, hint: 'Keep this facing and go back to Defensive First Fire' }
-                    : decision?.kind === 'phase' && !endBlocked
-                      ? { label: endLabel, onClick: endPhase, hint: 'Finish your rallies and hand the turn back' }
-                      : null
-              }
-            />
+            {callStrip && callHiddenIn !== phaseKey && (
+              <YourCall
+                side={owner}
+                who={session.mySide === undefined ? sideName(owner) : null}
+                title={yourCall.title}
+                text={yourCall.text}
+                action={
+                  canPass
+                    ? { label: passLabel, onClick: passFirstFire, hint: passHint }
+                    : facingDone
+                      ? { label: 'Done turning', onClick: facingDone, hint: 'Keep this facing and go back to Defensive First Fire' }
+                      : decision?.kind === 'phase' && !endBlocked
+                        ? { label: endLabel, onClick: endPhase, hint: 'Finish your rallies and hand the turn back' }
+                        : null
+                }
+                onDismiss={() => setCallHiddenIn(phaseKey)}
+              />
+            )}
           </>
         )}
         {fx.callout && <CalloutBanner callout={fx.callout} />}
         {fx.wheel && <PhaseWheel key={fx.wheel.id} cue={fx.wheel} phases={phases} sideName={sideName} level={fxLevel} onDone={fx.dismissWheel} />}
         {result && !reviewing && !ccShown && !resolving && (
-          <GameOver winner={result.winner} reason={result.reason === 'concession' && result.winner ? `The ${sideName(state.sides.find((x) => x !== result.winner)!)} concede` : result.reason === 'annihilation' && result.winner ? `The ${sideName(state.sides.find((x) => x !== result.winner)!)} have no units left` : result.reason} sideName={sideName} onLobby={onQuit} onReview={() => setReviewing(true)} aar={aar} />
+          <GameOver winner={result.winner} reason={result.reason === 'concession' && result.winner ? `The ${sideName(state.sides.find((x) => x !== result.winner)!)} concede` : result.reason === 'annihilation' && result.winner ? `The ${sideName(state.sides.find((x) => x !== result.winner)!)} have no units left` : result.reason === 'nothing left to play' ? 'Nothing left on the map can change the result' : result.reason} sideName={sideName} onLobby={onQuit} onReview={() => setReviewing(true)} aar={aar} />
         )}
-        {settings && <SettingsPanel fx={fxLevel} onFx={setFxLevel} weatherFx={weatherFx} onWeatherFx={setWeatherFx} onClose={() => setSettings(false)} />}
+        {settings && <SettingsPanel fx={fxLevel} onFx={setFxLevel} weatherFx={weatherFx} onWeatherFx={setWeatherFx} callStrip={callStrip} onCallStrip={setCallStrip} onClose={() => setSettings(false)} />}
         {shortcuts && <ShortcutsDialog onClose={() => setShortcuts(false)} />}
         {charts && <ChartsDialog nationalities={scenario.sides.flatMap((s) => s.nationalities ?? [s.nationality])} onClose={() => setCharts(false)} />}
         {endAsk && (
@@ -3606,7 +3802,11 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
 
       {aside}
 
-      <aside className="side">
+      <aside className={`side ${sideCollapsed ? 'collapsed' : ''}`}>
+        <button className={`side-expand ${owner ? 'attention' : ''}`} onClick={() => setSideCollapsed(false)} title={owner ? 'Show the orders panel: the game waits on you' : 'Show the orders panel'} aria-label="Show the orders panel">
+          <span aria-hidden="true">‹</span>
+          <span className="side-expand-label">Orders</span>
+        </button>
         <div className="side-head">
           <button className="ghost" onClick={onQuit}>← Lobby</button>
           <span className="spacer" />
@@ -3616,6 +3816,9 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
           {session.askUndo && (
             <button disabled={!session.canUndo} onClick={session.askUndo} title="Ask your opponent to take back your last action">Undo</button>
           )}
+          <button className="ghost side-collapse" onClick={() => setSideCollapsed(true)} title="Hide the orders panel to give the map more room" aria-label="Hide the orders panel">
+            ›
+          </button>
         </div>
         <VictoryPanel scenario={scenario} />
 
@@ -3634,7 +3837,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
         ) : waitingOn ? (
           <section className={`panel decision waiting side-${waitingOn}`}>
             <div className="who">{sideName(waitingOn)} — {session.mySide === null ? 'their orders' : 'waiting for their orders'}</div>
-            <h2>{decisionTitle(decision!.kind, phase, fortOpen, decision!.data?.['ending'] === true)}</h2>
+            <h2>{decisionTitle(decision!.kind, phase, fortOpen, decision!.data?.['ending'] === true && !banzaiState(env)?.dff)}</h2>
             {theirPlacing ? (
               <>
                 <p className="hint">
@@ -3663,7 +3866,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
           decision && (
             <section className={`panel decision side-${decision.owner}`}>
               <div className="who">{sideName(decision.owner)} — your orders</div>
-              <h2>{decisionTitle(decision.kind, phase, fortOpen, decision.data?.['ending'] === true)}</h2>
+              <h2>{decisionTitle(decision.kind, phase, fortOpen, decision.data?.['ending'] === true && !banzaiState(env)?.dff)}</h2>
               {error && <div className="error">{error}</div>}
 
               {scatterUi.panel}
@@ -3878,7 +4081,7 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
                           {pendingCe.has(v.id) ? ' · CE' : ' · BU'}
                           {(pendingDugIn.has(v.id) && canDigIn(v.id)) || digInRule?.defs?.includes(v.defId) ? ' · dug in' : ''}{' '}
                           <button className="ghost small" onClick={() => setCaFor(v.id)}>face…</button>{' '}
-                          <button className="ghost small" onClick={() => toggleCe(v.id)}>{pendingCe.has(v.id) ? 'button up' : 'crew exposed'}</button>
+                          <button className="ghost small" onClick={() => toggleCe(v.id)}>{pendingCe.has(v.id) ? 'make BU' : 'make CE'}</button>
                           {canDigIn(v.id) && (
                             <>
                               {' '}
@@ -3933,7 +4136,9 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
               {decision.kind === 'firstFire' && (
                 <div className="first-fire">
                   <p className="hint">
-                    {decision.data?.['ending']
+                    {banzaiState(env)?.dff
+                      ? <>Banzai Impulse over: you may fire at any of the Banzai units (SK4 8.1.8.6), one hex at a time. Now {hexLabel(String(decision.data?.['hex'] ?? ''))}{banzaiWindowsPending(env).length ? <>; to fire at {banzaiWindowsPending(env).map(hexLabel).join(', ')} first, declare your firers and right-click that hex</> : null}. Pass when done here.</>
+                      : decision.data?.['ending']
                       ? <>Enemy units have stopped in {hexLabel(String(decision.data?.['hex'] ?? ''))} with movement left: your last chance to fire at them there before another unit moves (SK1 3.3.1). Select your firers (shift-click hexes, tick units), then right-click the stack: <b>Fire!</b> Or pass.</>
                       : <>Enemy units are moving in {hexLabel(String(decision.data?.['hex'] ?? ''))}. Select your firers (shift-click hexes, tick units), then right-click the moving stack: <b>Fire!</b> Or pass and let them move on.</>}
                   </p>
@@ -4300,9 +4505,61 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
                         </p>
                       ) : mode === 'normal' ? (
                         <p className="hint wheel-hint">Click green hexes to move{owner && exitHexes(env, owner)?.size ? '; from a violet hex the stack can leave the map (Exit the map, above)' : ''}. Right-click the stack to <b>end its move</b>{ms.units.length > 1 ? ', leave some units behind (tick them first)' : ''}, fire Smoke, place a DC, recover a SW or exit the map.</p>
+                      ) : mode === 'smoke' ? (
+                        (() => {
+                          const name = (u: PieceId) => pieceLabel(env, state.pieces[u]).replace(/^\S+ /, '');
+                          const next = smokeThrower();
+                          const others = smokeThrowers();
+                          const cost = smokePlan.some((t) => t.target !== ms.hex) ? 2 : 1;
+                          return (
+                            <div className="hint smoke-plan">
+                              {smokePlan.length > 0 && (
+                                <p>
+                                  Throwing together, {cost} MF for the whole stack:{' '}
+                                  {smokePlan.map((t, i) => (
+                                    <span key={t.unit}>
+                                      {i ? ' · ' : ''}
+                                      {name(t.unit)} → {hexLabel(t.target)}
+                                    </span>
+                                  ))}
+                                  . The defender may fire at the stack once all are rolled.
+                                </p>
+                              )}
+                              {next && (
+                                <p>
+                                  Click the Smoke target hex (amber) for{' '}
+                                  {others.length > 1 ? (
+                                    <select value={next} onChange={(e) => setSmokeNext(e.target.value)}>
+                                      {others.map((u) => (
+                                        <option key={u} value={u}>
+                                          {name(u)} (Smoke {env.query('unit.smoke', { unit: u }, 0)})
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <b>{name(next)}</b>
+                                  )}
+                                  : 1 MF in this hex, 2 MF next to it, for the whole stack.
+                                  {smokePlan.length === 0 && others.length > 1 ? ' Other units may then throw for the same MF (ASLRB A4.2).' : ''}
+                                  {smokePlan.length === 0 ? ' Any other hex or Esc cancels.' : ''}
+                                </p>
+                              )}
+                              <p>
+                                {smokePlan.length > 0 && (
+                                  <>
+                                    <button type="button" onClick={() => throwSmoke(smokePlan)}>
+                                      Throw
+                                    </button>{' '}
+                                  </>
+                                )}
+                                <a onClick={() => setMode('normal')}>Cancel</a>
+                              </p>
+                            </div>
+                          );
+                        })()
                       ) : (
                         <p className="hint">
-                          Click the {mode === 'smoke' ? 'Smoke target hex (amber): 1 MF in this hex, 2 MF next to it, for the whole stack. Any other hex or Esc cancels' : 'DC target hex'}. <a onClick={() => setMode('normal')}>Cancel</a>
+                          Click the DC target hex. <a onClick={() => setMode('normal')}>Cancel</a>
                         </p>
                       )}
                     </>
@@ -4455,21 +4712,47 @@ export function GameScreen({ scenario, session, matchId, viewKey, onQuit, onReso
           swWithHolder={!isFireDecision}
         />
 
-        <section className="panel log">
+        <section
+          className="panel log"
+          ref={attachLog}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            logPinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+          }}
+        >
           <h3>Log</h3>
-          <ol>
-            {lines.map((l) => (
-              <li
-                key={l.seq + l.text}
-                className={`log-${l.kind} ${l.opens ? 'opens' : ''} ${l.los ? 'has-los' : ''} ${l.seq === losReview ? 'reviewing' : ''}`}
-                onClick={l.los ? () => setLosReview((r) => (r === l.seq ? null : l.seq)) : undefined}
-                title={l.los ? (l.seq === losReview ? 'Hide the LOS' : 'Show this shot\'s LOS on the map') : undefined}
-              >
-                {l.text}
-                {l.detail && <div className="muted small">{l.detail}</div>}
-              </li>
-            ))}
-          </ol>
+          {sections.map((sec) => (
+            <section key={sec.head ? `p${sec.head.seq}` : 'pre'} className={`log-sec ${sec.lines.length ? '' : 'empty'}`}>
+              {sec.head?.phase ? (
+                <h4 className={`log-head side-${sec.head.phase.side}`}>
+                  <span className="log-turn">Turn {sec.head.phase.turn}</span>
+                  <span className="log-side">{sideName(sec.head.phase.side)}</span>
+                  <span className="log-phase-name">{sec.head.phase.name}</span>
+                </h4>
+              ) : sec.head ? (
+                <h4 className="log-head">{sec.head.text}</h4>
+              ) : null}
+              {sec.lines.length > 0 && (
+                <ol>
+                  {sec.lines.map((l) => (
+                    <li
+                      key={l.seq + l.text}
+                      className={`log-${l.kind} ${l.opens ? 'opens' : ''} ${l.los ? 'has-los' : ''} ${l.seq === losReview ? 'reviewing' : ''}`}
+                      onClick={l.los ? () => setLosReview((r) => (r === l.seq ? null : l.seq)) : undefined}
+                      title={l.los ? (l.seq === losReview ? 'Hide the LOS' : 'Show this shot\'s LOS on the map') : undefined}
+                    >
+                      <LogText text={l.text} />
+                      {l.detail && (
+                        <div className="muted small">
+                          <LogText text={l.detail} />
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          ))}
         </section>
       </aside>
     </div>
@@ -4508,7 +4791,7 @@ function decisionTitle(kind: string, phase: string, fortifyOpen = false, endingM
     case 'secretLength':
       return 'Game length (secret)';
     case 'entryStretch':
-      return 'Entry stretch';
+      return 'Where the force enters';
     case 'ccHex':
       return 'Close Combat order';
     case 'ccArrange':

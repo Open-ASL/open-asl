@@ -4,7 +4,7 @@ import { buildAttack } from '../src/sk1/fire';
 import { moveState } from '../src/sk1/movement';
 import { sk2CoreModules } from '../src/sk2';
 import { sk3CoreModules } from '../src/sk3';
-import { caChangeDrm, inCoveredArc, nearestSpine, spineChange, statics, turretTurnFor } from '../src';
+import { caChangeDrm, inCoveredArc, nearestSpine, smoke58Counters, spineChange, statics, turretTurnFor } from '../src';
 import { T3, tcaOf } from '../src/sk3/status';
 import { RU_VS_GE, act, makeEngine, type PieceSpec } from './fixtures';
 
@@ -234,10 +234,19 @@ describe('smoke dispensers and Motion attempts (SK4 7.5, 3.3.2.1)', () => {
     let s = play(engine, state, { type: 'vmove.start', vehicle: 'pziv' });
     const r = act(engine, s, { type: 'vmove.smoke' });
     expect(ev(r, 'sk3.vehicle.smoke')[0]).toMatchObject({ kind: 'sD', n: 6, drm: 0, placed: true, hex: 'yM8' });
-    expect(r.state.hexMarkers['yM8']?.['smoke58']).toBe('smoke');
+    expect(smoke58Counters(r.state.hexMarkers['yM8'])).toEqual([{ kind: 'smoke', dispersed: true, side: 'ge' }]);
     expect(moveState(engine.env(passDff(engine, r.state)))!.spent['pziv']).toBe(2);
     s = passDff(engine, r.state);
     expect(engine.validate(s, { type: 'vmove.smoke', side: 'ge', decisionId: engine.currentDecision(s)!.id } as never)).toMatch(/used this Player Turn/);
+  });
+  it('dispensed Smoke joins a full ⅝" counter already in the hex instead of replacing it (ASLRB A24.2)', () => {
+    const { engine, state } = makeEngine({ pieces: [pziv('yM8', { ce: true })], scenario: { ...RU_VS_GE, firstSide: 'ge' }, extra, startPhase: 'MPh', dice: [3, 3] });
+    const smoked = { ...state, hexMarkers: { ...state.hexMarkers, yM8: { smoke58: 'smoke@ru' } } };
+    const s = play(engine, smoked, { type: 'vmove.start', vehicle: 'pziv' });
+    const r = act(engine, s, { type: 'vmove.smoke' });
+    expect(smoke58Counters(r.state.hexMarkers['yM8'])).toEqual([{ kind: 'smoke', dispersed: false, side: 'ru' }, { kind: 'smoke', dispersed: true, side: 'ge' }]);
+    // +3 and +2 add up to the +3 cap; the full counter is not downgraded to the dispenser's +2.
+    expect(engine.env(r.state).query('los.trace', { from: 'yM5', to: 'yM8' }, { clear: true, hindrance: 0, parts: [] }).hindrance).toBe(3);
   });
   it('a defending AFV not fired at a mover it could not see at the start of the turn may attempt Motion: dr ≤ the MP spent in its LOS', () => {
     // The panzer (facing south, turret too) in M4 sees the T-34 start in M9... so set the T-34 behind a woods wall? Simplest: no LOS at RPh start is

@@ -1,13 +1,12 @@
-import { SMOKE58 } from '@asl/rules';
+import { smoke58Counters } from '@asl/rules';
 
 /**
- * The ⅝" Ordnance Smoke/WP counter in a hex (SK4 1.2.5), as the VASL marker that shows it:
+ * The ⅝" Ordnance Smoke/WP counters in a hex (SK4 1.2.5), oldest first, as the VASL markers that show them:
  * full Smoke +3, Dispersed Smoke +2, WP +2, Dispersed WP +1.
  */
-export function smoke58Marker(m: Record<string, unknown> | undefined): { marker: string; label: string } | null {
-  const kind = m?.[SMOKE58.kind];
-  if (!kind) return null;
-  const dispersed = m?.[SMOKE58.dispersed] === true;
-  if (kind === 'wp') return dispersed ? { marker: 'WP1', label: 'Dispersed WP (+1)' } : { marker: 'WP2', label: 'WP (+2)' };
-  return dispersed ? { marker: 'Smk2', label: 'Dispersed Smoke (+2)' } : { marker: 'Smk3', label: 'Smoke (+3)' };
+export function smoke58Chits(m: Record<string, unknown> | undefined): { marker: string; label: string }[] {
+  return smoke58Counters(m).map(({ kind, dispersed }) => {
+    if (kind === 'wp') return dispersed ? { marker: 'WP1', label: 'Dispersed WP (+1)' } : { marker: 'WP2', label: 'WP (+2)' };
+    return dispersed ? { marker: 'Smk2', label: 'Dispersed Smoke (+2)' } : { marker: 'Smk3', label: 'Smoke (+3)' };
+  });
 }

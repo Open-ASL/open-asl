@@ -17,7 +17,7 @@ export function CalloutBanner({ callout }: { callout: Callout }) {
  * a Motion facing): it stays, pulsing, until the call is answered. The dropped banner above it lasts
  * three seconds and was easy to miss; this is what a player looks for when unsure whose go it is.
  */
-export function YourCall({ side, who, title, text, action }: { side: SideId; who: string | null; title: string; text: string; action?: { label: string; onClick(): void; hint?: string } | null }) {
+export function YourCall({ side, who, title, text, action, onDismiss }: { side: SideId; who: string | null; title: string; text: string; action?: { label: string; onClick(): void; hint?: string } | null; onDismiss?(): void }) {
   return (
     <div className={`your-call side-${side}`} role="status" aria-live="polite">
       <span className="yc-kicker">{who ? `${who}: your call` : 'Your call'}</span>
@@ -28,6 +28,11 @@ export function YourCall({ side, who, title, text, action }: { side: SideId; who
       {action && (
         <button className="primary" onClick={action.onClick} title={action.hint}>
           {action.label}
+        </button>
+      )}
+      {onDismiss && (
+        <button className="ghost yc-close" onClick={onDismiss} title="Hide this until the next phase. Pass stays in the top bar, on the action wheel and in the orders panel" aria-label="Hide">
+          ✕
         </button>
       )}
     </div>

@@ -102,6 +102,8 @@ function addBuildingLevels(terrain: Record<string, HexTerrainSpec>, board: strin
 }
 
 const cornerRoadCache = new Map<string, [string, string][]>();
+/** A hex of a board's edge hexrows (A, GG), without its board letter. */
+const EDGE_ROW = /^(A|GG)\d+$/;
 
 /**
  * The edge roads of the geomorphic boards leave their hex through a corner and run on along the hexside there to
@@ -109,7 +111,9 @@ const cornerRoadCache = new Map<string, [string, string][]>();
  * hexside only, so the hex the road comes from is a dead end beside it and a stack on the road cannot follow it
  * (no road bonus, e.g. S17 board x B5). Worked out on the whole board, never on a scenario's
  * cut of it (a road leaving the playing area is a dead end of another kind): a road hex with a single road
- * hexside that touches both hexes of a road hexside it is not joined to is joined to both.
+ * hexside that touches both hexes of a road hexside it is not joined to is joined to both. Where the road also
+ * crosses into one of two edge hexes (B5 into A5), the import records that hexside: the hex is joined to the other
+ * edge hex too. Only at the edge hexrows (A, GG), so a junction inside the board (z K4 to L3 and L4) is left alone.
  */
 function cornerRoads(board: string): [string, string][] {
   let out = cornerRoadCache.get(board);
@@ -119,9 +123,17 @@ function cornerRoads(board: string): [string, string][] {
   const joined = (id: string) => m.neighbors(id).filter((n) => m.roadHexside(id, n));
   out = [];
   for (const id of Object.keys(b.hexes).sort()) {
-    if (!m.hex(id) || joined(id).length !== 1) continue;
-    const nbrs = m.neighbors(id).filter((n) => !m.roadHexside(id, n));
-    for (const a of nbrs) for (const c of nbrs) if (a < c && m.roadHexside(a, c)) out.push([id, a], [id, c]);
+    if (!m.hex(id)) continue;
+    const j = joined(id);
+    const nbrs = m.neighbors(id);
+    for (const a of nbrs)
+      for (const c of nbrs) {
+        if (a >= c || !m.roadHexside(a, c) || (j.includes(a) && j.includes(c))) continue;
+        const deadEnd = j.length === 1 && !j.includes(a) && !j.includes(c);
+        const pastEdge = EDGE_ROW.test(a.slice(1)) && EDGE_ROW.test(c.slice(1)) && j.length === 2 && (j.includes(a) || j.includes(c));
+        if (!deadEnd && !pastEdge) continue;
+        for (const x of [a, c]) if (!j.includes(x)) out.push([id, x]);
+      }
   }
   cornerRoadCache.set(board, out);
   return out;

@@ -4,11 +4,11 @@ import { locOf } from '../common/location';
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
 import type { VictoryCondition } from '../common/statics';
 import type { FireAttackCtx } from '../sk1/fire';
-import { SETUP_PLACED, achieved, isImmediate, type SetupAction, type SetupPlacedFn } from '../sk1/scenario';
+import { SETUP_PLACED, achieved, isImmediate, setupGeography, type SetupAction, type SetupPlacedFn } from '../sk1/scenario';
 import { phaseOwner } from '../sk1/firePhases';
 import { T, fireMarker, gun, gunHeldBy, isGoodOrder, isPinned, mmc, pieceOf, setTags } from '../sk1/status';
 import { hasFeature, terrainOf } from '../sk1/terrain';
-import { SPINES, inCoveredArc, spineChange } from './arc';
+import { SPINES, inCoveredArc, nearestSpine, spineChange } from './arc';
 import { T2, caTurnedIllegal, coveredArc, firePhaseKey, gunHex, gunManner, gunsOf, isEmplaced, isHidden, ACQ_CLEAR } from './status';
 
 /*
@@ -129,7 +129,8 @@ function checkImmediateGunVictory(ctx: Ctx) {
 }
 
 /** Why a Gun may not set up in `hex`: only small target Guns and (not large) AT/INF Guns may set up in a building hex. */
-function gunBuildingIllegal(env: QueryEnv, g: Piece, hex: HexId): string | null {
+/** Why a Gun may not set up in `hex` (SK4 6.3: only small-target, AT and INF Guns in a building hex), or null. */
+export function gunBuildingIllegal(env: QueryEnv, g: Piece, hex: HexId): string | null {
   const d = gun(env, g)!;
   if (statics(env).map.hex(hex)?.buildingId && d.targetSize !== 'small' && !((d.type === 'AT' || d.type === 'INF') && d.targetSize !== 'large')) {
     return `${g.id}: only small target Guns and AT/INF Guns may set up in a building hex`;
@@ -160,14 +161,25 @@ export const gunsModule: RuleModule = {
       // An Emplaced Gun may always set up hidden unless on a paved road (SK4 6.4).
       apply: (_v, { hex }, env) => !hasFeature(env, hex, 'road:paved'),
     });
+    // A Gun's default post faces the enemy's front and hides where the rules allow (SK4 6.4): what a player would do.
     r.contribute({
       id: 'sk2.setup.defaults.guns',
       query: 'setup.defaults',
-      apply(v, { todo, placements }, env) {
-        const guns: Record<PieceId, { ca: number }> = {};
+      apply(v, { side, todo, placements }, env) {
+        const guns: Record<PieceId, { ca: number; hip?: boolean }> = {};
+        const map = statics(env).map;
+        const { front } = setupGeography(env, side);
         for (const id of todo) {
-          if (!placements[id]) continue;
-          for (const g of gunsOf(env)) if (g.loc.kind === 'held' && g.loc.by === id) guns[g.id] = { ca: 0 };
+          const hex = placements[id];
+          if (!hex) continue;
+          for (const g of gunsOf(env)) {
+            if (g.loc.kind !== 'held' || g.loc.by !== id) continue;
+            const at = map.hex(hex);
+            const near = at && front.length ? front.map((f) => map.hex(f)).filter((x): x is NonNullable<typeof x> => !!x).sort((a, b) => map.distance(hex, a.id) - map.distance(hex, b.id))[0] : undefined;
+            const ca = at && near ? (nearestSpine(at.cube, 0, near.cube) ?? 0) : 0;
+            const hip = env.query('hip.allowed', { gun: g.id, hex }, false);
+            guns[g.id] = { ca, ...(hip ? { hip: true } : {}) };
+          }
         }
         return Object.keys(guns).length ? { ...v, guns } : v;
       },
@@ -298,7 +310,16 @@ export const gunsModule: RuleModule = {
     r.action<ChangeCaAction & { side: SideId; decisionId: string }>({
       type: 'gun.changeCa',
       decisionKinds: [PHASE_DECISION],
-      legal: () => [],
+      // Each Gun that may still turn (SK4 3.2.4), to each of the five other hexspines.
+      legal(env, d) {
+        const out: ChangeCaAction[] = [];
+        for (const g of gunsOf(env).sort(byId)) {
+          if (g.side !== d.owner || caChangeIllegal(env, g.id, d.owner)) continue;
+          const from = coveredArc(g);
+          for (let ca = 0; ca < SPINES; ca++) if (ca !== from) out.push({ type: 'gun.changeCa', gun: g.id, ca });
+        }
+        return out;
+      },
       validate(env, a) {
         const why = caChangeIllegal(env, a.gun, a.side);
         if (why) return why;

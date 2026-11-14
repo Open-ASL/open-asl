@@ -12,7 +12,7 @@ import {
   type VehicleMoveState,
 } from '../sk1/movement';
 import { T, fireMarker, isGoodOrder, pieceOf, setTags } from '../sk1/status';
-import { SMOKE58, isRoadHex, isWoodsRoad, smokeIn, terrainOf } from '../sk1/terrain';
+import { isRoadHex, isWoodsRoad, smoke58Counters, smoke58Markers, smokeIn, terrainOf } from '../sk1/terrain';
 import { SPINES, arcNeighbours, inCoveredArc, spineChange } from '../sk2/arc';
 import { levelOf } from '../sk2/elevation';
 import { T2 } from '../sk2/status';
@@ -121,6 +121,9 @@ export function vehicleEntryCost(env: QueryEnv, p: Piece, from: HexId | null, to
   if (smokeIn(env, to)) cost += 1;
   return cost;
 }
+
+/** MP to turn the hull `spines` hexspines in `hex` (SK4 3.3.2): 1 per hexspine, 2 in woods or a building. */
+export const vehicleTurnCost = (env: QueryEnv, hex: HexId | null, spines: number): number => spines * (closeTerrain(env, hex) ? 2 : 1);
 
 /** The cost of the moving vehicle's step into `to` (`declared`: more MP than needed, SK4 3.3.2; the woods "all MP" choice is a declaration of all that is left). */
 function vehicleStepCost(env: QueryEnv, ms: MoveState & { vehicle: VehicleMoveState }, to: HexId, declared?: number): number {
@@ -268,7 +271,7 @@ export function vehicleCannotStart(env: QueryEnv, id: PieceId): string | null {
 }
 
 /** A vehicle's MP allowance less what the card says it has already expended on entering. */
-function entrySpent(env: QueryEnv, p: Piece, mp: number): number {
+export function entrySpent(env: QueryEnv, p: Piece, mp: number): number {
   if (p.loc.kind !== 'offboard') return 0;
   const spec = p.tags['entryMfSpent'];
   if (spec === 'half') return mp / 2;
@@ -704,10 +707,9 @@ export const vehicleMoveModule: RuleModule = {
       setTags(ctx, id, { [T3.smokeUsed]: true });
       ctx.emit('sk3.vehicle.smoke', { vehicle: id, kind: disp.kind, dr: roll.dice as [number, number], drm, n: disp.n, placed, hex });
       if (placed) {
-        // Dispersed Smoke, a +2 ⅝" counter (SK4 1.2.5, 7.5).
-        ctx.emit('hex.marker', { hex, key: SMOKE58.kind, value: 'smoke' });
-        ctx.emit('hex.marker', { hex, key: SMOKE58.dispersed, value: true });
-        ctx.emit('hex.marker', { hex, key: SMOKE58.side, value: p.side });
+        // Dispersed Smoke, a +2 ⅝" counter (SK4 1.2.5, 7.5), added to any already in the hex (ASLRB A24.2).
+        const m = ctx.state.hexMarkers[hex];
+        for (const e of smoke58Markers(hex, m, [...smoke58Counters(m), { kind: 'smoke', dispersed: true, side: p.side }])) ctx.emit('hex.marker', e);
         ctx.emit('sk2.smoke.placed', { hex, kind: 'smoke', dispersed: true, side: p.side });
       }
       // In its own MPh a successful attempt costs 1 MP (an opportunity for Defensive First Fire).
@@ -1010,7 +1012,7 @@ function turnIllegal(env: QueryEnv, ms: MoveState & { vehicle: VehicleMoveState 
   if (isBogged(p)) return 'A bogged vehicle may not change its VCA';
   const spines = spineChange(vcaOf(p), vca);
   if (spines === 0) return 'The vehicle already faces that way';
-  const cost = spines * (closeTerrain(env, ms.hex) ? 2 : 1);
+  const cost = vehicleTurnCost(env, ms.hex, spines);
   if (cost > remaining(ms)) return `Turning ${spines} hexspine${spines > 1 ? 's' : ''} costs ${cost} MP (${remaining(ms)} left)`;
   return null;
 }

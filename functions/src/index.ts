@@ -16,6 +16,7 @@ export { closeDisconnectedQuickTables, sweepStalePresence } from './presence';
 export { saveAnnouncement, publishScheduledAnnouncements } from './announcements';
 export { profilePage } from './profileMeta';
 export { aarPage, writeAarOnComplete } from './aar';
+export * from './deployment';
 
 /** Health check: proves the bundled engine loads and reports the ruleset version hash that games pin. */
 export const ping = onCall((req) => {

@@ -36,18 +36,19 @@ export const wrecksModule: RuleModule = {
         if (!v.clear) return v;
         const [from, to] = [hexOfLoc(ctx.from), hexOfLoc(ctx.to)];
         const map = statics(env).map;
-        const res = map.los(from, to);
         // The lower end's level: its Location's height (hex elevation plus building level; the hex's in SK). ASLRB A6.7.
         const lo = Math.min(heightOf(env, ctx.from), heightOf(env, ctx.to));
+        // Every hex the line passes through, whatever its terrain: the pixel trace's `crossed` lists only hexes whose
+        // art hinders, and a vehicle in open ground hinders all the same. A line exactly along a hexside is hindered by a
+        // vehicle on either side, once (as Smoke, ASLRB B.6).
+        const steps = map.lineSteps ? map.lineSteps(from, to) : map.los(from, to).crossed.filter((c) => c.hex !== from && c.hex !== to).map((c) => [c.hex]);
+        // "The Hindrance does not apply if the wreck/AFV hex cannot be seen by both the firer and the target" (SK4 7.4.1).
+        const seenByBoth = (hex: string) => map.los(from, hex).clear && map.los(to, hex).clear;
         const parts = [...v.parts];
-        const seen = new Set<string>();
-        for (const c of res.crossed) {
-          if (c.hex === from || c.hex === to || seen.has(c.hex)) continue;
-          if ((map.hex(c.hex)?.elevation ?? 0) !== lo) continue;
-          const vs = coverAt(env, c.hex);
-          if (!vs.length) continue;
-          seen.add(c.hex);
-          parts.push({ label: `+1 ${vs.some(isWreck) ? 'wreck' : 'vehicle'} hindrance`, hex: c.hex, drm: 1 });
+        for (const step of steps) {
+          const hex = step.find((h) => (map.hex(h)?.elevation ?? 0) === lo && coverAt(env, h).length && seenByBoth(h));
+          if (!hex) continue;
+          parts.push({ label: `+1 ${coverAt(env, hex).some(isWreck) ? 'wreck' : 'vehicle'} hindrance`, hex, drm: 1 });
         }
         return parts.length === v.parts.length ? v : { ...v, parts, hindrance: parts.reduce((a, p) => a + p.drm, 0) };
       },

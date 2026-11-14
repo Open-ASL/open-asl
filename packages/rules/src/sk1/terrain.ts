@@ -85,34 +85,71 @@ export const grainInSeason = (env: QueryEnv) => {
 };
 
 /**
- * Smoke counters in a hex (SK1 3.3, SK4 1.2.5): `smoke` is the ½" grenade counter (MPh only);
- * `smoke58` the ⅝" Ordnance counter ('smoke' or 'wp'), `smoke58Disp` its Dispersed side and
- * `smoke58Side` the side that placed it (it disperses at that side's next PFPh).
+ * Smoke counters in a hex (SK1 3.3, SK4 1.2.5): `smoke` is the ½" grenade counter (MPh only); `smoke58` the ⅝"
+ * Ordnance and vehicle counters (see `smoke58Counters`). Older states held one ⅝" counter as `smoke58` ('smoke' or
+ * 'wp') with `smoke58Disp` its Dispersed side and `smoke58Side` the side that placed it.
  */
 export const SMOKE58 = { kind: 'smoke58', dispersed: 'smoke58Disp', side: 'smoke58Side' } as const;
 
-export const smokeIn = (env: QueryEnv, hex: HexId) => env.state.hexMarkers[hex]?.['smoke'] === true || !!env.state.hexMarkers[hex]?.[SMOKE58.kind];
+/** One ⅝" Smoke or WP counter: it disperses at the start of the placing side's next PFPh (SK4 1.2.5). */
+export interface Smoke58 { kind: 'smoke' | 'wp'; dispersed: boolean; side: string }
 
-/** The ⅝" counter's Hindrance DRM: full Smoke +3, Dispersed Smoke or full WP +2, Dispersed WP +1. */
-export function smoke58Drm(env: QueryEnv, hex: HexId): number {
-  const m = env.state.hexMarkers[hex];
-  const kind = m?.[SMOKE58.kind];
-  if (!kind) return 0;
-  const dispersed = m?.[SMOKE58.dispersed] === true;
-  return kind === 'wp' ? (dispersed ? 1 : 2) : dispersed ? 2 : 3;
+/**
+ * The ⅝" counters in a hex, oldest first. Any number may be placed in a hex (ASLRB A24.2), each with its own side
+ * and Dispersed state, so `smoke58` holds them all as `kind[.d]@side` joined by commas ("smoke@ge,wp.d@ru").
+ */
+export function smoke58Counters(m: Record<string, unknown> | undefined): Smoke58[] {
+  const v = m?.[SMOKE58.kind];
+  if (typeof v !== 'string' || v === '') return [];
+  if (!v.includes('@')) return [{ kind: v === 'wp' ? 'wp' : 'smoke', dispersed: m?.[SMOKE58.dispersed] === true, side: String(m?.[SMOKE58.side] ?? '') }];
+  return v.split(',').map((t) => {
+    const [k, side = ''] = t.split('@');
+    return { kind: k!.startsWith('wp') ? 'wp' : 'smoke', dispersed: k!.endsWith('.d'), side };
+  });
 }
 
-/** Smoke Hindrance DRM of a hex: ½" Smoke +2 plus the ⅝" counter's, at most +3 per hex (SK4 1.2.5). */
+/** The `hex.marker` events that store `counters` as the hex's ⅝" Smoke (clearing the older single-counter keys). */
+export function smoke58Markers(hex: HexId, m: Record<string, unknown> | undefined, counters: Smoke58[]): { hex: HexId; key: string; value: string | null }[] {
+  const value = counters.map((c) => `${c.kind}${c.dispersed ? '.d' : ''}@${c.side}`).join(',') || null;
+  const out: { hex: HexId; key: string; value: string | null }[] = [];
+  if ((m?.[SMOKE58.kind] ?? null) !== value) out.push({ hex, key: SMOKE58.kind, value });
+  for (const key of [SMOKE58.dispersed, SMOKE58.side]) if (m?.[key] !== undefined) out.push({ hex, key, value: null });
+  return out;
+}
+
+/** A ⅝" counter's Hindrance DRM: full Smoke +3, Dispersed Smoke or full WP +2, Dispersed WP +1 (SK4 1.2.5). */
+export const smoke58CounterDrm = (c: Smoke58) => (c.kind === 'wp' ? (c.dispersed ? 1 : 2) : c.dispersed ? 2 : 3);
+
+/**
+ * How many ½" Smoke grenade counters a hex holds: the `smoke` marker is their count (`true` in older states: one).
+ * Any number may be placed in a hex (ASLRB A24.2); they come off at the end of the MPh (SK1 3.3).
+ */
+export function smokeGrenades(m: Record<string, unknown> | undefined): number {
+  const v = m?.['smoke'];
+  return v === true ? 1 : typeof v === 'number' ? v : 0;
+}
+
+export const smokeIn = (env: QueryEnv, hex: HexId) => smokeGrenades(env.state.hexMarkers[hex]) > 0 || smoke58Counters(env.state.hexMarkers[hex]).length > 0;
+
+/** The ⅝" counters' Hindrance DRM, added up (ASLRB A24.2; `smokeDrm` applies the +3 cap). */
+export function smoke58Drm(env: QueryEnv, hex: HexId): number {
+  return smoke58Counters(env.state.hexMarkers[hex]).reduce((n, c) => n + smoke58CounterDrm(c), 0);
+}
+
+/**
+ * Smoke Hindrance DRM of a hex: +2 per ½" Smoke grenade counter plus each ⅝" counter's, at most +3 per hex (SK4 1.2.5
+ * "up to a maximum of +3 per hex"; ASLRB A24.2: cumulative for each SMOKE counter, never more than +3 for one Location).
+ * Fire traced out of the hex adds its +1 on top of this (A24.8).
+ */
 export function smokeDrm(env: QueryEnv, hex: HexId): number {
-  const half = env.state.hexMarkers[hex]?.['smoke'] === true ? 2 : 0;
+  const half = 2 * smokeGrenades(env.state.hexMarkers[hex]);
   return Math.min(3, half + smoke58Drm(env, hex));
 }
 
 function smoke58Label(env: QueryEnv, hex: HexId): string {
-  const m = env.state.hexMarkers[hex];
-  const kind = m?.[SMOKE58.kind];
-  if (!kind) return 'Smoke';
-  return `${m?.[SMOKE58.dispersed] === true ? 'Dispersed ' : ''}${kind === 'wp' ? 'WP' : 'Smoke'}`;
+  const counters = smoke58Counters(env.state.hexMarkers[hex]);
+  if (counters.length !== 1) return 'Smoke';
+  return `${counters[0]!.dispersed ? 'Dispersed ' : ''}${counters[0]!.kind === 'wp' ? 'WP' : 'Smoke'}`;
 }
 
 export const terrainModule: RuleModule = {

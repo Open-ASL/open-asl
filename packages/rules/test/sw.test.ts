@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Engine, GameState } from '@asl/engine';
-import { RU_VS_GE, act, makeEngine } from './fixtures';
-import { moveState } from '../src';
+import { GE_VS_BR, RU_VS_GE, act, makeEngine } from './fixtures';
+import { moveState, sk2CoreModules } from '../src';
 
 /** Let the defender pass any Defensive First Fire opportunity that interrupts the mover. */
 function settle(engine: Engine, state: GameState): GameState {
@@ -221,6 +221,73 @@ describe('Voluntary SW destruction (SK1 4.0)', () => {
     expect(() => act(engine, s, { type: 'fire', decl: { units: ['a1'], sw: ['aMMG'], target: 'yO5' } })).toThrow(/forfeits its own FP/);
     const t = act(engine, s, { type: 'fire', decl: { units: [], sw: ['aMMG'], target: 'yO5' } });
     expect(t.state.pieces['a1']!.tags['ownFpForfeit']).toBe(true);
+  });
+});
+
+describe('Voluntary Gun destruction (SK4 1.2.6: Guns are destroyed as if a SW)', () => {
+  it('a squad holding a captured, malfunctioned Gun may wreck it in its PFPh, as a weapon use; an unpossessed Gun may not be', () => {
+    const { engine, state } = makeEngine({
+      scenario: GE_VS_BR,
+      extra: sk2CoreModules,
+      startPhase: 'PFPh',
+      pieces: [
+        { id: 'g1', def: 'ge.447', side: 'ge', hex: 'yN4' },
+        { id: 'how', def: 'br.AT57L', side: 'ge', heldBy: 'g1', tags: { malf: true, emplaced: true, ca: 1 } },
+        { id: 'g2', def: 'ge.447', side: 'ge', hex: 'yN6' },
+        { id: 'loose', def: 'br.AT57L', side: 'br', hex: 'yN6', tags: { emplaced: true, ca: 1 } },
+        { id: 'b1', def: 'br.457', side: 'br', hex: 'yP9' },
+      ],
+    });
+    expect(() => act(engine, state, { type: 'sw.destroy', sw: 'loose' })).toThrow(/Not a possessed SW or Gun/);
+    let s = act(engine, state, { type: 'sw.destroy', sw: 'how' }).state;
+    expect(s.pieces['how']!.loc).toEqual({ kind: 'eliminated' });
+    expect(s.pieces['g1']!.tags).toMatchObject({ firedSw: true, swDestroyed: 1 });
+    // A use of a weapon in the PFPh: the squad is marked with it at the phase's end and does not move (SK1 3.2.2).
+    s = act(engine, s, { type: 'endPhase' }).state;
+    expect(s.phase).toBe('MPh');
+    expect(() => act(engine, s, { type: 'move.start', units: ['g1'] })).toThrow(/fired in the PFPh/);
+    // Into the next German Player Turn: every record of it is gone and the squad moves.
+    for (let i = 0; i < 40 && !(s.turn === 2 && s.attacker === 'ge' && s.phase === 'MPh'); i++) s = act(engine, s, { type: 'endPhase' }).state;
+    expect([s.turn, s.attacker, s.phase]).toEqual([2, 'ge', 'MPh']);
+    for (const k of ['fire', 'firedSw', 'firedSwAs', 'swDestroyed']) expect(s.pieces['g1']!.tags[k]).toBeUndefined();
+    expect(() => act(engine, s, { type: 'move.start', units: ['g1'] })).not.toThrow();
+  });
+});
+
+describe('Dropping a Gun at the start of the MPh (SK4 4.0)', () => {
+  it('a squad holding a captured Gun it cannot move drops it before moving, then moves and places its DC', () => {
+    const { engine, state } = makeEngine({
+      scenario: GE_VS_BR,
+      extra: sk2CoreModules,
+      startPhase: 'MPh',
+      pieces: [
+        { id: 'g1', def: 'ge.447', side: 'ge', hex: 'yN4' },
+        { id: 'aa', def: 'br.AA40L', side: 'ge', heldBy: 'g1', tags: { emplaced: true, ca: 1 } },
+        { id: 'dc', def: 'ge.DC', side: 'ge', heldBy: 'g1' },
+        { id: 'lmg', def: 'ge.LMG', side: 'ge', heldBy: 'g1' },
+        { id: 'b1', def: 'br.457', side: 'br', hex: 'yN6' },
+      ],
+    });
+    // With the Gun it may not start ("drop it first"), and until now it could not drop it without starting.
+    expect(() => act(engine, state, { type: 'move.start', units: ['g1'] })).toThrow(/drop it first/);
+    let s = act(engine, state, { type: 'move.drop', sw: 'aa' }).state;
+    expect(s.pieces['aa']!.loc).toEqual({ kind: 'hex', hex: 'yN4' });
+    expect(engine.currentDecision(s)).toMatchObject({ kind: 'phase', owner: 'ge' });
+    s = act(engine, s, { type: 'move.start', units: ['g1'] }).state;
+    const pass = () => {
+      while (engine.currentDecision(s)!.kind === 'firstFire') s = act(engine, s, { type: 'defPass' }).state;
+    };
+    s = act(engine, s, { type: 'move.step', to: 'yN5' }).state;
+    pass();
+    s = act(engine, s, { type: 'move.placeDc', dc: 'dc', target: 'yN6' }).state;
+    pass();
+    expect(s.pieces['dc']!.loc.kind).not.toBe('held');
+    // Once it has moved, the start-of-phase drop is no longer open to it.
+    if (moveState(engine.env(s))) s = act(engine, s, { type: 'move.end' }).state;
+    pass();
+    expect(engine.validate(s, { type: 'move.drop', sw: 'lmg', side: 'ge', decisionId: engine.currentDecision(s)!.id } as never)).toMatch(/already moved/);
+    // The Gun stays in N4, unpossessed: a unit must recover it to hold it again (SK4 4.0).
+    expect(s.pieces['aa']!.loc).toEqual({ kind: 'hex', hex: 'yN4' });
   });
 });
 

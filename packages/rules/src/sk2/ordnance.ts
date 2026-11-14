@@ -46,7 +46,7 @@ import {
   vehicleIfe,
   actionIllegal,
 } from '../sk1/status';
-import { SMOKE58, smoke58Drm, terrainOf } from '../sk1/terrain';
+import { smoke58Counters, smoke58Markers, terrainOf } from '../sk1/terrain';
 import { AMMO_NAME, AMMO_OUT, ammoColumn, ammoKinds, ammoOut, ammoStatus, defaultAmmo, isSmokeAmmo, leavesResidual, specialAmmoOf } from './ammo';
 import { caChangeDrm, inCoveredArc, mountLabel, nearestSpine, spineChange } from './arc';
 import { emplacementThDrm, revealGun } from './guns';
@@ -517,17 +517,15 @@ function placeOrdnanceResidual(ctx: Ctx, target: HexId, column: number, outsideP
 
 /**
  * A Smoke or WP hit places a ⅝" counter in the target hex (SK4 1.2.5, 6.2): full in the PFPh (+3
- * Smoke, +2 WP), Dispersed in the DFPh or as Defensive First Fire (+2 Smoke, +1 WP). A hex keeps
- * the stronger of an old and a new counter.
+ * Smoke, +2 WP), Dispersed in the DFPh or as Defensive First Fire (+2 Smoke, +1 WP). It joins any
+ * counters already there: there is no limit on SMOKE counters in a hex, and their DRM add up to at most
+ * +3 (ASLRB A24.2), each dispersing on its own side's schedule.
  */
 function placeOrdnanceSmoke(ctx: Ctx, hex: HexId, ammo: AmmoKind, mode: FireMode, side: SideId) {
   const kind = ammo === 'WP' ? 'wp' : 'smoke';
   const dispersed = mode !== 'prep';
-  const drm = kind === 'wp' ? (dispersed ? 1 : 2) : dispersed ? 2 : 3;
-  if (smoke58Drm(ctx, hex) > drm) return;
-  ctx.emit('hex.marker', { hex, key: SMOKE58.kind, value: kind });
-  ctx.emit('hex.marker', { hex, key: SMOKE58.dispersed, value: dispersed ? true : null });
-  ctx.emit('hex.marker', { hex, key: SMOKE58.side, value: side });
+  const m = ctx.state.hexMarkers[hex];
+  for (const e of smoke58Markers(hex, m, [...smoke58Counters(m), { kind, dispersed, side }])) ctx.emit('hex.marker', e);
   ctx.emit('sk2.smoke.placed', { hex, kind, dispersed, side });
 }
 
@@ -1162,10 +1160,10 @@ export const ordnanceModule: RuleModule = {
       handler(ctx, ev) {
         if (ev.payload.phase !== 'PFPh') return;
         for (const [hex, m] of Object.entries(ctx.state.hexMarkers).sort()) {
-          if (!m[SMOKE58.kind] || m[SMOKE58.side] !== ev.payload.attacker) continue;
-          if (m[SMOKE58.dispersed] === true) {
-            for (const key of Object.values(SMOKE58)) ctx.emit('hex.marker', { hex, key, value: null });
-          } else ctx.emit('hex.marker', { hex, key: SMOKE58.dispersed, value: true });
+          const counters = smoke58Counters(m);
+          if (!counters.some((c) => c.side === ev.payload.attacker)) continue;
+          const left = counters.flatMap((c) => (c.side !== ev.payload.attacker ? [c] : c.dispersed ? [] : [{ ...c, dispersed: true }]));
+          for (const e of smoke58Markers(hex as HexId, m, left)) ctx.emit('hex.marker', e);
         }
       },
     });

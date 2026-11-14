@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { collection, getDocs, limit, onSnapshot, orderBy, query, startAfter, where, type DocumentData, type Query, type QueryDocumentSnapshot } from 'firebase/firestore';
 import { COL, type MatchDoc, type RulesetId } from '@asl/platform';
 import { db } from '../firebase';
+import { matchIdle } from './idle';
 
 export interface MatchRow {
   id: string;
@@ -39,12 +40,13 @@ export function useMyMatches(uid: string, ruleset: RulesetId) {
   return useQuery(query(matches(), inRuleset(ruleset), where('playerIds', 'array-contains', uid), where('status', 'in', ['open', 'active']), orderBy('updatedAt', 'desc')));
 }
 
-/** Every vs-human match in progress, open seats first in the UI. */
+/** Every vs-human match in progress, open seats first in the UI. Idle matches are left out. */
 export function useLiveMatches(ruleset: RulesetId) {
-  return useQuery(query(matches(), inRuleset(ruleset), where('mode', '==', 'online'), where('visibility', '==', 'public'), where('status', 'in', ['open', 'active']), orderBy('updatedAt', 'desc'), limit(50)));
+  const live = useQuery(query(matches(), inRuleset(ruleset), where('mode', '==', 'online'), where('visibility', '==', 'public'), where('status', 'in', ['open', 'active']), orderBy('updatedAt', 'desc'), limit(50)));
+  return { ...live, rows: live.rows.filter((r) => !matchIdle(r.match)) };
 }
 
-/** Bounded public-table browser: only one 25-row page is ever mounted, even with thousands live. */
+/** Bounded public-table browser: only one 25-row page is ever mounted, even with thousands live. Idle matches are left out. */
 export function useLiveMatchPages(ruleset: RulesetId) {
   const pageSize = 25;
   const starts = useRef<Array<QueryDocumentSnapshot<DocumentData> | null>>([null]);
@@ -67,7 +69,9 @@ export function useLiveMatchPages(ruleset: RulesetId) {
       const visible = snapshot.docs.slice(0, pageSize);
       const more = snapshot.docs.length > pageSize;
       if (more && visible.length) starts.current[index + 1] = visible.at(-1)!;
-      setRows(visible.map((document) => ({ id: document.id, match: document.data() as MatchDoc })));
+      // A page may show fewer than its size: idle matches are dropped after the query, as Firestore cannot
+      // compare a deadline to the time while also ordering by updatedAt.
+      setRows(visible.map((document) => ({ id: document.id, match: document.data() as MatchDoc })).filter((r) => !matchIdle(r.match)));
       setCanNext(more);
       setPage(index);
     } catch (cause) {

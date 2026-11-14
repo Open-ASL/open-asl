@@ -39,6 +39,28 @@ export const WHEEL_TIMING: Record<FxLevel, { enter: number; hold: number; holdTu
   off: { enter: 0, hold: 0, holdTurn: 0, exit: 0, flip: 0 },
 };
 
+const CALL_STRIP_KEY = 'asl.yourCallStrip';
+
+/** Whether a decision waiting on this player (Defensive First Fire and the like) shows the "your call" strip over the board. On by default. */
+export function useYourCallStrip(): [boolean, (on: boolean) => void] {
+  const [on, setOn] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(CALL_STRIP_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const set = useCallback((v: boolean) => {
+    setOn(v);
+    try {
+      localStorage.setItem(CALL_STRIP_KEY, v ? 'on' : 'off');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  return [on, set];
+}
+
 const WEATHER_KEY = 'asl.weatherFx';
 
 /** Whether the map shows the weather (falling snow, rain, fog) as a visual effect. On by default. */

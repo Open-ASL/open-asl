@@ -85,6 +85,14 @@ describe('Covered Arc changes (SK4 3.2.4)', () => {
     { id: 'g1', def: 'br.AA40L', side: 'br', heldBy: 'c1', tags: { ca: 2 } },
     { id: 'e', def: 'ge.467', side: 'ge', hex: 'yA1' },
   ];
+  it('is offered for each Gun that may still turn, to every other hexspine', () => {
+    const { engine, state } = makeEngine({ scenario: { ...GE_VS_BR, firstSide: 'br' }, extra, pieces });
+    const offered = engine.legalActions(state, 'br').filter((a) => a.type === 'gun.changeCa') as unknown as { gun: string; ca: number }[];
+    expect(offered.map((a) => `${a.gun}:${a.ca}`)).toEqual(['g1:0', 'g1:1', 'g1:3', 'g1:4', 'g1:5']);
+    // Turned once this Player Turn: nothing more to offer.
+    const turned = act(engine, state, { type: 'gun.changeCa', gun: 'g1', ca: 4 }).state;
+    expect(engine.legalActions(turned, 'br').some((a) => a.type === 'gun.changeCa')).toBe(false);
+  });
   it('turns the Gun at the end of its fire phase, once, and locks the Gun and crew in place', () => {
     const { engine, state } = makeEngine({ scenario: { ...GE_VS_BR, firstSide: 'br' }, extra, pieces });
     const t = act(engine, state, { type: 'gun.changeCa', gun: 'g1', ca: 4 });

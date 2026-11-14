@@ -71,6 +71,10 @@ describe('Concealment (SK4 8.3): gate, visibility and redaction', () => {
     expect(standIns.map((p) => (p.loc as { hex: string }).hex).sort()).toEqual(['yK5', 'yM5']);
     expect(standIns.find((p) => (p.loc as { hex: string }).hex === 'yM5')!.tags['big']).toBe(true);
     expect(standIns.find((p) => (p.loc as { hex: string }).hex === 'yK5')!.tags['big']).toBeUndefined();
+    // How many counters lie under each "?" (the stack's height at the table): K5's two concealed squads (not the
+    // unconcealed one beside them), M5's crew and its Gun.
+    expect(standIns.find((p) => (p.loc as { hex: string }).hex === 'yK5')!.tags['counters']).toBe(2);
+    expect(standIns.find((p) => (p.loc as { hex: string }).hex === 'yM5')!.tags['counters']).toBe(2);
     expect(JSON.stringify(view)).not.toMatch(/"a"|"b"|"crew"|"gun"/);
     // The stand-in is no unit: the enemy may fire at the hex, cannot aim the Infantry Target Type at it, and may try to walk in.
     expect(engine.legalActions(view, 'ge').length).toBeGreaterThanOrEqual(0);
@@ -303,6 +307,24 @@ describe('Concealment (SK4 8.3.1, 8.3.2): gain and Close Combat', () => {
     expect(engine.currentDecision(s)!.kind).toBe('ccDeclare');
     expect(concealed(s.pieces['a'])).toBe(false);
     expect(engine.query(state, 'cc.meleeHolds', { hex: 'yK5' }, true).value).toBe(false);
+  });
+
+  it('a concealed stack that advanced into a Melee drops its "?" for CC: the enemy it engages sees it, though in Melee he is not Good Order', () => {
+    // A Russian squad and a German one are locked in Melee; concealed Germans advanced in to reinforce it.
+    const g0 = game([ge('f', 'yK5'), ge('g', 'yK5', { advancedInto: 'yK5', concealed: true }), ge('h', 'yK5', { advancedInto: 'yK5', concealed: true }), sq('a', 'yK5')], 'CCPh', { firstSide: 'ge', dice: [3, 3, 3, 3] });
+    const engine = g0.engine;
+    const state: GameState = { ...g0.state, hexMarkers: { ...g0.state.hexMarkers, yK5: { ...g0.state.hexMarkers['yK5'], melee: true } } };
+    let s = state;
+    for (let i = 0; i < 6 && engine.currentDecision(s) && engine.currentDecision(s)!.kind !== 'ccDeclare'; i++) {
+      const d = engine.currentDecision(s)!;
+      s = engine.submit(s, engine.legalActions(s, d.owner)[0]!).state;
+    }
+    expect(engine.currentDecision(s)!.kind).toBe('ccDeclare');
+    expect(concealed(s.pieces['g'])).toBe(false);
+    expect(concealed(s.pieces['h'])).toBe(false);
+    // So the Russian, in his own view, declares on the German units themselves, and the game accepts it.
+    const view = redactState(engine, s, 'ru');
+    expect(Object.keys(view.pieces).some((id) => id.startsWith('?:'))).toBe(false);
   });
 });
 

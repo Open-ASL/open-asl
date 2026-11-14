@@ -121,7 +121,8 @@ export function describeVictory(v: ScenarioDef['victory'][number], sc: ScenarioD
         return 'special victory conditions apply';
     }
   };
-  const immediate = v.kind === 'exitVp' || v.kind === 'exitForce' || (v.kind === 'eliminateCvp' && !v.atGameEnd) || ('immediate' in v && !!v.immediate);
+  // Only what the card words "win immediately" is said to be (`immediate`); nothing is immediate by its kind.
+  const immediate = 'immediate' in v && !!v.immediate;
   const endOfTurn = v.kind === 'controlHexes' ? v.atEndOfTurn : undefined;
   // "The Germans", but "The Allies" and "The British".
   // "The Germans", "The Allies", but "The British", "The Free French", "The Japanese".

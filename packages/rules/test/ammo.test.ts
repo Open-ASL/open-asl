@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Ctx, Engine, GameState, RuleModule } from '@asl/engine';
-import { ammoColumn, caChangeDrm, depletionAt, spineChange, inCoveredArc, nearestSpine, shotContext, sk2CoreModules, statics, type GunDef } from '../src';
+import { ammoColumn, caChangeDrm, depletionAt, spineChange, inCoveredArc, nearestSpine, shotContext, sk2CoreModules, smoke58Counters, statics, type GunDef } from '../src';
 
 const shotContextFor = (env: Parameters<typeof shotContext>[0], shot: Record<string, unknown>) => shotContext(env, shot as never, 'prep', 'ge');
 import { COUNTERS, GE_VS_BR, act, makeEngine } from './fixtures';
@@ -55,8 +55,7 @@ describe('Ordnance Smoke (SK4 1.2.5, 6.2)', () => {
     // Case 7: Smoke at under 13 hexes, -2.
     expect((ev(t.events, 'sk2.ordnance.shot')[0]!['explain'] as { label: string }[]).map((n) => n.label)).toEqual(['-2 Smoke at under 13 hexes']);
     expect(ev(t.events, 'sk1.fire.attack')).toHaveLength(0);
-    expect(t.state.hexMarkers['yN5']).toMatchObject({ smoke58: 'smoke', smoke58Side: 'ge' });
-    expect(t.state.hexMarkers['yN5']!['smoke58Disp']).toBeUndefined();
+    expect(smoke58Counters(t.state.hexMarkers['yN5'])).toEqual([{ kind: 'smoke', dispersed: false, side: 'ge' }]);
     expect(t.state.pieces['g']!.tags['acq']).toBeUndefined();
     expect(t.state.pieces['g']!.tags['fire']).toBe('prep');
     // Fire traced into the hex takes +3; out of it +4.
@@ -71,12 +70,34 @@ describe('Ordnance Smoke (SK4 1.2.5, 6.2)', () => {
     const { engine, state } = gunGame({ def: 'ge.AT75Lsa', target: 'yN5', squads: { b1: 'yN5' }, dice: [3, 2] });
     let t = act(engine, state, { type: 'fire.ordnance', shot: { weapon: 'g', target: 'yN5', targetType: 'ATT', ammo: 'SMOKE' } });
     t = act(engine, t.state, { type: 'test.pfph', attacker: 'br' });
-    expect(t.state.hexMarkers['yN5']!['smoke58Disp']).toBeUndefined();
+    expect(smoke58Counters(t.state.hexMarkers['yN5'])).toEqual([{ kind: 'smoke', dispersed: false, side: 'ge' }]);
     t = act(engine, t.state, { type: 'test.pfph', attacker: 'ge' });
-    expect(t.state.hexMarkers['yN5']).toMatchObject({ smoke58: 'smoke', smoke58Disp: true });
+    expect(smoke58Counters(t.state.hexMarkers['yN5'])).toEqual([{ kind: 'smoke', dispersed: true, side: 'ge' }]);
     expect(engine.env(t.state).query('los.trace', { from: 'yK5', to: 'yN5' }, { clear: true, hindrance: 0, parts: [] }).hindrance).toBe(2);
     t = act(engine, t.state, { type: 'test.pfph', attacker: 'ge' });
     expect(t.state.hexMarkers['yN5']?.['smoke58'] ?? null).toBeNull();
+  });
+
+  it('joins a ⅝" counter already in the hex (ASLRB A24.2: cumulative, at most +3), each dispersing on its own side\'s schedule', () => {
+    const { engine, state } = gunGame({ def: 'ge.AT75Lsa', target: 'yN5', squads: { b1: 'yN5' }, dice: [3, 2] });
+    // A British Dispersed WP counter (+1), stored as older states held a single counter.
+    const smoked = { ...state, hexMarkers: { ...state.hexMarkers, yN5: { smoke58: 'wp', smoke58Disp: true, smoke58Side: 'br' } } };
+    const into = (s: typeof state) => engine.env(s).query('los.trace', { from: 'yK5', to: 'yN5' }, { clear: true, hindrance: 0, parts: [] }).hindrance;
+    expect(into(smoked)).toBe(1);
+    let t = act(engine, smoked, { type: 'fire.ordnance', shot: { weapon: 'g', target: 'yN5', targetType: 'ATT', ammo: 'SMOKE' } });
+    expect(smoke58Counters(t.state.hexMarkers['yN5'])).toEqual([{ kind: 'wp', dispersed: true, side: 'br' }, { kind: 'smoke', dispersed: false, side: 'ge' }]);
+    expect(t.state.hexMarkers['yN5']).toEqual({ smoke58: 'wp.d@br,smoke@ge' });
+    expect(into(t.state)).toBe(3);
+    // The British PFPh removes their Dispersed WP; the German counter is untouched.
+    t = act(engine, t.state, { type: 'test.pfph', attacker: 'br' });
+    expect(smoke58Counters(t.state.hexMarkers['yN5'])).toEqual([{ kind: 'smoke', dispersed: false, side: 'ge' }]);
+    expect(into(t.state)).toBe(3);
+    // The German PFPh disperses it (+2), the next one removes it.
+    t = act(engine, t.state, { type: 'test.pfph', attacker: 'ge' });
+    expect(into(t.state)).toBe(2);
+    t = act(engine, t.state, { type: 'test.pfph', attacker: 'ge' });
+    expect(t.state.hexMarkers['yN5']?.['smoke58'] ?? null).toBeNull();
+    expect(into(t.state)).toBe(0);
   });
 
   it('is fired on the ATT only, in the PFPh/DFPh, and not after the Gun has fired anything else that phase', () => {
@@ -98,7 +119,7 @@ describe('Depletion Numbers (SK4 6.2)', () => {
     const t = act(engine, state, { type: 'fire.ordnance', shot: { weapon: 'g', target: 'yN5', targetType: 'ATT', ammo: 'SMOKE' } });
     expect(ev(t.events, 'sk2.ordnance.ammo')[0]).toMatchObject({ result: 'last', dr: 7 });
     expect(ev(t.events, 'sk2.ordnance.shot')[0]).toMatchObject({ outcome: 'hit' });
-    expect(t.state.hexMarkers['yN5']!['smoke58']).toBe('smoke');
+    expect(smoke58Counters(t.state.hexMarkers['yN5'])).toMatchObject([{ kind: 'smoke' }]);
     expect(t.state.pieces['g']!.tags['ammoOut']).toBe('SMOKE');
     expect(illegal(engine, t.state, { weapon: 'g', target: 'yN5', targetType: 'ATT', ammo: 'SMOKE' })).toBe('Out of Smoke');
   });
@@ -237,7 +258,7 @@ describe('Mortars (SK4 1.1.1, 6.9) and WP', () => {
     const { engine, state } = mortarGame('yO5', [2, 3, 3, 3], { yO5: { terrain: 'woods' } });
     const t = act(engine, state, { type: 'fire.ordnance', shot: { weapon: 'm', target: 'yO5', targetType: 'ATT', ammo: 'WP' } });
     expect(ev(t.events, 'sk2.ordnance.wp')[0]).toMatchObject({ units: ['e1'], mod: 1, airBurst: true });
-    expect(t.state.hexMarkers['yO5']).toMatchObject({ smoke58: 'wp' });
+    expect(smoke58Counters(t.state.hexMarkers['yO5'])).toMatchObject([{ kind: 'wp', dispersed: false }]);
     expect(engine.env(t.state).query('los.trace', { from: 'yK5', to: 'yO5' }, { clear: true, hindrance: 0, parts: [] }).hindrance).toBe(2);
     expect(t.state.pieces['m']!.tags['acq']).toBeUndefined();
   });

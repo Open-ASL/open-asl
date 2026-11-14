@@ -1,9 +1,9 @@
 import type { CSSProperties } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
-import { AMMO_NAME, isCaveLoc, ppOf, terrainOf, acquisitionsAt, ammoOut, coveredArc, defOf, gunIdent, isWeaponDef, levelOfLoc, locOf, locationsOf, moveState, shownFireMarker, stackOrder, swHeldBy, unitsInHex, unpossessedWeaponsAt, unpossessedWeaponsInHex, type Statics } from '@asl/rules';
+import { AMMO_NAME, isCaveLoc, ppOf, terrainOf, acquisitionsAt, ammoOut, coveredArc, defOf, fireMarker, gunIdent, isWeaponDef, levelOfLoc, locOf, locationsOf, moveState, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, unitsInHex, unpossessedWeaponsAt, unpossessedWeaponsInHex, type Statics } from '@asl/rules';
 import { counterImage, markerImage } from '../game/assets';
-import { defLabel, nationName } from '../game/describe';
-import { smoke58Marker } from '../game/smoke';
+import { defLabel, nationName, pieceLabel } from '../game/describe';
+import { smoke58Chits } from '../game/smoke';
 
 interface Props {
   env: QueryEnv;
@@ -29,7 +29,7 @@ const STATUS: [string, string][] = [
   ['malf', 'Malfunctioned'],
   ['intensive', 'Intensive Fire'],
   ['emplaced', 'Emplaced'],
-  ['hip', 'Hidden'],
+  ['hip', 'Hidden (HIP)'],
   ['concealed', 'Concealed (SK4 8.3)'],
   ['banzai', 'Banzai Charge (SK4 8.1.8.6)'],
   ['caLocked', 'Turned (cannot move)'],
@@ -100,6 +100,26 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
   // No Motion counter on the vehicle while it moves (ASLRB D2.4).
   const moving = moveState(env)?.units[0];
 
+  /**
+   * A SW's ROF, and its B# when lowered, for the unit holding it: Inexperienced (SK1 5.4), captured (SK1 5.5), a Japanese
+   * MMG/HMG/ATR in a squad's hands (SK4 8.1.8.2). The hover names the reasons.
+   */
+  const swUse = (p: Piece, printedRof?: number) => {
+    const user = p.loc.kind === 'held' ? p.loc.by : undefined;
+    const b = env.explain('sw.breakdown', { sw: p.id, ...(user ? { user } : {}) }, null);
+    const rof = env.explain('sw.rof', { sw: p.id, ...(user ? { user } : {}) }, 0);
+    const why = [...b.trace, ...rof.trace].filter((t) => t.label && !t.suppressedBy && !t.secret && t.before !== t.after).map((t) => `${t.label}${t.ref ? ` (${t.ref})` : ''}`);
+    const lowered = why.length > 0;
+    const text = `${rof.value ? ` ROF${rof.value}` : printedRof ? ' no ROF' : ''}${lowered && b.value !== null ? ` B${b.value}` : ''}`;
+    return lowered ? (
+      <span className="sw-lowered" title={`Lowered for ${user ? pieceLabel(env, env.state.pieces[user]) : 'this weapon'}: ${[...new Set(why)].join('; ')}`}>
+        {text}
+      </span>
+    ) : (
+      text
+    );
+  };
+
   const row = (p: Piece, nested = false) => {
     const d = defOf(env, p);
     const flipped = p.tags['broken'] === true || (p.tags['malf'] === true && d.kind !== 'vehicle') || p.tags['wreck'] === true;
@@ -115,7 +135,7 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
           {img ? <img src={img} alt="" width={36} height={36} /> : <span className="noimg" />}
           <span className="pname">
             <span className={`nat nat-${d.nationality}`}>{nationName(env, d.nationality)}</span> {defLabel(d)}
-            {d.kind === 'sw' && <span className="muted small"> {d.fp}-{d.range}{d.rof ? ` ROF${d.rof}` : ''} {ppOf(env, p)}PP{p.tags['disassembled'] ? ' · disassembled' : ''}</span>}
+            {d.kind === 'sw' && <span className="muted small"> {d.fp}-{d.range}{swUse(p, d.rof)} {ppOf(env, p)}PP{p.tags['disassembled'] ? ' · disassembled' : ''}</span>}
             {d.kind === 'vehicle' && (
               <span className="muted small">
                 {' '}
@@ -149,7 +169,8 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
             </span>
           )}
           {ammoOut(p).length > 0 && <span className="tag tag-malf">Out of {ammoOut(p).map((k) => AMMO_NAME[k]).join(', ')}</span>}
-          {fire && fire !== 'bff' && <span className={`tag tag-fire-${fire}`}>{FIRE_LABEL[fire]}</span>}
+          {/* A unit that fired only its SW keeps its own FP until the phase ends (SK4 4.0), when the marker goes on. */}
+          {fire && fire !== 'bff' && (fireMarker(p) || d.kind === 'sw' ? <span className={`tag tag-fire-${fire}`}>{FIRE_LABEL[fire]}</span> : <span className={`tag tag-fire-${fire}`} title="Its SW has fired; its own FP may still fire this phase">SW fired</span>)}
         </span>
       </li>
     );
@@ -165,8 +186,9 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
           {acquired.map((a) => (
             <span key={a.gun.id} className="tag tag-acq">Acquired -{a.level} by Gun {gunIdent(env, a.gun)}{a.type === 'ATT' ? ' (Area)' : ''}</span>
           ))}
-          {markers['smoke'] ? <span className="tag tag-smoke">Smoke grenades (+2)</span> : null}
-          {smoke58Marker(markers) ? <span className="tag tag-smoke">{smoke58Marker(markers)!.label}</span> : null}
+          {smokeGrenades(markers) > 0 ? <span className="tag tag-smoke">{smokeGrenades(markers) > 1 ? `${smokeGrenades(markers)} Smoke grenades (+2 each)` : 'Smoke grenades (+2)'}</span> : null}
+          {smoke58Chits(markers).map((c, i) => <span key={`s58-${i}`} className="tag tag-smoke">{c.label}</span>)}
+          {smokeGrenades(markers) + smoke58Chits(markers).length > 1 ? <span className="tag tag-smoke">Smoke +{smokeDrm(env, hex)} in all (at most +3)</span> : null}
           {markers['cc'] ? <span className="tag tag-cc">Close Combat</span> : null}
           {markers['melee'] ? <span className="tag tag-melee">Melee</span> : null}
           {markers['residualFp'] ? <span className="tag tag-rfp">Residual {String(markers['residualFp'])} FP</span> : null}
@@ -181,7 +203,9 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
                 {qmarkOf(p) ? <img src={qmarkOf(p)!} alt="" width={36} height={36} /> : <span className="noimg" />}
                 <span className="pname">
                   <span className={`nat nat-${(env.statics as Statics).scenario.sides.find((x) => x.side === p.side)?.nationality ?? ''}`}>{nationName(env, (env.statics as Statics).scenario.sides.find((x) => x.side === p.side)?.nationality ?? '')}</span> concealed stack
-                  <span className="muted small"> cannot be inspected (SK4 8.3.2)</span>
+                  <span className="muted small">
+                    {typeof p.tags['counters'] === 'number' ? ` · ${p.tags['counters']} counter${p.tags['counters'] === 1 ? '' : 's'} under the "?"` : ''} · cannot be inspected (SK4 8.3.2)
+                  </span>
                 </span>
               </label>
             </li>
@@ -191,11 +215,8 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
       {locs.length < 2 ? (
         <ul className="pieces">
           {units.map((u) => [...heldTopDown(u).map((s) => row(s, true)), row(u)])}
-          {loose.map((s) => (
-            <li key={s.id} className="piece loose">
-              {row(s)}
-            </li>
-          ))}
+          {/* An unpossessed weapon: its own row (an <li> already). */}
+          {loose.map((s) => row(s))}
           {units.length === 0 && loose.length === 0 && standIns.length === 0 && <li className="muted">Empty</li>}
         </ul>
       ) : (
@@ -215,11 +236,8 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
               </h4>
               <ul className="pieces">
                 {inLoc.map((u) => [...heldTopDown(u).map((s) => row(s, true)), row(u)])}
-                {looseHere.map((s) => (
-                  <li key={s.id} className="piece loose">
-                    {row(s)}
-                  </li>
-                ))}
+                {/* An unpossessed weapon: its own row (an <li> already). */}
+                {looseHere.map((s) => row(s))}
                 {inLoc.length === 0 && looseHere.length === 0 && <li className="muted">Empty</li>}
               </ul>
             </div>

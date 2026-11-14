@@ -1,4 +1,4 @@
-import type { Action, Ctx, Decision, HexId, QueryEnv, RuleModule, SideId } from '@asl/engine';
+import type { Action, Ctx, Decision, HexId, Piece, QueryEnv, RuleModule, SideId } from '@asl/engine';
 import { byId, statics } from '../common/pieces';
 import { setTags } from './status';
 
@@ -7,6 +7,10 @@ import { setTags } from './status';
  * edge, either between hexrows I and Q inclusive or between Q and Y inclusive"). A general rule: the side picks one
  * of the card's stretches of the edge once every side has set up, before its forces enter; every unit of the listed
  * forces then enters through that stretch only. The pick is open (the card does not make it secret) and logged.
+ *
+ * A card that ties the choice to the entry itself ("Enter on Turn 3 on any one west edge hex ≥ 5 hexes from Z0") gives
+ * no reason to commit before play: `when: 'entry'` asks in the RPh of the turn the forces are due, before they are set
+ * up offboard (SK1 RPh step a), so the side picks with the board as it stands then.
  */
 
 export const ENTRY_STRETCH_MODULE = 'entry-stretch';
@@ -27,6 +31,8 @@ export interface EntryStretchParams {
   options: EntryStretchOption[];
   /** The card's name for the provision, e.g. 'Setup'. */
   rule?: string;
+  /** When the side picks: once every side has set up (the default), or in the RPh of the forces' entry turn. */
+  when?: 'setup' | 'entry';
 }
 
 export interface EntryStretchState {
@@ -43,6 +49,17 @@ export function entryStretchParams(env: QueryEnv): EntryStretchParams | null {
 
 /** The stretch chosen, once it is. */
 export const entryStretchState = (env: QueryEnv): EntryStretchState | null => (env.state.ext[EXT] as EntryStretchState | undefined) ?? null;
+
+/** The listed forces' units still waiting offboard, not yet set up along the edge. */
+function stretchForces(env: QueryEnv, p: EntryStretchParams): Piece[] {
+  const forces = statics(env).scenario.forces;
+  return Object.values(env.state.pieces)
+    .filter((q) => {
+      const force = forces[q.tags['force'] as number]?.id;
+      return q.side === p.side && !!force && p.forces.includes(force) && q.loc.kind === 'offboard' && !q.loc.hex;
+    })
+    .sort(byId);
+}
 
 /** Why a pick is illegal, or null. */
 export function entryStretchIllegal(env: QueryEnv, side: SideId, option: number): string | null {
@@ -73,7 +90,20 @@ export const entryStretchModule: RuleModule = {
       priority: -5,
       run(ctx) {
         const p = entryStretchParams(ctx);
-        if (p) ctx.pushDecision({ kind: ENTRY_STRETCH_DECISION, owner: p.side, deadlineClass: 'turn', data: {} });
+        if (p && p.when !== 'entry') ctx.pushDecision({ kind: ENTRY_STRETCH_DECISION, owner: p.side, deadlineClass: 'turn', data: {} });
+      },
+    });
+
+    // `when: 'entry'`: asked as the RPh of the forces' entry turn starts. Registered after the scenario's offboard setup
+    // handler, so this decision sits on top of that one and the stretch is known before the units are placed offboard.
+    r.on<{ phase: string }>({
+      id: 'ssr.entry-stretch.ask-at-entry',
+      event: 'turn.phaseStarted',
+      handler(ctx, ev) {
+        const p = entryStretchParams(ctx);
+        if (ev.payload.phase !== 'RPh' || p?.when !== 'entry' || ctx.state.attacker !== p.side || entryStretchState(ctx)) return;
+        if (!stretchForces(ctx, p).some((q) => q.tags['entryTurn'] === ctx.state.turn)) return;
+        ctx.pushDecision({ kind: ENTRY_STRETCH_DECISION, owner: p.side, deadlineClass: 'turn', data: {} });
       },
     });
 
@@ -86,13 +116,9 @@ export const entryStretchModule: RuleModule = {
         const p = entryStretchParams(ctx)!;
         const opt = p.options[a.option]!;
         ctx.emit('ssr.entryStretch', { side: d.owner, option: a.option, label: opt.label });
-        const forces = statics(ctx).scenario.forces;
-        for (const piece of Object.values(ctx.state.pieces).sort(byId)) {
-          const force = forces[piece.tags['force'] as number]?.id;
-          if (piece.side === p.side && force && p.forces.includes(force) && piece.loc.kind === 'offboard' && !piece.loc.hex) setTags(ctx, piece.id, { entryHexes: opt.hexes.join(',') });
-        }
+        for (const piece of stretchForces(ctx, p)) setTags(ctx, piece.id, { entryHexes: opt.hexes.join(',') });
         ctx.popDecision(d.id);
-        if (ctx.state.decisions.length === 0) ctx.proc<(c: Ctx) => void>('sk1.scenario.begin')(ctx);
+        if (p.when !== 'entry' && ctx.state.decisions.length === 0) ctx.proc<(c: Ctx) => void>('sk1.scenario.begin')(ctx);
       },
     });
   },

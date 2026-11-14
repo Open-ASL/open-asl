@@ -2,14 +2,15 @@ import { useEffect, useRef } from 'react';
 import { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
 import { cubeDistance, cubeNeighbors, type GameState, type HexId, type Piece, type QueryEnv, type SideId } from '@asl/engine';
 import { GEO, coveredArc, defOf, gun as gunDef, gunHex, hexOf as hexOfPiece, inCoveredArc, isCaptured, isWeaponDef, isWreck, spineDirections, swHeldBy, tcaOf, vcaOf, vehicle as vehicleDef, type MapHex, type ObjectiveArea, type Statics, acquisitionOf, gunIdents, ordnanceOf, SMOKE58, stackOrder, hexOfLoc, levelOfLoc, locKey } from '@asl/rules';
-import { CAVE_GONE, UNKNOWN_DEF_ID, cavesParams, caveLoc, cornerOffset, hexPixel, isCaveLoc, moveState, shownFireMarker } from '@asl/rules';
+import { CAVE_GONE, UNKNOWN_DEF_ID, cavesParams, caveLoc, cornerOffset, hexPixel, isCaveLoc, moveState, shownFireMarker, smokeGrenades } from '@asl/rules';
 import { playableBounds, playableRect, printedRect, type CropPlacement } from './crop';
 import { boardImage, counterImage, cxMarker, loadTurrets, markerImage, splitTurret } from '../game/assets';
 import { identColor } from './ident';
 import { WRECK_PREFIX, wreckTexture } from './wreckArt';
 import type { BoardFx } from '../fx/useGameFx';
 import type { WeatherFxKind } from '../game/weatherView';
-import { smoke58Marker } from '../game/smoke';
+import { smoke58Chits } from '../game/smoke';
+import { releaseCaptureSource, setCaptureSource } from './capture';
 
 /** dataTransfer type for counters dragged from the setup tray. */
 export const DRAG_TYPE = 'application/x-asl-piece';
@@ -103,6 +104,8 @@ export interface BoardOverlay {
   onRoad?: Set<string>;
   /** Moving units that have attempted Smoke grenades this MPh (once per unit, SK1 3.3): they wear a SMK tag. */
   smokeTried?: Set<string>;
+  /** Moving units using Assault Movement (SK1 3.3; no FFNAM against them, 3.3.1): they wear an AM tag, so the defender sees it before firing. */
+  assaultMoving?: Set<string>;
   /** Small round handles drawn beside a hex (a moving vehicle's hull and turret turns): clicked on the map. */
   controls?: HexControl[] | null;
   /** Small pills above a hex (the moving stack's MF/MP left), drawn for every viewer; not interactive. */
@@ -282,8 +285,13 @@ const OBJECTIVE_COLORS = [0xe8322b, 0x2f7cf6, 0xd946ef, 0xff9800];
 const STAR = 0xffd23f;
 
 const COUNTER = 48;
+/** Touch: how long (ms) a finger rests on a hex to open the action wheel, and how far (px) it may drift meanwhile. */
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_SLOP = 10;
 /** A Gun is a 5/8" counter: 60 px at this scale (SW and personnel are 1/2", 48 px). */
 const GUN = 60;
+/** How long a redraw waits for new counter art before drawing without it (it draws again when the art lands). */
+const PRELOAD_WAIT_MS = 1500;
 const sizeOf = (d: { kind: string }) => (d.kind === 'gun' || d.kind === 'vehicle' ? GUN : COUNTER);
 /** Tint for counters that are done for the phase: clearly darker, still readable. */
 const SPENT_TINT = 0x6e6e6e;
@@ -382,6 +390,15 @@ function spineAngle(cube: { q: number; r: number; s: number }, spine: number): n
 const ART_FRONT = (150 * Math.PI) / 180;
 
 /** A counter sprite centred in its box, so it can flip and bob about its own middle. */
+/**
+ * Shows or hides everything drawn for the units, so hiding them leaves the bare terrain: the counters, Control
+ * and Covered Arc shading, hex highlights, effects, LOS and move lines, the turn handles and the hex badges
+ * (MF left, rout end). Fortified buildings stay: they belong to the terrain.
+ */
+function showUnitLayers(L: { highlights: Container; control: Container; ca: Container; pieces: Container; fx: Container; top: Container; controls: Container }, on: boolean) {
+  for (const c of [L.highlights, L.control, L.ca, L.pieces, L.fx, L.top, L.controls]) c.visible = on;
+}
+
 function counterSprite(tex: Texture, size = COUNTER): Sprite {
   const sp = new Sprite(tex);
   sp.anchor.set(0.5);
@@ -406,6 +423,24 @@ function identBadge(letter: string, x: number, y: number, r = 7): Container {
 }
 
 /** A vehicle's CE/BU tab: amber when Crew Exposed, dark steel when Buttoned Up. */
+/** A HIP unit, or a weapon a HIP unit holds: drawn faint for its owner (the enemy's view never has it). */
+function hipFaint(s: GameState, p: Piece): boolean {
+  if (p.tags['hip'] === true) return true;
+  return p.loc.kind === 'held' && s.pieces[p.loc.by]?.tags['hip'] === true;
+}
+
+/** How many counters lie under a concealed stack's "?": a dark chip at its lower right corner. */
+function countChip(n: number): Container {
+  const c = new Container();
+  const r = 8;
+  c.addChild(new Graphics().circle(1, 2, r).fill({ color: 0x000000, alpha: 0.5 }));
+  c.addChild(new Graphics().circle(0, 0, r).fill({ color: 0x1d2430, alpha: 0.95 }).stroke({ color: 0xf2e8c8, width: 1.2, alpha: 0.9 }));
+  const tx = new Text({ text: String(n), style: { fontSize: 10, fill: 0xf2e8c8, fontWeight: 'bold' } });
+  tx.anchor.set(0.5);
+  c.addChild(tx);
+  return c;
+}
+
 /** How many broken units a stack hides under other counters: a red chip at its lower left corner. */
 /** The Collapsed Hut marker (SK4 8.2.1): a brown chit, since VASL has no counter for it. */
 function collapsedHutChit(): Container {
@@ -692,11 +727,8 @@ export function vehicleMgMarkers(env: { state: GameState; statics: Statics }, p:
   return out;
 }
 
-/**
- * Badge markers drawn on a unit for its status tags; `moving` is the vehicle now spending MP, if any;
- * `turreted` picks the turret version of a vehicle's CE counter where its army has one.
- */
-function unitMarkers(p: Piece, nationality?: string, moving?: string, turreted = false): string[] {
+/** Badge markers drawn on a unit for its status tags; `moving` is the vehicle now spending MP, if any. */
+function unitMarkers(p: Piece, nationality?: string, moving?: string): string[] {
   const m: string[] = [];
   const t = p.tags;
   // A wreck is debris: the status it had as a vehicle (Immobile, Motion, a malfunctioned MA...) no longer applies.
@@ -711,15 +743,14 @@ function unitMarkers(p: Piece, nationality?: string, moving?: string, turreted =
   if (fire === 'first') m.push('First');
   if (fire === 'final') m.push('Final');
   if (t['wounds']) m.push('Wound');
-  // SK2: a hidden Gun shows its owner the "?" it hides under (its Acquired Target counter lies on the target).
-  if (t['hip'] && nationality) m.push(`qmark-${nationality}`);
+  // A hidden (HIP) unit wears no "?": that is concealment's counter. Its owner sees it drawn faint instead (`hipFaint`).
   // SK4 8.3: the owner's concealed units wear their "?" (the enemy sees a bare "?" stand-in instead).
   if (t['concealed'] && nationality && p.defId !== UNKNOWN_DEF_ID) m.push(`qmark-${nationality}`);
   // SK4 8.1.8.6: the Banzai counter for the Player Turn.
   if (t['banzai'] !== undefined) m.push('Banzai');
   // SK3 vehicles (SK4 3.3.2, 7.2, 7.6, 7.7, 7.10).
   if (t['vca'] !== undefined) {
-    if (t['ce'] && nationality) m.push(turreted && markerImage(`turret-ce-${nationality}`) ? `turret-ce-${nationality}` : `ce-${nationality}`);
+    // No CE counter: the vehicle's CE/BU tab shows its crew status (`crewTab`).
     // The Motion counter comes off when the vehicle starts its MPh: it is marked only before or after its MPh (ASLRB D2.4).
     if (t['motion'] && p.id !== moving) m.push('Motion');
     if (t['bog'] === 'bogged') m.push('Bog');
@@ -1059,6 +1090,7 @@ export function BoardView({
     // Pixi's `resizeTo` follows window resizes only. The pane also changes size on its own (the table chat rail opening
     // or closing beside it; closing it would leave the canvas at the narrower width with a black strip beside it), so the canvas follows the pane itself.
     let observer: ResizeObserver | null = null;
+    let uninstall: (() => void) | null = null;
     (async () => {
       await app.init({ resizeTo: host.current!, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: window.devicePixelRatio });
       if (destroyed) {
@@ -1136,8 +1168,8 @@ export function BoardView({
       const top = new Graphics();
       const controls = new Container();
       w.addChild(fort, highlights, control, ca, pieces, fxLayer, top, controls);
-      pieces.visible = control.visible = ca.visible = !hideRef.current;
       layers.current = { highlights, fort, control, ca, pieces, fx: fxLayer, top, controls };
+      showUnitLayers(layers.current, !hideRef.current);
       // Weather over the whole pane, in screen space above the map; it takes no pointer events.
       const weatherLayer = new Graphics();
       weatherLayer.eventMode = 'none';
@@ -1176,7 +1208,8 @@ export function BoardView({
       app.renderer.on('resize', () => clampView(w, t.width, t.height, app.screen.width, app.screen.height));
       app.ticker.add(updateFinder);
 
-      installInteraction(app, w);
+      uninstall = installInteraction(app, w);
+      setCaptureSource(app);
 
       // Dev only: hex centre in page pixels, so a DevTools-protocol driver can click hexes
       // when recording the app (screenshots, trailers).
@@ -1235,10 +1268,12 @@ export function BoardView({
     return () => {
       destroyed = true;
       observer?.disconnect();
+      uninstall?.();
       ready.current = false;
       // A redraw still waiting on textures must not draw on the destroyed layers.
       redrawToken.current++;
       if (appRef.current) {
+        releaseCaptureSource(appRef.current);
         appRef.current.destroy(true, { children: true });
         appRef.current = null;
       }
@@ -1262,7 +1297,7 @@ export function BoardView({
   hideRef.current = hidePieces;
   useEffect(() => {
     const L = layers.current;
-    if (L) L.pieces.visible = L.control.visible = L.ca.visible = !hidePieces;
+    if (L) showUnitLayers(L, !hidePieces);
   }, [hidePieces]);
 
   // Play newly arrived effects (after the redraw, so positions are current).
@@ -1622,12 +1657,13 @@ export function BoardView({
       const rest = [...pointers.values()][0];
       drag = rest ? { x: rest.x, y: rest.y, wx: w.x, wy: w.y, moved: true, piece: null, ghost: null } : null;
     };
-    const hexUnder = (e: MouseEvent) => {
+    type At = Pick<MouseEvent, 'clientX' | 'clientY'>;
+    const hexUnder = (e: At) => {
       const rect = canvas.getBoundingClientRect();
       return hexAt((e.clientX - rect.left - w.x) / w.scale.x, (e.clientY - rect.top - w.y) / w.scale.y);
     };
     /** The point under the pointer in map pixels (zoom and turn undone), so a ping lands on the same spot on every screen. */
-    const mapPointUnder = (e: MouseEvent) => {
+    const mapPointUnder = (e: At) => {
       const rect = canvas.getBoundingClientRect();
       return xf.current.toMap((e.clientX - rect.left - w.x) / w.scale.x, (e.clientY - rect.top - w.y) / w.scale.y);
     };
@@ -1636,13 +1672,56 @@ export function BoardView({
       const rect = canvas.getBoundingClientRect();
       const vx = (e.clientX - rect.left - w.x) / w.scale.x;
       const vy = (e.clientY - rect.top - w.y) / w.scale.y;
+      if (hideRef.current) return null;
       // Corner handles may overlap zoomed out: the nearest one under the pointer wins.
       const under = controlHits.current.filter((h) => h.hit(vx, vy));
       if (under.length > 1 && under.every((h) => h.dist)) return under.reduce((a, b) => (b.dist!(vx, vy) < a.dist!(vx, vy) ? b : a)).c;
       return under[0]?.c ?? null;
     };
+    // Touch screens have no right button: pressing and holding a hex opens the action wheel. The browser's own
+    // long-press menu (Android sends a contextmenu, at about the same moment) is swallowed while that finger stays
+    // down and just after it lifts, so the wheel neither opens twice nor closes itself under the finger.
+    let press: { id: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
+    let held: number | null = null;
+    let swallowUntil = 0;
+    const cancelPress = () => {
+      if (press) clearTimeout(press.timer);
+      press = null;
+    };
+    const longPress = () => {
+      const p = press;
+      cancelPress();
+      if (!p || pinch) return;
+      held = p.id;
+      drag?.ghost?.destroy();
+      drag = null;
+      const h = hexUnder({ clientX: p.x, clientY: p.y });
+      if (!h) return;
+      navigator.vibrate?.(12);
+      const rect = canvas.getBoundingClientRect();
+      cb.current.onHexContextMenu?.(h, { x: p.x - rect.left, y: p.y - rect.top });
+    };
+    const lifted = (id: number) => {
+      if (press?.id === id) cancelPress();
+      if (held === id) {
+        held = null;
+        swallowUntil = performance.now() + 600;
+      }
+    };
+    const swallow = (e: Event) => {
+      if (held === null && performance.now() > swallowUntil) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    window.addEventListener('contextmenu', swallow, true);
+    window.addEventListener('click', swallow, true);
     canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+      // The browser's long-press menu, from a finger still in its hold: open the wheel now, once.
+      if (press) {
+        longPress();
+        return;
+      }
       const h = hexUnder(e);
       if (!h) return;
       // A Mac turns Ctrl+click into a context menu: that is a ping, not the wheel.
@@ -1657,6 +1736,8 @@ export function BoardView({
       if (e.button !== 0) return;
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       canvas.setPointerCapture(e.pointerId);
+      cancelPress();
+      if (e.pointerType !== 'mouse' && pointers.size === 1) press = { id: e.pointerId, x: e.clientX, y: e.clientY, timer: setTimeout(longPress, LONG_PRESS_MS) };
       if (pointers.size === 2) {
         // A second finger turns a press or pan into a pinch; a counter being carried is put back.
         drag?.ghost?.destroy();
@@ -1676,6 +1757,7 @@ export function BoardView({
         p.x = e.clientX;
         p.y = e.clientY;
       }
+      if (press?.id === e.pointerId && Math.hypot(e.clientX - press.x, e.clientY - press.y) > LONG_PRESS_SLOP) cancelPress();
       if (pinch) {
         if (!p) return;
         // Zoom by how far the fingers spread, about their midpoint, which drags the map along with it.
@@ -1725,6 +1807,7 @@ export function BoardView({
     });
     canvas.addEventListener('pointercancel', (e) => {
       pointers.delete(e.pointerId);
+      lifted(e.pointerId);
       if (pinch) {
         endPinch();
         return;
@@ -1734,6 +1817,7 @@ export function BoardView({
     });
     canvas.addEventListener('pointerup', (e) => {
       pointers.delete(e.pointerId);
+      lifted(e.pointerId);
       if (pinch) {
         endPinch();
         return;
@@ -1805,34 +1889,66 @@ export function BoardView({
       },
       { passive: false },
     );
+    return () => {
+      cancelPress();
+      window.removeEventListener('contextmenu', swallow, true);
+      window.removeEventListener('click', swallow, true);
+    };
   }
 
   const textures = useRef(new Map<string, Texture | null>());
+  /** Loads in flight, and loads that failed: tried again after a pause, never given up on as "no art". */
+  const loading = useRef(new Map<string, Promise<void>>());
+  const failed = useRef(new Map<string, { tries: number; retryAt: number }>());
   const redrawToken = useRef(0);
 
   function texture(url: string | null): Texture | null {
     return url ? (textures.current.get(url) ?? null) : null;
   }
 
-  /** Load every texture the current state needs (once each). */
-  async function preload(urls: (string | null)[]) {
-    const missing = [...new Set(urls.filter((u): u is string => !!u && !textures.current.has(u)))];
-    await Promise.all(
-      missing.map(async (u) => {
-        try {
-          if (u.startsWith(WRECK_PREFIX)) {
-            textures.current.set(u, await wreckTexture(u.slice(WRECK_PREFIX.length)));
-            return;
-          }
-          const tex = await Assets.load<Texture>(u);
-          // HD counter art (384–480 px) is drawn at 48–60 map px: mipmaps keep it clean zoomed out.
-          if (tex.width > 2 * GUN) tex.source.autoGenerateMipmaps = true;
-          textures.current.set(u, tex);
-        } catch {
-          textures.current.set(u, null);
+  function load(u: string): Promise<void> {
+    const inFlight = loading.current.get(u);
+    if (inFlight) return inFlight;
+    const p = (async () => {
+      try {
+        if (u.startsWith(WRECK_PREFIX)) {
+          textures.current.set(u, await wreckTexture(u.slice(WRECK_PREFIX.length)));
+          return;
         }
-      }),
-    );
+        const tex = await Assets.load<Texture>(u);
+        // HD counter art (384–480 px) is drawn at 48–60 map px: mipmaps keep it clean zoomed out.
+        if (tex.width > 2 * GUN) tex.source.autoGenerateMipmaps = true;
+        textures.current.set(u, tex);
+        failed.current.delete(u);
+      } catch (e) {
+        // A dropped or slow request must not leave a counter without its art for the rest of the game: try again
+        // later (Pixi caches the failed promise, so drop it first) and redraw once it arrives.
+        const tries = (failed.current.get(u)?.tries ?? 0) + 1;
+        failed.current.set(u, { tries, retryAt: performance.now() + Math.min(30_000, 1000 * 2 ** tries) });
+        console.warn(`Board art failed to load (attempt ${tries}): ${u}`, e);
+        void Assets.unload(u).catch(() => {});
+        window.setTimeout(() => void redraw(), Math.min(30_000, 1000 * 2 ** tries) + 50);
+      } finally {
+        loading.current.delete(u);
+      }
+    })();
+    loading.current.set(u, p);
+    return p;
+  }
+
+  /**
+   * Load every texture the current state needs (once each). The board waits a moment for new art, then draws
+   * with what it has, so a slow image never holds back the game; it draws again as soon as the rest arrives.
+   */
+  async function preload(urls: (string | null)[]) {
+    const now = performance.now();
+    const missing = [...new Set(urls.filter((u): u is string => !!u && !textures.current.has(u) && (failed.current.get(u)?.retryAt ?? 0) <= now))];
+    if (missing.length === 0) return;
+    // Only new requests are waited for: one an earlier draw is still waiting on redraws when it lands.
+    const fresh = missing.filter((u) => !loading.current.has(u));
+    const all = Promise.all(missing.map(load));
+    const waited = fresh.length > 0 && (await Promise.race([Promise.all(fresh.map(load)).then(() => true), new Promise<boolean>((r) => window.setTimeout(() => r(false), PRELOAD_WAIT_MS))]));
+    if (!waited || fresh.length < missing.length) void all.then(() => redraw());
   }
 
   async function redraw() {
@@ -1848,8 +1964,7 @@ export function BoardView({
     };
     const moving = moveState(env as unknown as QueryEnv)?.units[0];
     const bare = hideMarkersRef.current;
-    const turreted = (p: Piece) => { const v = vehicleDef(env as never, p); return !!v && v.turret !== 'NT'; };
-    const markersOf = (p: Piece) => (bare ? [] : [...unitMarkers(p, natOf(p), moving, turreted(p)), ...vehicleMgMarkers(env, p)]);
+    const markersOf = (p: Piece) => (bare ? [] : [...unitMarkers(p, natOf(p), moving), ...vehicleMgMarkers(env, p)]);
     drawControl(L.control, ctl, statics, anyHex, center);
     drawFortified(L.fort, fort, anyHex, xf.current);
     drawOutOfPlay(L.fort, dead, anyHex, xf.current);
@@ -2029,6 +2144,8 @@ export function BoardView({
         const box = new Container();
         box.position.set(x, y);
         if (o.ghost?.has(p.id)) box.alpha = 0.55;
+        // Hidden Initial Placement (SK4 6.4, 8.1.8.5): the enemy never sees the unit or its weapons; its owner sees them faint.
+        if (hipFaint(s, p)) box.alpha = 0.45;
         L.pieces.addChild(box);
         const veh = d.kind === 'vehicle' ? d : null;
         const hexCube = h.cube;
@@ -2053,6 +2170,10 @@ export function BoardView({
           sp.rotation = turn;
           box.addChild(sp);
           faces.current.set(p.id, { box, sprite: sp, size });
+        } else if (url) {
+          // Its art is still on its way: a faint blank chit holds the place (never a made-up counter face).
+          faces.current.set(p.id, { box, sprite: null, size });
+          box.addChild(new Graphics().roundRect(0, 0, size, size, 4).fill({ color: STOCK_COLOR[d.nationality] ?? 0xe5e2d0, alpha: 0.35 }).stroke({ color: 0xffffff, width: 1, alpha: 0.4 }));
         } else {
           faces.current.set(p.id, { box, sprite: null, size });
           const g = new Graphics().roundRect(0, 0, size, size, 4).fill(STOCK_COLOR[d.nationality] ?? 0xe5e2d0);
@@ -2092,6 +2213,13 @@ export function BoardView({
           box.addChild(tg);
         }
         if (p.tags['broken'] === true) box.addChild(new Graphics().roundRect(1, 1, size - 2, size - 2, 4).stroke({ color: BROKEN_RED, width: 2.5 }));
+        // The enemy's "?" says how many counters are under it, as the stack's height would at the table (SK4 8.3).
+        const under = d.kind === 'unknown' ? (p.tags['counters'] as number | undefined) : undefined;
+        if (under) {
+          const chip = countChip(under);
+          chip.position.set(size - 3, size - 3);
+          box.addChild(chip);
+        }
         if (o.selectedPieces?.has(p.id)) {
           // Turned with the counter: a vehicle or Gun is drawn facing its Covered Arc.
           const sel = new Graphics().roundRect(-size / 2 - 1, -size / 2 - 1, size + 2, size + 2, 5).stroke({ color: 0xffe066, width: 3 });
@@ -2124,9 +2252,9 @@ export function BoardView({
           const letter = gunIdents(s, env).get(p.id);
           if (letter) box.addChild(identBadge(letter, 9, 9, 8));
         }
-        const badges = d.kind === 'gun' ? unitBadges(p, isCaptured(env as never, p)) : [...(o.onRoad?.has(p.id) ? ['ROAD'] : []), ...(o.inBypass?.has(p.id) ? ['BYP'] : []), ...(o.smokeTried?.has(p.id) ? ['SMK'] : [])];
+        const badges = d.kind === 'gun' ? unitBadges(p, isCaptured(env as never, p)) : [...(o.onRoad?.has(p.id) ? ['ROAD'] : []), ...(o.assaultMoving?.has(p.id) ? ['AM'] : []), ...(o.inBypass?.has(p.id) ? ['BYP'] : []), ...(o.smokeTried?.has(p.id) ? ['SMK'] : [])];
         badges.forEach((label, k) => {
-          const bg = new Graphics().roundRect(size - 26, 2 + k * 14, 24, 12, 3).fill({ color: label === 'CAPT' ? 0xc0392b : label === 'ROAD' ? 0x8a6a2c : label === 'BYP' ? 0xc77d0a : label === 'SMK' ? 0x5b6670 : 0x2a2a2a, alpha: 0.9 });
+          const bg = new Graphics().roundRect(size - 26, 2 + k * 14, 24, 12, 3).fill({ color: label === 'CAPT' ? 0xc0392b : label === 'ROAD' ? 0x8a6a2c : label === 'BYP' ? 0xc77d0a : label === 'SMK' ? 0x5b6670 : label === 'AM' ? 0x1f8a5b : 0x2a2a2a, alpha: 0.9 });
           const tx = new Text({ text: label, style: { fontSize: 9, fill: 0xffffff, fontWeight: 'bold' } });
           tx.position.set(size - 24, 2 + k * 14);
           box.addChild(bg, tx);
@@ -2178,9 +2306,9 @@ export function BoardView({
       }
       // Location markers.
       const locMarkers: string[] = [];
-      if (markers['smoke']) locMarkers.push('Smk2');
-      const s58 = smoke58Marker(markers);
-      if (s58) locMarkers.push(s58.marker);
+      // One chit per Smoke grenade counter placed in the hex (ASLRB A24.2).
+      for (let i = 0; i < smokeGrenades(markers); i++) locMarkers.push('Smk2');
+      for (const c of smoke58Chits(markers)) locMarkers.push(c.marker);
       if (markers['cc']) locMarkers.push('CC');
       if (markers['melee']) locMarkers.push('Melee');
       if (markers[CAVE_GONE] && caveHexes.has(hex)) locMarkers.push('CaveOG');

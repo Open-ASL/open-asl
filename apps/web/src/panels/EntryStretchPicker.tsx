@@ -5,8 +5,9 @@ import { hexLabel } from '../game/describe';
 
 /*
  * The entry stretch on screen (LMA2: "enter by the East edge, either between I and Q inclusive or between Q and Y
- * inclusive"): once the other side has set up, the entering side picks the stretch its whole force comes on by. The
- * card's stretches are drawn on the map; click one (or its button) and record it.
+ * inclusive"): once the other side has set up (or, where the card ties it to the entry, in the RPh of the entry turn),
+ * the entering side picks the stretch its whole force comes on by. The card's stretches are drawn on the map; click one
+ * (or its button) and record it.
  */
 
 interface Args {
@@ -46,11 +47,13 @@ export function useEntryStretchPicker({ env, decision, owner, run, plain }: Args
     setOption(hits.find((i) => i !== option) ?? hits[0]!);
     return true;
   };
-  const blocked = option === null ? 'Choose the stretch of the edge to enter by' : plain(entryStretchIllegal(env, choosing.owner, option));
+  // A card whose choices are single hexes ("any one west edge hex") reads as a hex, not a stretch.
+  const what = p.options.every((o) => o.hexes.length === 1) ? 'hex' : 'stretch';
+  const blocked = option === null ? `Choose the ${what} of the edge to enter by` : plain(entryStretchIllegal(env, choosing.owner, option));
   const panel = (
     <div className="composer entry-groups">
       <p className="hint">
-        {forces.map((f) => `${f.group ?? f.id}: ${f.setup.kind === 'enter' ? (f.setup.description ?? '') : ''}`).join(' · ')}. Every unit enters through the stretch you pick.
+        {forces.map((f) => `${f.group ?? 'Reinforcements'}: ${f.setup.kind === 'enter' ? (f.setup.description ?? '') : ''}`).join(' · ')}. Every unit enters through the {what} you pick.
       </p>
       <ul className="entry-groups-list">
         {p.options.map((o, i) => (
@@ -58,7 +61,7 @@ export function useEntryStretchPicker({ env, decision, owner, run, plain }: Args
             <button className={`ghost small ${option === i ? 'on' : ''}`} onClick={() => setOption(i)}>
               {o.label}
             </button>
-            <span className="muted small"> {hexLabel(o.hexes[0]!)}–{hexLabel(o.hexes[o.hexes.length - 1]!)}</span>
+            {o.hexes.length > 1 && <span className="muted small"> {hexLabel(o.hexes[0]!)}–{hexLabel(o.hexes[o.hexes.length - 1]!)}</span>}
           </li>
         ))}
       </ul>
@@ -69,6 +72,6 @@ export function useEntryStretchPicker({ env, decision, owner, run, plain }: Args
     highlights,
     onHexClick,
     panel,
-    confirm: { label: 'Record entry stretch', icon: '✔', blocked, onClick: () => option !== null && run({ type: 'entryStretch.choose', option }), hint: 'Lock in the stretch of the edge your force enters by' },
+    confirm: { label: `Record entry ${what}`, icon: '✔', blocked, onClick: () => option !== null && run({ type: 'entryStretch.choose', option }), hint: `Lock in the ${what} of the edge your force enters by` },
   };
 }

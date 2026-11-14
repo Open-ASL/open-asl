@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { stackOrder } from '../src';
 import { act, makeEngine } from './fixtures';
 
 describe('Rally Phase (SK1 3.1)', () => {
@@ -78,6 +79,46 @@ describe('Rally Phase (SK1 3.1)', () => {
     const ev2 = t2.events.find((e) => e.type === 'sk1.leaderCreation')!.payload as Record<string, unknown>;
     expect(ev2['leader']).toBeNull();
     expect(Object.values(t2.state.pieces).filter((p) => p.side === 'am')).toHaveLength(1);
+  });
+
+  // The unit rallies on its DR, then the dr makes the leader: shown in that order, the rallied unit has shed its DM before
+  // the leader appears, and the leader stands on the unit that made him (SK1 3.8), on top of the stack.
+  it('a field promotion: the unit is rallied first, the new leader goes on top of it, and the table sees it broken', () => {
+    const seen: boolean[] = [];
+    const { engine, state } = makeEngine({
+      startPhase: 'RPh',
+      pieces: [
+        // An unbroken squad sorts first: without his own stacking the leader would go on it.
+        { id: 'a0', def: 'am.666', side: 'am', hex: 'yN5' },
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5', tags: { broken: true, dm: true } },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yP9' },
+      ],
+      dice: [1, 1, 3],
+      tables: {
+        leaderCreation: (nat, _morale, dr, broken) => {
+          seen.push(!!broken);
+          return dr <= 3 ? `${nat}.L80` : null;
+        },
+      },
+    });
+    const t = act(engine, state, { type: 'rally.selfRally', unit: 'a1' });
+    // SK1 5.3 Leader Creation Table: +1 Broken, as the unit was when it rolled the 2.
+    expect(seen).toEqual([true]);
+    const rallied = t.events.findIndex((e) => e.type === 'piece.tagged' && (e.payload as { id: string }).id === 'a1' && (e.payload as { tags: Record<string, unknown> }).tags['broken'] === null);
+    const created = t.events.findIndex((e) => e.type === 'piece.created');
+    expect(rallied).toBeGreaterThanOrEqual(0);
+    expect(rallied).toBeLessThan(created);
+    const leader = (t.events[created]!.payload as { piece: { id: string } }).piece.id;
+    expect(t.state.pieces['a1']!.tags).not.toHaveProperty('dm');
+    expect(t.state.pieces[leader]!.tags['stackedOn']).toBe('a1');
+    const env = engine.env(t.state);
+    const order = stackOrder(env, Object.values(t.state.pieces).filter((p) => p.side === 'am'));
+    expect(order.map((p) => p.id)).toEqual(['a0', 'a1', leader]);
+    // Into the next phase: the leader is a unit like any other, still on his squad.
+    let next = t.state;
+    for (let i = 0; i < 3 && next.phase === 'RPh'; i++) next = act(engine, next, { type: 'endPhase' }).state;
+    expect(next.phase).toBe('PFPh');
+    expect(next.pieces[leader]!.tags['stackedOn']).toBe('a1');
   });
 
   it('no self-rally in a Location with a Good Order friendly leader (ASL A10.63)', () => {

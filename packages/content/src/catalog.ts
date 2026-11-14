@@ -3,6 +3,7 @@ import { DEMO_SCENARIO } from './scenarios/demo';
 import { DEMO_GUNS_SCENARIO } from './scenarios/demoGuns';
 import { DEMO_VEHICLES_SCENARIO } from './scenarios/demoVehicles';
 import { DEMO_PACIFIC_SCENARIO } from './scenarios/demoPacific';
+import { DEMO_JUNGLE_SCENARIO } from './scenarios/demoJungle';
 import { COMMERCIAL_SCENARIOS } from './scenarios/commercial';
 import { SK_DOWNLOAD_SCENARIOS } from './scenarios/skFree';
 import { LMA_SCENARIOS } from './scenarios/lma';
@@ -10,12 +11,12 @@ import { ASL_SCENARIOS } from './scenarios/aslTest';
 import { PRODUCTS, productById, type ProductDef } from './products';
 import { COUNTERS } from './counters';
 
-/**
- * Whether a scenario fields Infantry only: no Gun and no vehicle in any force (weapons carried included). The computer
- * opponent plays only these for now: it neither crews Guns nor drives vehicles.
- */
+/** Whether a scenario fields Infantry only: no Gun and no vehicle in any force (weapons carried included). */
 export const infantryOnly = (s: ScenarioDef): boolean =>
   !s.forces.some((f) => f.units.some((u) => [u.def, ...(u.withSw ?? [])].some((d) => COUNTERS[d]?.kind === 'gun' || COUNTERS[d]?.kind === 'vehicle')));
+
+/** Whether a scenario fields a vehicle in any force. The computer opponent crews Guns but does not drive vehicles yet. */
+export const hasVehicles = (s: ScenarioDef): boolean => s.forces.some((f) => f.units.some((u) => COUNTERS[u.def]?.kind === 'vehicle'));
 
 /** Whether the engine can play a scenario now (catalogued "coming soon" ones only show their card facts). */
 export const isPlayable = (s: ScenarioDef): boolean => s.status !== 'coming-soon';
@@ -48,7 +49,7 @@ function byCatalogue(a: ScenarioDef, b: ScenarioDef): number {
 }
 
 /** Every catalogued scenario, in catalogue order: by product (as listed in PRODUCTS), then by card number. */
-export const ALL_SCENARIOS: ScenarioDef[] = [...COMMERCIAL_SCENARIOS, ...SK_DOWNLOAD_SCENARIOS, ...LMA_SCENARIOS, DEMO_SCENARIO, DEMO_GUNS_SCENARIO, DEMO_VEHICLES_SCENARIO, DEMO_PACIFIC_SCENARIO, ...ASL_SCENARIOS].sort(byCatalogue);
+export const ALL_SCENARIOS: ScenarioDef[] = [...COMMERCIAL_SCENARIOS, ...SK_DOWNLOAD_SCENARIOS, ...LMA_SCENARIOS, DEMO_SCENARIO, DEMO_GUNS_SCENARIO, DEMO_VEHICLES_SCENARIO, DEMO_PACIFIC_SCENARIO, DEMO_JUNGLE_SCENARIO, ...ASL_SCENARIOS].sort(byCatalogue);
 
 export const PLAYABLE_SCENARIOS: ScenarioDef[] = ALL_SCENARIOS.filter(isPlayable);
 

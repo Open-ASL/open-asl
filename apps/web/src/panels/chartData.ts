@@ -111,6 +111,15 @@ export const CC_RESOLUTION: Bullet[] = [
   { text: 'No unit attacks, or is attacked, more than once a CCPh. Unbroken units of both sides left in the hex: Melee.', ref: 'SK1 3.8' },
 ];
 
+/** When the Hand-to-Hand chart replaces the Close Combat chart (SK4 8.1.8.4), and what changes with it. */
+export const HTH_RULES: Bullet[] = [
+  { lead: 'Japanese', text: 'Infantry the ATTACKER in a CC/Melee, or ambushing: that CC becomes (and stays) Hand-to-Hand.', ref: 'SK4 8.1.8.4' },
+  { lead: 'Reverts', text: 'to the normal chart when every Japanese unit in it was ambushed and/or is pinned.', ref: 'SK4 8.1.8.4' },
+  { lead: '−1 DRM', text: 'to each Japanese Hand-to-Hand attack vs Infantry, unless every Japanese Infantry unit in it is pinned.', ref: 'SK4 8.1.8.4' },
+  { text: 'Never by or vs an AFV. A Reduced-Strength Japanese unit keeps its Full-Strength CCV.', ref: 'SK4 8.1.8.4' },
+  { text: 'Results read as on the Close Combat Table: below the Kill # eliminates, equal is Casualty Reduction.', ref: 'SK1 3.8' },
+];
+
 export const CC_LISTS: DrmList[] = [
   {
     title: 'CC DRM',

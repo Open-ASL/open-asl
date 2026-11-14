@@ -1,7 +1,7 @@
 /**
  * Decodes a VASL board's LOSData and derives:
  *  - per-hex terrain/features from the whole hex, not its center pixel (see `deriveBoard`),
- *  - road hexsides (road terrain at the hexside midpoint),
+ *  - road hexsides (a road crossing the hexside anywhere along it, or road at its midpoint),
  *  - building groupings (connected building pixels),
  *  - the per-pixel terrain raster used for pixel-accurate LOS.
  *
@@ -371,7 +371,9 @@ export function deriveBoard(board: string, g: LosGrid): BoardData {
     if (buildingOf[i]! >= 0) hexes[c.id]!.buildingId = rename.get(buildingOf[i]!)!;
   });
 
-  // Road hexsides: road pixels at the midpoint between adjacent hex centers.
+  // Road hexsides: road pixels at the midpoint between adjacent hex centers, or a road crossing the hexside
+  // elsewhere along it. A road that bends or meets a hexside off its middle is still a road across it (board v
+  // FF5: its road runs off the hex center and crosses EE5|FF5 and FF5|GG5 away from their midpoints).
   const roadHexsides: [string, string][] = [];
   for (const c of centers) {
     const neigh = neighborsOf(c.col, c.n);
@@ -381,10 +383,33 @@ export function deriveBoard(board: string, g: LosGrid): BoardData {
       if (!o || o.id < c.id) continue;
       const mx = (c.x + o.x) / 2;
       const my = (c.y + o.y) / 2;
-      if (ROAD.has(at(g, mx, my))) roadHexsides.push([c.id, o.id]);
+      if (ROAD.has(at(g, mx, my)) || roadCrosses(g, c, o)) roadHexsides.push([c.id, o.id]);
     }
   }
+  // A hex on a road hexside is made a road hex when the map is built (`fillRoadHexes` in @asl/content), whatever
+  // its center pixel shows.
   return { board, hexes, roadHexsides, warnings, review };
+}
+
+/**
+ * Whether a road crosses the hexside between hex centers `a` and `o`: road art on the hexside, and just inside
+ * both hexes, at two or more points along its middle 80% (a road running beside the hexside, or touching it at a
+ * vertex, does not cross it).
+ */
+function roadCrosses(g: LosGrid, a: { x: number; y: number }, o: { x: number; y: number }): boolean {
+  const mx = (a.x + o.x) / 2;
+  const my = (a.y + o.y) / 2;
+  const len = Math.hypot(o.x - a.x, o.y - a.y);
+  const ux = (o.x - a.x) / len;
+  const uy = (o.y - a.y) / len;
+  const side = GEO.px.hexHeight / Math.sqrt(3);
+  let n = 0;
+  for (let t = -0.4 * side; t <= 0.4 * side; t++) {
+    const x = mx - uy * t;
+    const y = my + ux * t;
+    if (ROAD.has(at(g, x, y)) && ROAD.has(at(g, x - 4 * ux, y - 4 * uy)) && ROAD.has(at(g, x + 4 * ux, y + 4 * uy)) && ++n >= 2) return true;
+  }
+  return false;
 }
 
 /** Same-board neighbours in (col, n) coordinates; odd columns sit half a hex lower. */

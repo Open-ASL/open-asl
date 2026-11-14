@@ -13,16 +13,14 @@ import {
   hexOf,
   inCoveredArc,
   nearestSpine,
-  shotContext,
+  shotOutlook,
   statics,
-  toHitNumber,
-  toKillNumbers,
   vehicle,
-  withoutSecrets,
   type AmmoKind,
   type FireMode,
   type HexGridMap,
   type OrdnanceShot,
+  type ShotOutlook,
   type TargetType,
 } from '@asl/rules';
 
@@ -175,44 +173,8 @@ export function shotOptions(env: QueryEnv, gunId: PieceId, mode: FireMode): Shot
   return out;
 }
 
-export interface ThPreview {
-  illegal: string | null;
-  th: number | null;
-  red: boolean;
-  ch: number | null;
-  drm: number;
-  parts: string[];
-  /** The original DR a hit needs (TH − DRM). */
-  hitOn: number | null;
-  caChange: number;
-  /** A Vehicle Target Type shot: the To Kill number and the target's Armor Factors per aspect (SK4 7.9). */
-  tk?: { target: string; tk: number | null; hull: { front: number; side: number; rear: number }; turret: { front: number; side: number; rear: number }; turretType: string } | null;
-}
+/** The shot composer's reading of a shot: the rules' own `shotOutlook`. */
+export type ThPreview = ShotOutlook;
 
 /** What a shot would need: the To Hit number, the DRM the engine would apply (hindrance apart) and the DR to beat. */
-export function thPreview(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, side: SideId, moving?: PieceId[]): ThPreview {
-  const illegal = env.query('ordnance.illegal', { shot, mode, side, ...(moving ? { moving } : {}) }, null);
-  if (shot.targetType === 'IFE') return { illegal, th: null, red: false, ch: null, drm: 0, parts: [], hitOn: null, caChange: 0 };
-  try {
-    // The LOS (and so any hindrance along it) is only checked when the shot is fired.
-    const sc = { ...shotContext(env, shot, mode, side, moving ? { moving } : {}), hindrance: 0 };
-    const thn = toHitNumber(env, sc);
-    const drm = withoutSecrets(env.explain('ordnance.thDrm', sc, 0));
-    const tv = sc.targetVehicle ? env.state.pieces[sc.targetVehicle] : undefined;
-    const tvd = tv ? vehicle(env, tv) : null;
-    const tkn = tvd ? toKillNumbers(env, sc) : null;
-    return {
-      illegal,
-      th: thn?.th ?? null,
-      red: thn?.red ?? false,
-      ch: thn?.ch ?? null,
-      drm: drm.value,
-      parts: drm.trace.filter((t) => !t.suppressedBy && t.label).map((t) => t.label!),
-      hitOn: thn ? thn.th - drm.value : null,
-      caChange: sc.spines,
-      ...(shot.targetType === 'VTT' ? { tk: tvd && tkn ? { target: tvd.name, tk: tkn.tk, hull: tkn.hull, turret: tkn.turret, turretType: tvd.turret } : null } : {}),
-    };
-  } catch (e) {
-    return { illegal: illegal ?? (e as Error).message, th: null, red: false, ch: null, drm: 0, parts: [], hitOn: null, caChange: 0 };
-  }
-}
+export const thPreview = (env: QueryEnv, shot: OrdnanceShot, mode: FireMode, side: SideId, moving?: PieceId[]): ThPreview => shotOutlook(env, shot, mode, side, moving);

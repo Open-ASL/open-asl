@@ -275,6 +275,35 @@ describe('Rout Phase', () => {
     expect(activeRout(engine.env(t.state))).toBeUndefined();
   });
 
+  it('each rout step says on its state event whether it was a Low Crawl and why it was or was not open to Interdiction', () => {
+    const stepOf = (t: { events: { type: string; payload: unknown }[] }) => (t.events.find((e) => e.type === 'sk1.rout.state' && (e.payload as { step?: unknown }).step)?.payload as { step?: unknown }).step;
+    const opts = (g1: string) => ({
+      startPhase: 'RtPh',
+      terrain: { yL5: { terrain: 'woods' } },
+      dice: [2, 1],
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5', tags: { broken: true, dm: true } },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: g1 },
+      ],
+    });
+    // Into Open Ground in the German's Normal Range and clear LOS: Interdiction, by g1.
+    const { engine, state } = makeEngine(opts('yP5'));
+    const t1 = act(engine, state, stepTo(engine, state, 'am', 'a1', 'yM5')!);
+    expect(stepOf(t1)).toEqual({ unit: 'a1', to: 'yM5', lowCrawl: false, interdiction: 'checked', by: ['g1'] });
+    // On into the woods: not Open Ground.
+    const t2 = act(engine, t1.state, stepTo(engine, t1.state, 'am', 'a1', 'yL5')!);
+    expect(stepOf(t2)).toEqual({ unit: 'a1', to: 'yL5', lowCrawl: false, interdiction: 'notOpen' });
+    // A Low Crawl into the same Open Ground hex: never Interdicted.
+    const t3 = act(engine, state, stepTo(engine, state, 'am', 'a1', 'yM5', true)!);
+    expect(stepOf(t3)).toEqual({ unit: 'a1', to: 'yM5', lowCrawl: true, interdiction: 'lowCrawl' });
+    // Open Ground with the only German far out of Normal Range (the rout runs away from it, east): no enemy able to interdict.
+    const far = makeEngine(opts('yA1'));
+    const t4 = act(far.engine, far.state, stepTo(far.engine, far.state, 'am', 'a1', 'yO5')!);
+    expect(stepOf(t4)).toEqual({ unit: 'a1', to: 'yO5', lowCrawl: false, interdiction: 'none' });
+    // The step rides on the state event the step always emitted: no event of its own.
+    expect(t4.events.map((e) => e.type)).not.toContain('sk1.rout.step');
+  });
+
   it('two broken units of one hex both Low Crawl into the same hex, neither Interdicted (tester report)', () => {
     const { engine, state } = makeEngine({
       startPhase: 'RtPh',

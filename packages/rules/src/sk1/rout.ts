@@ -112,6 +112,19 @@ export function interdicted(env: QueryEnv, side: SideId, hex: HexId, from?: HexI
 /** May a rout step from `from` into `to` choose between the road and the woods of a Woods-Road hex (SK1 1.1.1)? */
 const woodsRoadStep = (env: QueryEnv, from: HexId, to: LocId) => !to.includes(':') && !from.includes(':') && !statics(env).map.isHidden?.(from) && !statics(env).map.isHidden?.(to) && isWoodsRoad(env, to) && (statics(env).map.roadHexside?.(from, to) ?? false);
 
+/**
+ * One hex of a rout, as the log tells it: whether it was a Low Crawl, and whether it was open to Interdiction
+ * ('checked', by the enemy units listed), or not because it was a Low Crawl, not Open Ground (nor a road routed
+ * along), or no enemy could interdict it ('none').
+ */
+export interface RoutStep {
+  unit: PieceId;
+  to: HexId;
+  lowCrawl: boolean;
+  interdiction: 'checked' | 'lowCrawl' | 'notOpen' | 'none';
+  by?: PieceId[];
+}
+
 /** Why a broken unit must rout. */
 export type RoutReason = { kind: 'adjacent' | 'openGround'; enemy: PieceId; hex: HexId };
 
@@ -628,7 +641,7 @@ export const routModule: RuleModule = {
   install(r) {
     r.procedure<RoutStartSideFn>(ROUT_START_SIDE, () => (ctx, side) => startSide(ctx, side));
     r.procedure<RoutEnterFn>(ROUT_ENTER, () => () => true);
-    r.event<{ state: RoutState | null }>({
+    r.event<{ state: RoutState | null; step?: RoutStep }>({
       type: 'sk1.rout.state',
       apply(d, p) {
         if (p.state) d.ext[ROUT] = p.state;
@@ -901,8 +914,12 @@ function enterHex(ctx: Ctx, act: ActiveRout, toLoc: LocId, cost: number, lowCraw
   };
   let over = lowCrawl;
   let alive = true;
+  // Why this step was, or was not, open to Interdiction, for the log (SK1 3.6: a Low Crawl is never interdicted;
+  // Interdiction needs Open Ground, or a road the unit routs along, in a Good Order enemy's Normal Range and clear LOS).
+  let step: RoutStep = { unit: act.unit, to: hexOfLoc(toLoc), lowCrawl, interdiction: 'lowCrawl' };
   if (!lowCrawl) {
     const by = interdicted(ctx, side, to, from, onRoad);
+    step = { ...step, interdiction: by.length ? 'checked' : ctx.query('hex.openGround', { hex: to }, false) || onRoad ? 'none' : 'notOpen', ...(by.length ? { by: by.map((e) => e.id).sort() } : {}) };
     if (by.length > 0) {
       const lead = next.escort.length
         ? Math.min(...next.escort.map((l) => ctx.query('unit.leadership', { unit: l, for: act.unit }, smc(ctx, pieceOf(ctx, l))!.leadership)))
@@ -920,7 +937,8 @@ function enterHex(ctx: Ctx, act: ActiveRout, toLoc: LocId, cost: number, lowCraw
       if (outcome === 'pinned') over = true;
     }
   }
-  if (record) ctx.emit('sk1.rout.state', { state: { ...routState(ctx)!, active: next } });
+  // The step rides on the state event: a new event would shift the decision ids of recorded games.
+  if (record) ctx.emit('sk1.rout.state', { state: { ...routState(ctx)!, active: next }, step });
   return { act: next, over, alive };
 }
 

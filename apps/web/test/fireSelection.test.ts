@@ -3,7 +3,7 @@ import type { Action, Engine, GameState, PieceId } from '@asl/engine';
 import { ALL_SCENARIOS, newSk1Game } from '@asl/content';
 import { defOf } from '@asl/rules';
 import { act, makeEngine } from '../../../packages/rules/test/fixtures';
-import { fireSelectable } from '../src/game/fireSelection';
+import { fireLeaders, fireSelectable } from '../src/game/fireSelection';
 
 /** The click selection the game screen makes on `side`'s stack in `hex` (GameScreen selectableAt, fire phases). */
 const selection = (engine: Engine, state: GameState, side: string, hex: string): PieceId[] => {
@@ -36,6 +36,38 @@ describe('fire selection (what a click on an own stack picks up)', () => {
     const t2 = act(engine, t.state, { type: 'fire', decl: { units: [], sw: again, target: 'yN5' } });
     expect(t2.state.pieces['aMMG']!.tags['fire']).toBe('prep');
     expect(selection(engine, t2.state, 'am', 'yP5')).toEqual([]);
+  });
+
+  it('the leader who directed the squad and its MG is offered to direct the MG again on the ROF it kept (ASLRB A7.53)', () => {
+    const { engine, state } = makeEngine({
+      pieces: [...pieces, { id: 'aL', def: 'am.L91', side: 'am', hex: 'yP5' }],
+      terrain: opts.terrain,
+      dice: [2, 1, 6, 6, 3, 4, 6, 6],
+      startPhase: 'PFPh',
+    }) as { engine: Engine; state: GameState };
+    const t = act(engine, state, { ...shoot, decl: { ...shoot.decl, directors: ['aL'] } });
+    expect(t.state.pieces['aL']!.tags['fire']).toBe('prep');
+    const env = engine.env(t.state);
+    const own = selection(engine, t.state, 'am', 'yP5');
+    expect(own).toEqual(['aMMG']);
+    // Marked Prep Fire, he is no longer selectable, yet the Fire entry still offers him.
+    expect(fireLeaders(env, [t.state.pieces['aL']!], own, own).map((l) => l.id)).toEqual(['aL']);
+    const t2 = act(engine, t.state, { type: 'fire', decl: { units: [], sw: own, target: 'yN5', directors: ['aL'] } });
+    expect(t2.state.pieces['aMMG']!.tags['fire']).toBe('prep');
+  });
+
+  it('a marked leader is not offered for a shot that is not a kept-ROF weapon firing alone', () => {
+    const { engine, state } = makeEngine({
+      pieces: [...pieces, { id: 'aL', def: 'am.L91', side: 'am', hex: 'yP5' }],
+      terrain: opts.terrain,
+      dice: [1, 2, 6, 6, 6, 6],
+      startPhase: 'PFPh',
+    }) as { engine: Engine; state: GameState };
+    // The squad fires alone, directed: its MMG has not fired and has no ROF to use.
+    const t = act(engine, state, { type: 'fire', decl: { units: ['a1'], sw: [], target: 'yN5', directors: ['aL'] } });
+    const own = selection(engine, t.state, 'am', 'yP5');
+    expect(own).toEqual(['aMMG']);
+    expect(fireLeaders(engine.env(t.state), [t.state.pieces['aL']!], own, own)).toEqual([]);
   });
 
   it('a MG that lost Rate of Fire is not offered again', () => {

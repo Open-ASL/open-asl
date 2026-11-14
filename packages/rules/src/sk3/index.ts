@@ -20,6 +20,7 @@ export * from './vehicleMove';
 export * from './vehicleStatus';
 export * from './facing';
 export * from './toKill';
+export * from './shotOutlook';
 export * from './vehicleFire';
 export * from './wrecks';
 export * from './vehicleMg';

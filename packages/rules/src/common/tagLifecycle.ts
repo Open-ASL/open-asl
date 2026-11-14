@@ -27,6 +27,8 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   swDestroyed: 'playerTurn',
   moved: 'playerTurn',
   pinnedThisTurn: 'playerTurn',
+  // A leader relieved of command by SSR (LMA5 SSR 4): Pinned for the rest of the game.
+  relieved: 'lasting',
   rallyTried: 'playerTurn',
   rphAction: 'playerTurn',
   repairTried: 'playerTurn',
@@ -50,6 +52,8 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   ca: 'lasting',
   emplaced: 'lasting',
   hip: 'lasting',
+  /** The phase key of a unit's last Panzerfaust check (SK4 4.4.2): compared on use, so it may stay. */
+  pfTried: 'lasting',
   acq: 'lasting',
   acqHex: 'lasting',
   acqUnits: 'lasting',
@@ -117,7 +121,11 @@ export function playerTurnLeftovers(state: GameState): string[] {
   const out: string[] = [];
   for (const p of Object.values(state.pieces)) {
     if (p.loc.kind === 'eliminated') continue;
-    for (const [k, v] of Object.entries(p.tags)) if (tagLifecycle(k) === 'playerTurn') out.push(`${p.id} ${k}=${JSON.stringify(v)}`);
+    for (const [k, v] of Object.entries(p.tags)) {
+      // A relieved leader's Pin lasts the rest of the game (LMA5 SSR 4), not the Player Turn.
+      if (k === 'pinned' && p.tags['relieved'] !== undefined) continue;
+      if (tagLifecycle(k) === 'playerTurn') out.push(`${p.id} ${k}=${JSON.stringify(v)}`);
+    }
   }
   return out.sort();
 }

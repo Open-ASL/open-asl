@@ -458,8 +458,9 @@ export function weaponRange(env: QueryEnv, id: PieceId): number {
 
 const firerFpParts = (a: FireAttackCtx) => a.parts.filter((p) => p.kind !== 'ordnance');
 
+// An SMC has no inherent FP of its own (SK1 1.2.2): a leader among the firers adds nothing but his direction.
 const partBaseFp = (env: QueryEnv, part: FirePart) =>
-  part.kind === 'inherent' ? mmc(env, pieceOf(env, part.piece))!.fp : weaponFp(env, part.piece);
+  part.kind === 'inherent' ? (mmc(env, pieceOf(env, part.piece))?.fp ?? 0) : weaponFp(env, part.piece);
 
 export const attackFp = (env: QueryEnv, a: FireAttackCtx, exclude: PieceId[] = []) =>
   firerFpParts(a)

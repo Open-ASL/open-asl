@@ -111,8 +111,8 @@ describe('SK3 vehicles (VASL import)', () => {
     expect(sk2Counters()['ru.T34M43']).toBeUndefined();
   });
   it('keeps every existing scenario on its SK1/SK2 ruleset', () => {
-    // The free download cards with vehicles (S28) play under the SK3 rules too, as does the armor demo.
-    const withVehicles = ['sk-s28', 'sk-s30', 'sk-s33', 'sk-s34', 'sk-s35', 'sk-s36', 'lma-10', 'lma-8', 'lma-5', 'lma-4', 'demo-armor'];
+    // The free download cards with vehicles (S28) play under the SK3 rules too, as do the armor and jungle demos.
+    const withVehicles = ['sk-s28', 'sk-s30', 'sk-s33', 'sk-s34', 'sk-s35', 'sk-s36', 'lma-10', 'lma-8', 'lma-5', 'lma-4', 'demo-armor', 'demo-jungle'];
     const commercial = new Set(COMMERCIAL_SCENARIOS.map((x) => x.id));
     for (const sc of ALL_SCENARIOS.filter((x) => !commercial.has(x.id) && !withVehicles.includes(x.id))) expect(needsSk3(sc), sc.id).toBe(false);
     for (const id of withVehicles) expect(needsSk3(ALL_SCENARIOS.find((x) => x.id === id)!), id).toBe(true);
@@ -839,7 +839,7 @@ describe('S28 Out of Luck', () => {
   });
 
   it('VC: exit ≥ 33 VP off uI10/uQ10 (Infantry also off the hexes beside them); PzVG 8, JgPz 38(t) 7, leaders by leadership', () => {
-    expect(S28.victory).toEqual([{ kind: 'exitVp', side: 'ge', edge: 'S', hexes: ['uI10', 'uQ10'], vp: 33, vehicleVp: { 'ge.pzvg': 8, 'ge.jgpz38': 7 } }]);
+    expect(S28.victory).toEqual([{ kind: 'exitVp', side: 'ge', edge: 'S', hexes: ['uI10', 'uQ10'], vp: 33, immediate: true, vehicleVp: { 'ge.pzvg': 8, 'ge.jgpz38': 7 } }]);
     expect(S28_INFANTRY_EXITS).toEqual(['uH10', 'uJ10', 'uP10', 'uR10']);
     const { engine, state } = game();
     const env = engine.env(state);
@@ -967,7 +967,7 @@ describe('S30 Ripples on the Pond', () => {
   });
 
   it('VC: 10 exit VP off u Q3-Q9, at least 6 of them by AFV (3 each); SSR 1: half MP; balance', () => {
-    expect(S30.victory).toEqual([{ kind: 'exitVp', side: 'am', edge: 'E', hexes: S30_EXIT, vp: 10, afvVpAtLeast: 6, afvVp: { ma: 3, noMa: 3 } }]);
+    expect(S30.victory).toEqual([{ kind: 'exitVp', side: 'am', edge: 'E', hexes: S30_EXIT, vp: 10, immediate: true, afvVpAtLeast: 6, afvVp: { ma: 3, noMa: 3 } }]);
     const { engine, state } = newGame(S30, 's30', { los: 'grid' });
     const ids = (def: string) => Object.values(state.pieces).filter((p) => p.defId === def).map((p) => p.id);
     const env = engine.env(state);
@@ -1262,7 +1262,7 @@ describe('S34 Twilight at Baerendorf', () => {
   });
 
   it('VC: 40 exit VP off the south edge (AFV 6 or 5); SSR 1 +1 at ≥ 7 hexes; balance', () => {
-    expect(S34.victory).toEqual([{ kind: 'exitVp', side: 'ge', edge: 'S', vp: 40, afvVp: { ma: 6, noMa: 5 } }]);
+    expect(S34.victory).toEqual([{ kind: 'exitVp', side: 'ge', edge: 'S', vp: 40, immediate: true, afvVp: { ma: 6, noMa: 5 } }]);
     const { engine, state } = game();
     const env = engine.env(state);
     const unit = (def: string) => Object.values(state.pieces).find((p) => p.defId === def)!.id;
@@ -2353,5 +2353,50 @@ describe('LMA4 Frères d’arme 4: Nuenen (Laurent Martin)', () => {
   it('balance: an American BAZ44, or a fourth 4-6-7 in the German reinforcements', () => {
     expect(applyBalanceS20(LMA_4, ['am']).forces.find((f) => f.id === 'am')!.units.flatMap((u) => Array(u.count).fill(u.withSw ?? []).flat()).filter((w) => w === 'am.BAZ44')).toHaveLength(2);
     expect(applyBalanceS20(LMA_4, ['ge']).forces.find((f) => f.id === 'ge-reinf')!.units.filter((u) => u.def === 'ge.467').reduce((n, u) => n + u.count, 0)).toBe(4);
+  });
+});
+
+/** Every condition in a victory list, composites opened. */
+const vcLeaves = (vcs: readonly Record<string, unknown>[]): Record<string, unknown>[] => vcs.flatMap((v) => [v, ...(Array.isArray(v['of']) ? vcLeaves(v['of']) : [])]);
+
+describe('Victory Conditions are judged at game end unless the card says "immediately"', () => {
+  it('a condition is `immediate` only where the card text says so, and some condition is where it does', () => {
+    for (const sc of ALL_SCENARIOS.filter((s) => s.victoryText)) {
+      const says = /\bimmediately\b/i.test(sc.victoryText!);
+      const flagged = vcLeaves(sc.victory as unknown as Record<string, unknown>[]).some((v) => v['immediate'] === true);
+      expect({ id: sc.id, flagged }).toEqual({ id: sc.id, flagged: says });
+    }
+  });
+
+  // S8: "The American player wins by exiting ≥ 1 squad (or 2 HS) and ≥ 1 SMC off Q10": no "immediately", so the
+  // Germans may still exit HS (each raising the count) until the game ends.
+  it('S8: the American exit is judged at game end, not the moment it is made', () => {
+    const S8 = ALL_SCENARIOS.find((s) => s.id === 'sk-s8')!;
+    expect(S8.victory).toEqual([{ kind: 'exitForce', side: 'am', hsEquivalents: 2, smc: 1, perEnemyHsExit: 1 }]);
+    const { engine, state } = newGame(S8, 's8', { los: 'grid' });
+    const pick = (def: string) => Object.values(state.pieces).find((p) => p.defId === def)!.id;
+    const exited = new Set([pick('am.747'), pick('am.L92')]);
+    const s = { ...state, turn: 3, pieces: Object.fromEntries(Object.entries(state.pieces).map(([k, p]) => [k, exited.has(k) ? { ...p, loc: { kind: 'offboard' as const, edge: 'exited' } } : p])) } as GameState;
+    expect(engine.env(s).query('game.suddenDeath', { phase: 'MPh' }, null)).toBeNull();
+    expect(evaluateVictory(engine.env(s))).toBe('am');
+  });
+
+});
+
+describe('To Hit Chart rows', () => {
+  it('every Gun and vehicle Main Armament fires on a chart row (a counter with another nation\'s Gun, such as the British Sherman IIA(a) with the American 76L, uses the maker\'s row)', () => {
+    const missing: string[] = [];
+    for (const d of Object.values(COUNTERS) as CounterDef[]) {
+      const g = d.kind === 'gun' ? (d as GunDef) : d.kind === 'vehicle' && (d as VehicleDef).ma ? ({ ...(d as VehicleDef).ma, id: d.id, nationality: d.nationality, kind: 'gun' } as unknown as GunDef) : null;
+      if (!g || g.type === 'MG') continue;
+      try {
+        SK1_TABLES.gunColumn!(g, 'ITT');
+      } catch (e) {
+        missing.push(String(e));
+      }
+    }
+    expect(missing).toEqual([]);
+    const sherman = COUNTERS['br.sheriiaa'] as VehicleDef;
+    expect(SK1_TABLES.toHit!({ ...sherman.ma!, id: sherman.id, nationality: 'br', kind: 'gun' } as unknown as GunDef, 'VTT', 3)).toEqual(SK1_TABLES.toHit!({ ...sherman.ma!, id: 'x', nationality: 'am', kind: 'gun' } as unknown as GunDef, 'VTT', 3));
   });
 });

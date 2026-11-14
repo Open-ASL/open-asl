@@ -1,4 +1,4 @@
-import type { Action, Ctx, HexId, Piece, PieceId, QueryEnv, RuleModule, SideId } from '@asl/engine';
+import type { Action, Ctx, HexId, Piece, PieceId, QueryEnv, RuleModule, Scalar, SideId } from '@asl/engine';
 import { byId, defOf, hexOf, isFixedWeapon, isVehicleDef, otherSide, personnelAt, statics, swHeldBy, unpossessedSwAt } from '../common/pieces';
 import { AP, type PaatcFn } from './advance';
 import { visibleEnemyAt, knownEnemyAt } from './known';
@@ -27,7 +27,7 @@ import {
 } from './status';
 import { MOVE, firstFireTargets, moveLoc, moveState } from './moveState';
 import { LEVEL_CHANGE_MF, adjacentLocs, hexOfLoc, isGroundLoc, levelOfLoc, locKey, locOf, locationAt, parseLoc, type LocId, type SubLoc } from '../common/location';
-import { inPlay, isOrchardRoad, isRoadHex, isWoodsRoad, smokeDrm, smokeIn, terrainOf } from './terrain';
+import { inPlay, isOrchardRoad, isRoadHex, isWoodsRoad, smokeDrm, smokeGrenades, smokeIn, terrainOf } from './terrain';
 
 declare module '@asl/engine' {
   interface QueryCatalog {
@@ -142,6 +142,12 @@ export interface MoveState {
   bypass?: BypassPos;
   /** Units broken or pinned while in Bypass (ASLRB A4.32, A4.33): the hexsides they had gone along when they stopped. */
   stoppedBypass?: Record<PieceId, number[]>;
+  /**
+   * What `move.start` changed before any MF was spent, so the choice of stack can be taken back (`move.cancel`):
+   * the MF each unit started with (an entering force may start with some spent) and the tags the start set
+   * (Double Time's CX, the leaders restacked onto the moving MMC), as they were before. Gone with the move.
+   */
+  cancel?: { spent: Record<PieceId, number>; tags: Record<PieceId, Record<string, Scalar>> };
 }
 
 /** Where a stack in Bypass is (see `MoveState.bypass`). */
@@ -242,11 +248,27 @@ export type MoveAction =
   | (Action & { type: 'move.step'; to: LocId; declared?: number; woods?: boolean; bypass?: HexId[] })
   | (Action & { type: 'move.stopUnits'; units: PieceId[] })
   | (Action & { type: 'move.end' })
-  | (Action & { type: 'move.smoke'; target: HexId; unit: PieceId })
+  /** Takes back the choice of the stack now moving, while it has spent no MF (see `cancelRefusal`). */
+  | (Action & { type: 'move.cancel' })
+  /**
+   * Smoke grenades: `unit` throws into `target`, or every unit of `throws` into its own target, all for the one
+   * "simultaneous" MF expenditure of the stack (ASLRB A4.2), before any placement dr is rolled.
+   */
+  | (Action & { type: 'move.smoke'; target?: HexId; unit?: PieceId; throws?: SmokeThrow[] })
   | (Action & { type: 'move.recover'; unit: PieceId; sw: PieceId })
   | (Action & { type: 'move.drop'; sw: PieceId })
   /** `target`: the ADJACENT Location the DC is placed in (a hex id at ground level). */
   | (Action & { type: 'move.placeDc'; dc: PieceId; target: LocId; vehicle?: PieceId });
+
+/** One unit's Smoke grenade attempt and the hex it is thrown into (its own or an adjacent one, SK1 3.3). */
+export interface SmokeThrow {
+  unit: PieceId;
+  target: HexId;
+}
+
+/** The throws of a `move.smoke` action, in the order rolled. */
+export const smokeThrows = (a: { unit?: PieceId; target?: HexId; throws?: SmokeThrow[] }): SmokeThrow[] =>
+  a.throws ?? (a.unit && a.target ? [{ unit: a.unit, target: a.target }] : []);
 
 const MMC_BASE_MF = 4;
 const SMC_BASE_MF = 6;
@@ -427,7 +449,7 @@ export const movementModule: RuleModule = {
         if (ev.payload.phase !== 'MPh') return;
         if (moveState(ctx)) finishStack(ctx);
         for (const [hex, m] of Object.entries(ctx.state.hexMarkers).sort()) {
-          if (m['smoke'] === true) ctx.emit('hex.marker', { hex, key: 'smoke', value: null });
+          if (m['smoke'] !== undefined) ctx.emit('hex.marker', { hex, key: 'smoke', value: null });
           if (m['residualFp'] !== undefined) ctx.emit('hex.marker', { hex, key: 'residualFp', value: null });
         }
         for (const p of Object.values(ctx.state.pieces).filter((x) => x.tags['cxPrev'] !== undefined).sort(byId)) {
@@ -486,6 +508,7 @@ export const movementModule: RuleModule = {
             : env.query('move.cannotStart', { units: a.units, doubleTime: !!a.doubleTime, assault: !!a.assault, ...(a.manhandle ? { manhandle: a.manhandle } : {}) }, null),
       resolve(ctx, a) {
         const units = [...a.units].sort();
+        const before = ctx.state.pieces;
         const allowance: Record<PieceId, number> = {};
         for (const id of units) {
           allowance[id] = ctx.query('unit.mf', { unit: id, stack: units, doubleTime: !!a.doubleTime }, 0);
@@ -493,6 +516,14 @@ export const movementModule: RuleModule = {
         const leaderBonus = units.filter((id) => mmc(ctx, pieceOf(ctx, id)) && units.some((l) => isLeader(ctx, l)));
         if (a.doubleTime) for (const id of units) setTags(ctx, id, { [T.cx]: true });
         restack(ctx, units);
+        const tagsBefore = changedTagsSince(before, ctx.state.pieces);
+        // A force that enters "having already expended" MF starts its entry move with them spent.
+        const spent = Object.fromEntries(
+          units.map((u) => {
+            const p = pieceOf(ctx, u);
+            return [u, p.loc.kind === 'offboard' ? ((p.tags['entryMfSpent'] as number | undefined) ?? 0) : 0];
+          }),
+        );
         const first = pieceOf(ctx, units[0]!);
         ctx.emit('sk1.move.state', {
           state: {
@@ -502,13 +533,7 @@ export const movementModule: RuleModule = {
             ...(first.loc.kind === 'hex' && first.loc.sub ? { sub: first.loc.sub as SubLoc } : {}),
             off: first.loc.kind === 'offboard' ? (first.loc.hex ?? null) : null,
             allowance,
-            // A force that enters "having already expended" MF starts its entry move with them spent.
-            spent: Object.fromEntries(
-              units.map((u) => {
-                const p = pieceOf(ctx, u);
-                return [u, p.loc.kind === 'offboard' ? ((p.tags['entryMfSpent'] as number | undefined) ?? 0) : 0];
-              }),
-            ),
+                spent,
             started: units,
             doubleTime: !!a.doubleTime,
             assault: !!a.assault,
@@ -524,6 +549,7 @@ export const movementModule: RuleModule = {
             from: null,
             // Manhandling a Gun: no road bonus (SK4 6.5); the push steps are the sk2 module's.
             ...(a.manhandle ? { manhandle: { gun: a.manhandle, mustStop: false }, roadOnly: false } : {}),
+            cancel: { spent, tags: tagsBefore },
           } satisfies MoveState,
         });
         if (a.manhandle) ctx.proc<(c: Ctx, gun: PieceId, units: PieceId[]) => void>(MANHANDLE_STARTED)(ctx, a.manhandle, units);
@@ -630,33 +656,62 @@ export const movementModule: RuleModule = {
       },
     });
 
+    // Choosing a stack to move is not yet movement: a unit moves by expending MF (ASLRB A4.1, A4.11; SK1 3.3), so
+    // until it has spent any the choice may be taken back and the units are free to move later this MPh. Not in
+    // `legal()`: it undoes a choice rather than making a move, so the computer opponent never needs it.
+    r.action<MoveAction & { type: 'move.cancel' }>({
+      type: 'move.cancel',
+      decisionKinds: [PHASE_DECISION],
+      validate: (env) => cancelRefusal(env),
+      resolve(ctx) {
+        const ms = moveState(ctx)!;
+        for (const [id, tags] of Object.entries(ms.cancel!.tags).sort(([a], [b]) => (a < b ? -1 : 1))) setTags(ctx, id as PieceId, tags);
+        ctx.emit('sk1.move.state', { state: null });
+        reAskMover(ctx);
+      },
+    });
+
     r.action<MoveAction & { type: 'move.smoke' }>({
       type: 'move.smoke',
       decisionKinds: [PHASE_DECISION],
       validate(env, a) {
         const ms = moveState(env);
         if (!ms || !ms.hex) return 'No stack is moving on the map';
-        if (!ms.units.includes(a.unit)) return 'Unit is not moving';
-        if (!env.query('unit.smoke', { unit: a.unit }, 0)) return 'Unit has no Smoke exponent';
-        if (ms.smokeTriedBy?.includes(a.unit)) return 'This unit has already attempted Smoke this MPh';
-        const cost = a.target === ms.hex ? 1 : 2;
-        if (a.target !== ms.hex && !statics(env).map.neighbors(ms.hex).includes(a.target)) return 'Smoke target must be own or adjacent hex';
-        if (remaining(env, ms, a.unit) < cost) return 'Not enough MF';
-        return null;
+        const throws = smokeThrows(a);
+        if (throws.length === 0) return 'No Smoke grenade attempt declared';
+        if (new Set(throws.map((t) => t.unit)).size !== throws.length) return 'A unit may attempt Smoke only once per MPh';
+        // Units moving as a stack spend each MF together, and "need not spend MF for the same purpose": every attempt
+        // declared at once is one expenditure of the costliest of them (ASLRB A4.2; SK1 3.3 is silent on stacks).
+        const cost = smokeCost(ms, throws);
+        for (const t of throws) {
+          if (!ms.units.includes(t.unit)) return 'Unit is not moving';
+          if (!env.query('unit.smoke', { unit: t.unit }, 0)) return 'Unit has no Smoke exponent';
+          if (ms.smokeTriedBy?.includes(t.unit)) return 'This unit has already attempted Smoke this MPh';
+          if (t.target !== ms.hex && !statics(env).map.neighbors(ms.hex).includes(t.target)) return 'Smoke target must be own or adjacent hex';
+          if (remaining(env, ms, t.unit) < cost) return 'Not enough MF';
+        }
+        return assaultAllMf(ms, cost);
       },
       resolve(ctx, a) {
         const ms = moveState(ctx)!;
-        const cost = a.target === ms.hex ? 1 : 2;
-        const exponent = ctx.query('unit.smoke', { unit: a.unit }, 0);
-        const dr = ctx.roll(`Smoke grenades by ${a.unit}`, 1).total;
-        const final = dr + (isCx(pieceOf(ctx, a.unit)) ? 1 : 0);
-        if (ctx.query('events.optional', {}, false)) ctx.emit('sk1.move.smoke', { unit: a.unit, target: a.target, dr, placed: final <= exponent });
-        if (final <= exponent) ctx.emit('hex.marker', { hex: a.target, key: 'smoke', value: true });
-        spendInPlace(ctx, ms, cost, { smokeTried: true, smokeTriedBy: [...(ms.smokeTriedBy ?? []), a.unit] });
-        if (dr === 6) {
-          setTags(ctx, a.unit, { [T.moved]: true });
+        const throws = smokeThrows(a);
+        const sixes: PieceId[] = [];
+        // Every attempt is rolled and placed before the defender may fire at the expenditure (ASLRB A8.1).
+        for (const t of throws) {
+          const exponent = ctx.query('unit.smoke', { unit: t.unit }, 0);
+          const dr = ctx.roll(`Smoke grenades by ${t.unit}`, 1).total;
+          const final = dr + (isCx(pieceOf(ctx, t.unit)) ? 1 : 0);
+          if (ctx.query('events.optional', {}, false)) ctx.emit('sk1.move.smoke', { unit: t.unit, target: t.target, dr, placed: final <= exponent });
+          // Each success is another counter in the hex (ASLRB A24.2: no limit on the number placed).
+          if (final <= exponent) ctx.emit('hex.marker', { hex: t.target, key: 'smoke', value: smokeGrenades(ctx.state.hexMarkers[t.target]) + 1 });
+          if (dr === 6) sixes.push(t.unit);
+        }
+        spendInPlace(ctx, ms, smokeCost(ms, throws), { smokeTried: true, smokeTriedBy: [...(ms.smokeTriedBy ?? []), ...throws.map((t) => t.unit)] });
+        // A placement dr of 6 ends that unit's MPh where it stands (SK1 3.3); the rest of the stack may go on.
+        if (sixes.length) {
+          for (const u of sixes) setTags(ctx, u, { [T.moved]: true });
           const after = moveState(ctx)!;
-          const rest = after.units.filter((u) => u !== a.unit);
+          const rest = after.units.filter((u) => !sixes.includes(u));
           if (rest.length === 0) {
             finishStack(ctx);
             reAskMover(ctx);
@@ -685,7 +740,7 @@ export const movementModule: RuleModule = {
         if (gun(env, s) && !mmc(env, u)) return 'Only a MMC may possess a Gun';
         if (smc(env, u) && ppCarried(env, a.unit) + ppOf(env, s) > 2) return 'A SMC may never carry more than 2 PP';
         if (remaining(env, ms, a.unit) < 1) return 'Not enough MF';
-        return null;
+        return assaultAllMf(ms, 1);
       },
       resolve(ctx, a) {
         const ms = moveState(ctx)!;
@@ -708,19 +763,23 @@ export const movementModule: RuleModule = {
         const s = env.state.pieces[a.sw];
         if (!s || s.loc.kind !== 'held') return 'Not a carried SW';
         if (isFixedWeapon(env, s)) return 'A vehicular MG is part of its vehicle';
-        if (env.state.phase === 'APh') {
+        // The APh, and the MPh before the unit moves: "An unbroken unit may drop possession of a Weapon at no MF cost during
+        // its MPh or APh"; dropped "at the start of an allowed phase prior to expending MF", the Weapon was never possessed
+        // that phase (SK4 4.0). This is how a unit holding a Gun it cannot move (no QSU) gets free to move.
+        const ms = moveState(env);
+        if (env.state.phase === 'APh' || (env.state.phase === 'MPh' && !ms)) {
           const holder = pieceOf(env, s.loc.by);
           if (holder.side !== env.state.attacker || holder.loc.kind !== 'hex') return 'Not your unit on the map';
           if (isBroken(holder)) return 'A broken unit cannot drop a SW';
+          if (env.state.phase === 'MPh' && holder.tags[T.moved]) return 'That unit has already moved this phase';
           return null;
         }
-        const ms = moveState(env);
         if (!ms || !ms.units.includes(s.loc.by)) return 'Not carried by the moving stack';
         return null;
       },
       resolve(ctx, a) {
         const holder = (pieceOf(ctx, a.sw).loc as { by: PieceId }).by;
-        if (ctx.state.phase === 'APh') {
+        if (ctx.state.phase === 'APh' || !moveState(ctx)) {
           ctx.emit('piece.moved', { id: a.sw, loc: locationAt(locOf(ctx.state, pieceOf(ctx, holder))!) });
           ctx.popDecision();
           askPhaseOwner(ctx, ctx.state.attacker);
@@ -750,6 +809,8 @@ export const movementModule: RuleModule = {
         const cost = env.query('move.cost', { unit: dc.loc.by, from: ms.hex, to: hexOfLoc(a.target), viaRoad: false, ...(isGroundLoc(a.target) ? {} : { loc: a.target }) }, 0);
         if (remaining(env, ms, dc.loc.by) < cost) return 'Not enough MF to place the DC';
         if (ms.dcPending) return 'A DC placement is already in progress';
+        const assaultAll = assaultAllMf(ms, cost);
+        if (assaultAll) return assaultAll;
         if (a.vehicle) {
           const v = env.state.pieces[a.vehicle];
           if (!v || v.side === a.side || locOf(env.state, v) !== a.target || !isVehicleDef(defOf(env, v)) || v.tags['wreck'] === true) return 'The predesignated AFV is not in the target hex';
@@ -939,6 +1000,8 @@ function remaining(_env: QueryEnv, ms: MoveState, unit: PieceId) {
 
 /** The road bonus has been earned: at least one hex entered, every hexside crossed a road hexside. */
 export const roadBonusEarned = (ms: MoveState) => ms.roadOnly && ms.hexesEntered > 0;
+/** The stack is on the move by Assault Movement (SK1 3.3): Defensive First Fire at it gets no FFNAM (3.3.1). */
+export const assaultMoving = (ms: MoveState) => ms.assault && !ms.vehicle && ms.units.length > 0;
 
 function entryHexes(env: QueryEnv, ms: MoveState): HexId[] {
   // A concealed stack coming on (SK4 8.3) is a "?" in the other side's redacted view: nothing of its to list there.
@@ -1086,8 +1149,9 @@ function stepIllegal(env: QueryEnv, ms: MoveState, to: LocId, pushing = false, d
     const left = (ms.allowance[u] ?? 0) + (ms.roadOnly && bonusStep ? 1 : 0) - (ms.spent[u] ?? 0);
     // Always allowed to enter one hex if it costs all MF (minimum move) — not in SK1; must have the MF.
     if (cost > left) return `${u} lacks the MF (${left}) to enter (${cost})`;
-    if (ms.assault && cost >= (ms.allowance[u] ?? 0)) return 'Assault Movement may not use all MF';
   }
+  const assaultAll = assaultAllMf(ms, cost);
+  if (assaultAll) return assaultAll;
   // Stacking: three squad-equivalents and four SMC per side, per Location (ASLRB A5.1; "a hex", SK4 2.0, where
   // a hex is one Location), "at any time during the move" (SK4 3.3) and so offboard as well: A2.51 has offboard units
   // move "normally" over real hexes, which are Open Ground (no terrain lowers the limit).
@@ -1112,6 +1176,20 @@ export const offboardOccupants = (env: QueryEnv, hex: HexId, side: SideId, excep
   const skip = new Set(except);
   return Object.values(env.state.pieces).filter((p) => p.side === side && p.loc.kind === 'offboard' && p.loc.hex === hex && !skip.has(p.id) && !!(mmc(env, p) || smc(env, p)));
 };
+
+/**
+ * Assault Movement is a move of one hex that "does not take all of the unit's MF" (SK1 3.3; ASLRB A4.61): no step and
+ * nothing spent in place (Smoke grenades, Recovery, a DC) may bring a unit of the stack to its whole allowance.
+ */
+function assaultAllMf(ms: MoveState, cost: number): string | null {
+  if (!ms.assault) return null;
+  return ms.units.some((u) => (ms.spent[u] ?? 0) + cost >= (ms.allowance[u] ?? 0)) ? 'Assault Movement may not use all MF (SK1 3.3)' : null;
+}
+
+/** SK1 3.3: one MF to place Smoke in the stack's own hex, two in an adjacent one. */
+function smokeCost(ms: MoveState, throws: SmokeThrow[]): number {
+  return throws.some((t) => t.target !== ms.hex) ? 2 : 1;
+}
 
 function spendInPlace(ctx: Ctx, ms: MoveState, cost: number, patch: Partial<MoveState>) {
   ctx.emit('sk1.move.state', {
@@ -1345,6 +1423,37 @@ function endStack(ctx: Ctx) {
   }
   ctx.emit('sk1.move.state', { state: { ...ms, ending: true, halted: true } });
   offerFirstFire(ctx);
+}
+
+/** The tags of `after`'s pieces that differ from `before`, with the values they had there (null: absent). */
+function changedTagsSince(before: Record<PieceId, Piece>, after: Record<PieceId, Piece>): Record<PieceId, Record<string, Scalar>> {
+  const out: Record<PieceId, Record<string, Scalar>> = {};
+  for (const [id, p] of Object.entries(after)) {
+    const was = before[id as PieceId]?.tags ?? {};
+    if (p.tags === was) continue;
+    const changed: Record<string, Scalar> = {};
+    for (const k of new Set([...Object.keys(was), ...Object.keys(p.tags)])) if (was[k] !== p.tags[k]) changed[k] = was[k] ?? null;
+    if (Object.keys(changed).length) out[id as PieceId] = changed;
+  }
+  return out;
+}
+
+/**
+ * Why the stack now moving may not be taken back (`move.cancel`), or null. Once any MF is spent (a step, Smoke, a
+ * recovery, a DC) the move is under way and ends only with `move.end`. Not either once anything else has happened
+ * to it: a unit stopped or pinned, a Gun manhandled (its first push marks the crew and reveals it, SK4 6.5) or a
+ * vehicle started.
+ */
+export function cancelRefusal(env: QueryEnv): string | null {
+  const ms = moveState(env);
+  if (!ms) return 'No stack is moving';
+  const c = ms.cancel;
+  if (!c || ms.vehicle || ms.manhandle || ms.bypass || ms.dcPending || ms.halted || ms.ending) return 'This move can no longer be cancelled';
+  const spentAny = ms.units.some((u) => (ms.spent[u] ?? 0) !== (c.spent[u] ?? 0)) || ms.hexesEntered > 0 || ms.mfHere > 0 || (ms.trail?.length ?? 0) > 0;
+  if (spentAny) return 'MF have been spent: the move can only be ended';
+  if (ms.units.length !== (ms.started ?? ms.units).length || ms.stopped?.length || ms.smokeTriedBy?.length) return 'This move can no longer be cancelled';
+  if (ms.units.some((u) => isPinned(pieceOf(env, u)) || isBroken(pieceOf(env, u)))) return 'This move can no longer be cancelled';
+  return null;
 }
 
 function reAskMover(ctx: Ctx) {

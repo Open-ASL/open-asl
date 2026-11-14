@@ -3,7 +3,6 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import type { Action } from '@asl/engine';
 import type { ScenarioDef } from '@asl/rules';
-import { infantryOnly } from '@asl/content';
 import { COL, COMPUTER_NAME, COMPUTER_OPPONENTS, COMPUTER_UID, RANDOM_SIDE, XP, countsForBeta, eloUpdate, evaluateMedals, reachedOfficialProgress, type AarPlayer, type Competition, type MatchActionDoc, type MatchDoc, type MatchResult, type MatchVisibility, type PublicMatchResultDoc, type Seat, type UserDoc } from '@asl/platform';
 import { firstDeadline, requirePace } from './lib/clock';
 import { db, FieldValue, now, stamp } from './lib/app';
@@ -91,8 +90,6 @@ export const createMatch = onCall(async (req) => {
       // The computer plays only the Starter Kit until Chapter A is done.
       if (ruleset !== 'starter-kit') throw new HttpsError('failed-precondition', `${COMPUTER_NAME} cannot play Full ASL yet.`);
       const ai = side === RANDOM_SIDE ? undefined : otherSide(scenario, side);
-      // The computer opponent plays Infantry-only scenarios: it neither crews Guns nor drives vehicles yet.
-      if (!infantryOnly(scenario)) throw new HttpsError('failed-precondition', `${COMPUTER_NAME} plays only scenarios without Guns or vehicles for now.`);
       if (!ai || !(COMPUTER_OPPONENTS[scenario.id] ?? []).includes(ai)) throw new HttpsError('failed-precondition', `${COMPUTER_NAME} cannot play that side of this scenario yet.`);
       const seats = { [side]: seat(uid, me.data), [ai]: { uid: COMPUTER_UID, displayName: COMPUTER_NAME } };
       tx.set(ref, { ...base, mode, status: 'active', playerIds: [uid], seats, computer: { side: ai, bot: 'tactician' } });

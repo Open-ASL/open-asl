@@ -28,7 +28,7 @@ export interface Presentation {
  * play (`reveal`); the events before the first roll of an action show at once when nothing else is
  * still playing, so a move or a phase ended without dice never waits.
  */
-export function usePresentation(engine: Engine, real: GameState, log: LoggedEvent[], instant = false): Presentation {
+export function usePresentation(engine: Engine, real: GameState, log: LoggedEvent[], instant = false, seek = 0): Presentation {
   const [target, setTarget] = useState(real.seq);
   // An undo goes back in time: nothing beyond the real state can still be waiting.
   useEffect(() => {
@@ -36,7 +36,12 @@ export function usePresentation(engine: Engine, real: GameState, log: LoggedEven
   }, [target, real.seq]);
   /** How far the game has been revealed without waiting for any effect, and the real state it was judged against. */
   const auto = useRef({ seq: real.seq, against: real.seq });
-  if (real.seq < auto.current.against) auto.current = { seq: real.seq, against: real.seq };
+  // A replay jump (see Session.seek) shows where it lands at once: nothing is left to reveal.
+  const lastSeek = useRef(seek);
+  if (seek !== lastSeek.current) {
+    lastSeek.current = seek;
+    auto.current = { seq: real.seq, against: real.seq };
+  } else if (real.seq < auto.current.against) auto.current = { seq: real.seq, against: real.seq };
   else if (real.seq > auto.current.against) {
     const caughtUp = Math.max(target, auto.current.seq) >= auto.current.against;
     if (caughtUp) {

@@ -3,7 +3,7 @@ import { byId, hexOf, otherSide, personnelAt, statics, swHeldBy, unitsAt } from 
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
 import { FP, type FireDeclaration, type ResolveFireFn } from '../sk1/fire';
 import { P as MP, type UnitFn } from '../sk1/morale';
-import { MOVE_ENTER, firstFireMode, moveInternals, movingInfo, ppCarried, stackLimit, type MoveEnterFn, type MoveState } from '../sk1/movement';
+import { FIRST_FIRE, MOVE_ENTER, firstFireMode, moveInternals, movingInfo, ppCarried, rofChoices, stackLimit, type MoveEnterFn, type MoveState } from '../sk1/movement';
 import { moveState } from '../sk1/moveState';
 import { T, actionIllegal, isBroken, isGoodOrder, isPinned, mmc, pieceOf, setTags, smc, squadEquivalents, sw, wounds } from '../sk1/status';
 import { isVisibleTo } from '../sk1/known';
@@ -102,6 +102,8 @@ export interface BanzaiState {
   stepping?: boolean;
   /** Impulse-end Defensive First Fire windows still to open, one per Banzai hex. */
   dff?: HexId[];
+  /** This Impulse's First Fire at each Banzai hex whose window the DEFENDER left for another one: who fired there, how often. */
+  dffFired?: Record<HexId, Record<PieceId, number>>;
   /** A DC charge (S71 SSR 2): the AFV it is made at. */
   vehicle?: PieceId;
 }
@@ -109,7 +111,8 @@ export interface BanzaiState {
 export type BanzaiAction =
   | (Action & { type: 'banzai.declare'; leader: PieceId; target: HexId; units: PieceId[]; vehicle?: PieceId })
   | (Action & { type: 'banzai.step'; unit: PieceId; to: HexId })
-  | (Action & { type: 'banzai.end'; unit: PieceId });
+  | (Action & { type: 'banzai.end'; unit: PieceId })
+  | (Action & { type: 'banzai.window'; hex: HexId });
 
 export const banzaiState = (env: QueryEnv) => env.state.ext[BANZAI] as BanzaiState | undefined;
 const map = (env: QueryEnv) => statics(env).map;
@@ -394,6 +397,26 @@ export const banzaiModule: RuleModule = {
       },
     });
 
+    // At the Impulse's end the DEFENDER may fire at any of the Banzai units (8.1.8.6), in any order: from one Banzai
+    // hex's window he may go to another's first. The one he leaves comes up again next, with what already fired there.
+    r.action<BanzaiAction & { type: 'banzai.window' }>({
+      type: 'banzai.window',
+      decisionKinds: [FIRST_FIRE],
+      // Offered on the map (the wheel's Fire at another Banzai hex), not as a move of its own: a player picking legal
+      // actions at random could go back and forth between two hexes for ever.
+      legal: () => [],
+      validate: (env, a) => windowIllegal(env, a.hex),
+      resolve(ctx, a) {
+        const st = banzaiState(ctx)!;
+        const ms = moveState(ctx)!;
+        // As when passing: a weapon that kept ROF here keeps it (no Residual FP).
+        if (rofChoices(ctx).length) ctx.emit('sk1.rofChoice', { choices: null });
+        setState(ctx, { ...st, dff: [a.hex, ms.hex!, ...st.dff!.filter((h) => h !== a.hex)], dffFired: { ...st.dffFired, [ms.hex!]: { ...ms.firedHere } } });
+        ctx.popDecision();
+        nextWindow(ctx);
+      },
+    });
+
     // The Impulse-end First Fire windows run one Banzai hex after another: each ends with the movement machinery
     // asking the mover again, which here means opening the next window instead.
     r.on<{ decision: { kind: string; id: string } }>({
@@ -443,6 +466,22 @@ function mandatoryTpbf(ctx: Ctx, unit: PieceId, hex: HexId) {
   const ms = moveState(ctx) ?? unitMove(ctx, st, unit, hex, { mfHere: 1 });
   ctx.emit('sk4.banzai.tpbf', { hex, unit, firers: decl.units });
   ctx.proc<ResolveFireFn>(FP.resolve)(ctx, decl, mode, { moving: [unit], movingInfo: movingInfo(ctx, ms) });
+}
+
+/** The Banzai hexes whose Impulse-end First Fire window is still to come, while one is open (8.1.8.6). */
+export function banzaiWindowsPending(env: QueryEnv): HexId[] {
+  const st = banzaiState(env);
+  const ms = moveState(env);
+  if (!st?.dff || !ms?.halted || !ms.hex) return [];
+  return st.dff.filter((h) => h !== ms.hex && st.units.some((u) => hexOf(env.state, pieceOf(env, u)) === h));
+}
+
+/** Why the DEFENDER may not go to `hex`'s First Fire window now, or null. */
+function windowIllegal(env: QueryEnv, hex: HexId): string | null {
+  if (!banzaiState(env)?.dff) return 'No Banzai Impulse is over';
+  if (moveState(env)?.hex === hex) return 'That Banzai hex is the one being fired at';
+  if (!banzaiWindowsPending(env).includes(hex)) return 'No Banzai unit there is still to be fired at this Impulse';
+  return null;
 }
 
 /** After a step or a voluntary end: the next unit's turn, or the Impulse is over. */
@@ -507,34 +546,47 @@ function endImpulse(ctx: Ctx) {
   nextWindow(ctx);
 }
 
+/**
+ * The halted stack a Banzai hex's Impulse-end First Fire window shows the DEFENDER (8.1.8.6): its Banzai units, each
+ * charged the Impulse's most, with what already fired at it if he left its window for another. Null with none there.
+ */
+export function banzaiWindowState(env: QueryEnv, hex: HexId): MoveState | null {
+  const st = banzaiState(env);
+  if (!st) return null;
+  const units = st.units.filter((u) => hexOf(env.state, pieceOf(env, u)) === hex && pieceOf(env, u).loc.kind === 'hex');
+  if (units.length === 0) return null;
+  const max = Math.max(1, ...units.map((u) => (st.spent[u] ?? 0) - (st.startSpent[u] ?? 0)));
+  return {
+    ...unitMove(env, st, units[0]!, hex),
+    units,
+    started: units,
+    allowance: Object.fromEntries(units.map((u) => [u, st.allowance[u] ?? 0])),
+    spent: Object.fromEntries(units.map((u) => [u, st.spent[u] ?? 0])),
+    // A window the DEFENDER left for another hex's: who already fired there still has (8.1.8.6, SK1 3.3.1).
+    ...(st.dffFired?.[hex] ? { firedHere: st.dffFired[hex] } : {}),
+    mfHere: max,
+    hexesEntered: 1,
+    halted: true,
+    ending: true,
+  };
+}
+
 /** Open the First Fire window for the next Banzai hex, or start the next Impulse. */
 function nextWindow(ctx: Ctx) {
   const st = banzaiState(ctx);
   if (!st?.dff) return;
   const [hex, ...rest] = st.dff;
   if (!hex) {
-    setState(ctx, { ...st, dff: undefined });
+    setState(ctx, { ...st, dff: undefined, dffFired: undefined });
     startImpulse(ctx);
     return;
   }
   setState(ctx, { ...st, dff: rest });
-  const units = st.units.filter((u) => hexOf(ctx.state, pieceOf(ctx, u)) === hex && pieceOf(ctx, u).loc.kind === 'hex');
-  if (units.length === 0) {
+  const ms = banzaiWindowState(ctx, hex);
+  if (!ms) {
     nextWindow(ctx);
     return;
   }
-  const max = Math.max(1, ...units.map((u) => (st.spent[u] ?? 0) - (st.startSpent[u] ?? 0)));
-  const ms: MoveState = {
-    ...unitMove(ctx, st, units[0]!, hex),
-    units,
-    started: units,
-    allowance: Object.fromEntries(units.map((u) => [u, st.allowance[u] ?? 0])),
-    spent: Object.fromEntries(units.map((u) => [u, st.spent[u] ?? 0])),
-    mfHere: max,
-    hexesEntered: 1,
-    halted: true,
-    ending: true,
-  };
   ctx.emit('sk1.move.state', { state: ms });
   moveInternals.offerFirstFire(ctx);
 }

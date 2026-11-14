@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Engine, GameState, RuleModule } from '@asl/engine';
-import { banzaiModule, banzaiState, banzaiSteps, concealmentModule, declareIllegal, hiddenUnitsModule, japaneseModule, moveState, sk2CoreModules, sk3CoreModules, type Statics } from '../../src';
+import { banzaiModule, banzaiState, banzaiSteps, banzaiWindowsPending, concealmentModule, declareIllegal, hiddenUnitsModule, japaneseModule, moveState, sk2CoreModules, sk3CoreModules, type Statics } from '../../src';
 import { act, makeEngine, type PieceSpec } from '../fixtures';
 
 /**
@@ -120,6 +120,57 @@ describe('Banzai Charge: Impulses (SK4 8.1.8.6)', () => {
     // a may not go back to K5 (it left it) nor sideways away from the target.
     expect(banzaiSteps(engine.env(s), 'a')).not.toContain('yK5');
     expect(banzaiSteps(engine.env(s), 'a').every((h) => mapOf(engine).distance(h, 'yP5') < 4)).toBe(true);
+  });
+
+  it('at the Impulse’s end the DEFENDER fires at any Banzai hex, in the order he likes; a hex he leaves keeps what fired at it', () => {
+    // A squad steps to L4, the leader and the other squad to L5; the Marines' MMG at N5 sees both. "Defensive First Fire
+    // may occur against any of the Banzai units" (8.1.8.6): from L4's window (the first) the MMG may fire at L5.
+    const { engine, state: s0 } = game([
+      { id: 'l', def: 'ja.L91', side: 'ja', hex: 'yK5' },
+      { id: 'a', def: 'ja.447', side: 'ja', hex: 'yK5' },
+      { id: 'b', def: 'ja.447', side: 'ja', hex: 'yK4' },
+      { id: 'm', def: 'am.768', side: 'am', hex: 'yN5' },
+      { id: 'mg', def: 'am.MMG', side: 'am', heldBy: 'm' },
+      // A second squad that has not fired, so L5's window comes up again.
+      { id: 'm2', def: 'am.768', side: 'am', hex: 'yN6' },
+    ], { terrain: {}, dice: new Array(40).fill([5, 4]).flat() });
+    let s = declare(engine, s0, 'l', 'yN5', ['l', 'a', 'b']);
+    s = go(engine, s, 'b', 'yL4');
+    s = go(engine, s, 'a', 'yL5');
+    s = go(engine, s, 'l', 'yL5');
+    const at = () => moveState(engine.env(s))!.hex;
+    const mmgAt = (target: string) => ({ type: 'defFire', decl: { units: [], sw: ['mg'], target } });
+    expect(engine.currentDecision(s)!.kind).toBe('firstFire');
+    expect(at()).toBe('yL4');
+    expect(banzaiWindowsPending(engine.env(s))).toEqual(['yL5']);
+    // The window's own target only, as for any moving stack; the other Banzai hex is reached by going to its window.
+    expect(engine.validate(s, { ...mmgAt('yL5'), side: 'am', decisionId: engine.currentDecision(s)!.id } as Action)).toMatch(/moving stack/);
+    expect(engine.validate(s, { type: 'banzai.window', hex: 'yP5', side: 'am', decisionId: engine.currentDecision(s)!.id } as Action)).toMatch(/No Banzai unit/);
+    s = step(act(engine, s, { type: 'banzai.window', hex: 'yL5' }));
+    expect(engine.currentDecision(s)!.kind).toBe('firstFire');
+    expect(at()).toBe('yL5');
+    expect(banzaiWindowsPending(engine.env(s))).toEqual(['yL4']);
+    s = step(act(engine, s, mmgAt('yL5')));
+    expect(events.filter((e) => e.type === 'sk1.fire.attack').length).toBe(1);
+    // Back to L4 before passing: L5 comes up again next, and the MMG that fired there may not fire there again.
+    if (engine.currentDecision(s)!.kind === 'firstFire' && at() === 'yL5') s = step(act(engine, s, { type: 'banzai.window', hex: 'yL4' }));
+    expect(at()).toBe('yL4');
+    s = step(act(engine, s, { type: 'defPass' }));
+    expect(engine.currentDecision(s)!.kind).toBe('firstFire');
+    expect(at()).toBe('yL5');
+    expect(moveState(engine.env(s))!.firedHere['mg']).toBe(1);
+    expect(engine.validate(s, { ...mmgAt('yL5'), side: 'am', decisionId: engine.currentDecision(s)!.id } as Action)).not.toBeNull();
+    s = step(act(engine, s, { type: 'defPass' }));
+    // Every window is done: the next Impulse, with no window record left over.
+    expect(engine.currentDecision(s)!.kind).toBe('phase');
+    expect(bst(s)!.impulse).toBe(2);
+    expect(bst(s)!.dff).toBeUndefined();
+    expect(bst(s)!.dffFired).toBeUndefined();
+    // On to the next Player Turn: the charge is over, its state gone, the Marines' MMG fires normally again.
+    for (let i = 0; i < 80 && !(s.turn === 2 && s.attacker === 'ja'); i++) s = onward(engine, s);
+    expect(bst(s)).toBeFalsy();
+    expect(s.pieces['mg']!.tags['fire']).toBeUndefined();
+    events = [];
   });
 
   it('charges every unit the most any one spent in the Impulse, and must enter the target when adjacent to it', () => {

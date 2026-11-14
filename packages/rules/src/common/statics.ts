@@ -782,6 +782,8 @@ export interface ExitRule {
 /**
  * A victory condition names the side that wins by achieving it. `all` and `any` compose
  * conditions (the children's `side` is the side each is about; the composite's names the winner).
+ * Every condition is judged at game end unless the card says otherwise: `immediate` only where it
+ * says "win immediately", whatever the kind (an exit or CVP goal is no exception).
  */
 export type VictoryCondition =
   /**
@@ -808,13 +810,13 @@ export type VictoryCondition =
    * malfunctioned").
    */
   /** `afvVpAtLeast`: so many of the VP must come from exited AFV (S30: "at least 6 VP of which must be from exited armor"). */
-  | { kind: 'exitVp'; side: SideId; edge: string; hexes?: HexId[]; vp: number; leaderVp?: number; afvVp?: { ma: number; noMa: number }; vehicleVp?: Record<string, number | { ma: number; noMa: number }>; afvVpAtLeast?: number }
+  | { kind: 'exitVp'; side: SideId; edge: string; hexes?: HexId[]; vp: number; immediate?: boolean; leaderVp?: number; afvVp?: { ma: number; noMa: number }; vehicleVp?: Record<string, number | { ma: number; noMa: number }>; afvVpAtLeast?: number }
   /**
    * `side` wins by exiting infantry: `hsEquivalents` half-squad equivalents (a squad counts 2) and
    * `smc` leaders, through the scenario's exit rules. `perEnemyHsExit` raises the half-squad
    * requirement by that much for every enemy half-squad equivalent that has exited.
    */
-  | { kind: 'exitForce'; side: SideId; hsEquivalents: number; smc: number; perEnemyHsExit?: number }
+  | { kind: 'exitForce'; side: SideId; hsEquivalents: number; smc: number; perEnemyHsExit?: number; immediate?: boolean }
   /** `side` wins at game end if no Good Order enemy unit (MMC only when `mmcOnly`) is in any of the hexes (whole buildings when `buildings`). */
   /**
    * `unbroken`: the card says "no unbroken enemy" (a unit in Melee still counts) rather than Good Order.
@@ -833,9 +835,9 @@ export type VictoryCondition =
   | { kind: 'fewerLosses'; side: SideId; measure: 'squadEquivalents' }
   /**
    * `side` wins on amassing `cvp` casualty VP of enemy losses (a special rule may set the number in play: `vc.cvp`),
-   * immediately, or at game end when the card says so (`atGameEnd`).
+   * at game end, or the moment it is reached when the card says "win immediately" (`immediate`).
    */
-  | { kind: 'eliminateCvp'; side: SideId; cvp: number; atGameEnd?: boolean }
+  | { kind: 'eliminateCvp'; side: SideId; cvp: number; immediate?: boolean }
   /** Holds while `side` has lost fewer than `cvp` casualty victory points. */
   | { kind: 'cvpBelow'; side: SideId; cvp: number }
   /**

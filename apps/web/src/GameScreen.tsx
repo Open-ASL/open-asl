@@ -160,7 +160,7 @@ import { CONCEAL_RTPH_DECISION, backblastFrom, mmc, squadEquivalents, LEADER_PTC
 import { counterTerrainIllegal, defaultFortPlacement, fortArea, fortCounters, fortKindName, fortPlaceIllegal, fortPools, fortSetupIllegal, fortificationView, fortificationsParams, hipIllegal, isPillboxLoc, roadblockExtension, type FortPlacement } from '@asl/rules';
 import { BoardView, type BoardOverlay, type FireHex, type FortHex, type FortifiedHex, type HexBadge, type HexControl, type Placement, type RubbleHex } from './board/BoardView';
 import { ActionWheel, action, group, type WheelItem } from './board/ActionWheel';
-import { StackPeek, stackIn } from './board/StackPeek';
+import { StackPeek, hasPeek, stackIn } from './board/StackPeek';
 import { NATION, PHASE_NAME, defLabel, describeEvents, hexLabel, humanize, phaseSections, pieceLabel } from './game/describe';
 import { LogText } from './game/LogText';
 import { RofChoice, type RofChoiceItem } from './panels/RofChoice';
@@ -519,10 +519,6 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     hover.current.pinned = false;
     if (!hover.current.overCard) setPeek(null);
   };
-  // A card that closes under the pointer gets no pointerleave: the pointer is off it all the same.
-  useEffect(() => {
-    if (!peek || wheel) hover.current.overCard = false;
-  }, [peek, wheel]);
   useEffect(
     () => () => {
       if (hover.current.show) clearTimeout(hover.current.show);
@@ -1049,6 +1045,18 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   }, [placing, pending, swAssign, swTodo, vehicleTodo, pendingCe, pendingConcealed, theirDraft, state, statics, pendingCa, env, viewer, fortDraft, pendingBeneath]);
   /** The visible state as a query environment, for everything that lists or inspects what is on the board. */
   const shownEnv: QueryEnv = useMemo(() => engine.env(shown), [engine, shown]);
+  /** The stack card is drawn: it is up, nothing hides it (T held, counters hidden, a wheel or facing ring) and the hex has something to list. */
+  const peekDrawn = !!peek && !unitsHidden && !peekTerrain && !wheel && !caFor && !ring && hasPeek(shownEnv, peek.hex);
+  // A card that closes or is hidden under the pointer gets no pointerleave: the pointer is off it all the same,
+  // or the card, drawn again where it was, would stay up once the pointer has moved on.
+  useEffect(() => {
+    if (!peekDrawn) hover.current.overCard = false;
+  }, [peekDrawn]);
+  // A chit wheel whose counter is gone (eliminated by the opponent online, or taken back) is not drawn and gets no
+  // onClose: close it here, or the card it came from stays pinned.
+  useEffect(() => {
+    if (chitWheel && !state.pieces[chitWheel.piece]) closeChitWheel();
+  }, [chitWheel, state]);
   /** The fortification counters this viewer may see, draft ones included, for the board and the wheel (full ASL A12.33). */
   const fortHexes = useMemo((): FortHex[] => {
     if (statics.scenario.ruleset !== 'full-asl') return [];
@@ -4490,7 +4498,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
             {moveHover && <span className={`rout-why ${moveHover.barred ? 'barred' : 'end'}`}>{moveHover.text}</span>}
           </div>
         )}
-        {peek && !unitsHidden && !peekTerrain && !wheel && !caFor && !ring && (
+        {peek && peekDrawn && (
           <StackPeek
             env={shownEnv}
             hex={peek.hex}

@@ -273,6 +273,11 @@ export function stackIn(env: QueryEnv, hex: HexId): { piece: Piece; held: Piece[
     .concat(here.filter((p) => isWeaponDef(defOf(env, p))).map((piece) => ({ piece, held: [] })));
 }
 
+/** Whether the card has anything to list in a hex (a counter, or a fortification this viewer may see): without, it is not drawn. */
+export function hasPeek(env: QueryEnv, hex: HexId): boolean {
+  return stackIn(env, hex).length > 0 || fortLines(env, hex).length > 0;
+}
+
 /** The building level a counter stands on (full ASL; 0 at ground level and off the map). */
 const levelOfPiece = (p: Piece): number => (p.loc.kind === 'hex' ? (p.loc.level ?? 0) : 0);
 
@@ -287,6 +292,7 @@ export function StackPeek({ env, hex, at, bounds, placements, rotation, interact
   });
   const stack = stackIn(env, hex);
   const forts = fortLines(env, hex);
+  // As `hasPeek`: nothing to list, no card.
   if (stack.length === 0 && forts.length === 0) return null;
   const levels = [...new Set(stack.map((e) => levelOfPiece(e.piece)))].sort((a, b) => b - a);
   // A pillbox is a Location of its own (B30.1): its units are listed under their own heading, above the ground's.

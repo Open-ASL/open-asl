@@ -316,6 +316,42 @@ export function GameScreen(props: Props) {
   );
 }
 
+function VehicleEntryMp({ destinations, left, check, enter }: {
+  destinations: ReadonlyMap<HexId, number>;
+  left: number;
+  check: Session['check'];
+  enter: Session['act'];
+}) {
+  const [to, setTo] = useState<HexId>('');
+  const [mp, setMp] = useState('');
+  const minimum = destinations.get(to);
+  const total = Number(mp);
+  const step = minimum !== undefined && total > minimum && total <= left && Number.isInteger((total - minimum) * 2)
+    ? { type: 'move.step' as const, to, declared: total }
+    : null;
+  const refusal = step ? check(step) : null;
+
+  return (
+    <form className="row" onSubmit={(e) => {
+      e.preventDefault();
+      if (step && !refusal && !enter(step)) setMp('');
+    }}>
+      <span>Enter hex</span>
+      <span className="mp-ctl" title="Declare the total MP for entering the hex without stopping (SK4 3.3.2)">
+        <select aria-label="Destination hex" value={minimum === undefined ? '' : to} onChange={(e) => {
+          setTo(e.target.value);
+          setMp('');
+        }}>
+          <option value="">Choose hex</option>
+          {[...destinations].map(([hex, cost]) => <option key={hex} value={hex}>{hexLabel(hex)} (min. {cost} MP)</option>)}
+        </select>
+        <input aria-label="Total entry MP" type="number" min={minimum === undefined ? undefined : minimum + 0.5} max={left} step={0.5} placeholder="MP" disabled={minimum === undefined} value={mp} onChange={(e) => setMp(e.target.value)} />
+        <button type="submit" disabled={!step || !!refusal} title={refusal ?? undefined}>Enter</button>
+      </span>
+    </form>
+  );
+}
+
 function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvingChange, slow = false, aside, aar = null, players }: Props) {
   const { engine } = session;
   const [fxLevel, setFxLevel] = useFxLevel();
@@ -3515,27 +3551,16 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         if (woods) items.push(...woods);
         const v = state.pieces[ms.units[0]!]!;
         const vd = vehicleDef(env, v)!;
-        if (legal.some((a) => a.type === 'move.step' && a['to'] === hex && !a['bypass'])) {
+        if (!woods && legal.some((a) => a.type === 'move.step' && a['to'] === hex && !a['bypass'])) {
           const minimum = env.query('move.stepCost', { ms, to: hex }, 0);
           const left = mfLeft(v.id);
-          const costs: number[] = [];
-          for (let mp = minimum + 0.5; mp < left; mp += 0.5) {
-            if (session.check({ type: 'move.step', to: hex, declared: mp }) === null) costs.push(mp);
+          const enterAll = { type: 'move.step', to: hex, declared: left } as const;
+          if (left > minimum && session.check(enterAll) === null) {
+            items.push(action(`Enter with all MP (${left} MP)`, () => run(enterAll, true), {
+              icon: '■',
+              hint: 'Spend all remaining MP entering this hex without stopping, so the vehicle can end its move in Motion (SK4 3.3.2)',
+            }));
           }
-          const enter = (mp: number, label = `${mp} MP`) => action(label, () => run({ type: 'move.step', to: hex, declared: mp }, true), {
-            hint: `Spend ${mp} MP entering ${hexLabel(hex)} (${left - mp} MP left)`,
-          });
-          const entries: WheelItem[] = [];
-          if (!woods && left > minimum && session.check({ type: 'move.step', to: hex, declared: left }) === null)
-            entries.push(enter(left, `All ${left} MP`));
-          if (costs.length <= 6) entries.push(...costs.map((mp) => enter(mp)));
-          else for (let index = 0; index < costs.length; index += 6) {
-            const range = costs.slice(index, index + 6);
-            entries.push(range.length === 1 ? enter(range[0]!) : group(`${range[0]}–${range.at(-1)} MP`, range.map((mp) => enter(mp))));
-          }
-          if (entries.length) items.push(group('Enter for more MP…', entries, {
-            icon: '➜', hint: `Minimum ${minimum} MP. Spend more on this hex entry without stopping to Delay (SK3 3.3.2).`,
-          }));
         }
         const at = ms.hex ?? ms.off ?? hex;
         if (!ms.vehicle.stopped) {
@@ -5823,6 +5848,20 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                           {ms.hex && vehicleDef(env, state.pieces[ms.units[0]!]!)!.turret !== 'NT' && state.pieces[ms.units[0]!]!.tags['ca'] !== state.pieces[ms.units[0]!]!.tags['vca'] ? ` · turret ${spineLabel(env, ms.hex, Number(state.pieces[ms.units[0]!]!.tags['ca']))}` : ''}
                         </b>
                       </div>
+                      {!ms.vehicle.stopped && owner && mode === 'normal' && (() => {
+                        const left = mfLeft(ms.units[0]!);
+                        const destinations = new Map<HexId, number>();
+                        for (const a of legal) {
+                          const to = a['to'];
+                          if (a.type !== 'move.step' || typeof to !== 'string' || a['bypass'] || a['woods'] || a['beneath'] || a['noTb']) continue;
+                          const minimum = env.query('move.stepCost', { ms, to }, 0);
+                          if (minimum + 0.5 <= left && session.check({ type: 'move.step', to, declared: minimum + 0.5 }) === null)
+                            destinations.set(to, minimum);
+                        }
+                        return destinations.size > 0 && (
+                          <VehicleEntryMp key={`${ms.units[0]}:${ms.hex ?? ms.off}:${left}`} destinations={destinations} left={left} check={session.check} enter={(step) => run(step, true)} />
+                        );
+                      })()}
                       {ms.vehicle.stopped && owner && decision.owner === owner && !plain(session.check({ type: 'vmove.delay', mp: 1 })) && (() => {
                         // Delay any number of MP in one go (SK4 3.3.2): quick picks, or a typed amount.
                         const left = mfLeft(ms.units[0]!);
@@ -5834,7 +5873,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                         return (
                           <div className="row">
                             <span>Delay</span>
-                            <span className="delay-ctl" title="Spend MP standing still: one Defensive First Fire chance for the whole Delay; the MP count toward the Bounding First Fire DRM">
+                            <span className="mp-ctl" title="Spend MP standing still: one Defensive First Fire chance for the whole Delay; the MP count toward the Bounding First Fire DRM">
                               {[1, 2, 5, 10].filter((n) => n < left).map((n) => (
                                 <button key={n} onClick={() => go(n)}>{n}</button>
                               ))}
@@ -5856,7 +5895,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                               <b>Stopped:</b> right-click the vehicle and <b>Start again (1 MP)</b> before turning the hull or driving on (ASLRB D2.12: a vehicle not in Motion pays a start MP to enter a hex or change its VCA).{' '}
                             </>
                           )}
-                          Click a green hex ahead to drive on (within the Vehicle Covered Arc). The <b>HULL</b> handles beside the vehicle turn the hull (1 MP per hexspine) and the <b>TURRET</b> ones the turret (free); or click a neighbouring hex outside the arc to turn the hull that way, or press <b>Q</b>/<b>E</b> and <b>A</b>/<b>D</b>. Right-click the vehicle to <b>stop</b>, go <b>CE/BU</b>, fire <b>Bounding First Fire</b> or <b>end the move</b>. Stopped, it may <b>Delay</b> any number of MP in one go (<b>S</b> for 1 MP, or the Delay row above); a vehicle that never stops ends in Motion (SK4 3.3.2).
+                          Click a green hex ahead to drive on (within the Vehicle Covered Arc). When available, use <b>Enter hex</b> above to choose a destination and spend more than the minimum on entry (SK4 3.3.2). The <b>HULL</b> handles beside the vehicle turn the hull (1 MP per hexspine) and the <b>TURRET</b> ones the turret (free); or click a neighbouring hex outside the arc to turn the hull that way, or press <b>Q</b>/<b>E</b> and <b>A</b>/<b>D</b>. Right-click the vehicle to <b>stop</b>, go <b>CE/BU</b>, fire <b>Bounding First Fire</b> or <b>end the move</b>. Stopped, it may <b>Delay</b> any number of MP in one go (<b>S</b> for 1 MP, or the Delay row above); a vehicle that never stops ends in Motion (SK4 3.3.2).
                         </p>
                       )}
                     </>

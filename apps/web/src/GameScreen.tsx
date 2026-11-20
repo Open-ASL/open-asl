@@ -3093,8 +3093,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
 
   /**
    * A Fully Tracked vehicle moving into woods chooses its cost (SK4 1.1.1, ASLRB B13.42): half its MP
-   * with a +3 Bog Check DRM, or all its MP without it. Both entries, with what each costs, when the
-   * vehicle has more than half its MP left (with fewer, "all" would cost the same and earn nothing).
+   * with a +3 Bog Check DRM, or all its MP without it. The full-MP option can leave 1 MP for the stop
+   * if the entry still spends more than half its MP.
    */
   const woodsEntry = (hex: HexId): WheelItem[] | null => {
     if (!ms?.vehicle || !ms.hex || !legal.some((a) => a.type === 'move.step' && a['to'] === hex)) return null;
@@ -3106,9 +3106,15 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     if (half !== vd.mp / 2 || left <= vd.mp / 2 || session.check({ type: 'move.step', to: hex, declared: left }) !== null) return null;
     const drm = (halfMp: boolean) => env.query('vehicle.bogDrm', { vehicle: v.id, hex, halfMp }, 0);
     const sign = (n: number) => (n >= 0 ? `+${n}` : String(n));
+    const reserveStop = { type: 'move.step', to: hex, declared: left - 1 } as const;
     return [
       action(`Enter at half MP (${half} MP)`, () => run({ type: 'move.step', to: hex }, true), { icon: '½', hint: `Bog Check ${sign(drm(true))} DRM; ${left - half} MP left after it (SK4 1.1.1)` }),
       action(`Enter with all MP (${left} MP)`, () => run({ type: 'move.step', to: hex, declared: left }, true), { icon: '■', hint: `Bog Check ${sign(drm(false))} DRM; uses every MP it has left (SK4 1.1.1)` }),
+      ...(reserveStop.declared > half && session.check(reserveStop) === null
+        ? [action(`Enter for ${reserveStop.declared} MP (1 MP to stop)`, () => run(reserveStop, true), {
+          icon: '■', hint: `Full-MP Bog Check (${sign(drm(false))} DRM). If the vehicle does not Bog, choose Stop (1 MP) after entering (SK4 1.1.1)`,
+        })]
+        : []),
     ];
   };
 

@@ -205,8 +205,7 @@ export const manhandleModule: RuleModule = {
       id: 'sk2.drm.hazardous',
       query: 'fire.unitDrm',
       ref: 'SK4 6.5',
-      // Full ASL also makes Flame clearance Hazardous Movement (ASLRB B24.72, A4.62): its units carry `flameClear`.
-      label: ({ unit }, env) => (pieceOf(env, unit).tags['flameClear'] !== undefined ? '-2 Hazardous Movement (fighting a Flame, ASLRB B24.72)' : '-2 Hazardous Movement (manhandling a Gun)'),
+      label: '-2 Hazardous Movement (manhandling a Gun)',
       when: ({ unit }, env) => pieceOf(env, unit).tags[T2.hazardous] === true,
       apply: (v) => v - 2,
     });

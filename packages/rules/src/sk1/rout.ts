@@ -31,6 +31,13 @@ declare module '@asl/engine' {
   interface QueryCatalog {
     /** Rout MF for a broken unit. */
     'rout.mf': { ctx: { unit: PieceId }; value: number };
+    /**
+     * Full ASL: the MF a leader routing with a broken unit has (ASLRB A10.711 "must remain with the broken unit", with
+     * A4.42's portage), which the rout of the two may not exceed; null for no limit of his own (the Starter Kit).
+     */
+    'rout.escortMf': { ctx: { leader: PieceId }; value: number | null };
+    /** Full ASL: why this leader may not rout with a broken unit for a reason of his own (ASLRB A4.42 portage), or null. */
+    'rout.escortIllegal': { ctx: { leader: PieceId }; value: string | null };
     /** Why a rout step from `from` into `to` is refused by another rule pack (S70's caves), or null. */
     'rout.stepIllegal': { ctx: { unit: PieceId; from: LocId; to: LocId }; value: string | null };
     /** Can this enemy unit interdict a router entering `hex` (from `from`, when known)? */
@@ -39,8 +46,23 @@ declare module '@asl/engine' {
     'rout.exemptOpenGround': { ctx: { unit: PieceId }; value: boolean };
     /** Full ASL: a rout step into `to` that goes straight beneath its entrenchment (ASLRB B27.41): the step's whole cost, a refusal, or null where there is none. */
     'rout.beneath': { ctx: { unit: PieceId; from: HexId; to: LocId }; value: { cost: number } | string | null };
+    /**
+     * Full ASL: MF counted, for finding the nearest shelter only, to leave `hex` on the way (`start`: the unit's own hex,
+     * from where it stands): Wire's exit as one MF (ASLRB A10.531; Q&A to A10.51/B26). 0 in the Starter Kit.
+     */
+    'rout.planLeaveMf': { ctx: { unit: PieceId; hex: HexId; start: boolean }; value: number };
     /** Full ASL: MF a routing unit pays on top of a step's cost to leave the entrenchment it stands beneath (ASLRB B27.41); 0 in the Starter Kit. */
     'rout.exitCost': { ctx: { unit: PieceId; from: HexId; to: HexId }; value: number };
+    /**
+     * Full ASL: why a routing unit may not yet step out of the Location it stands in (ASLRB B26.41: on top of Wire it must
+     * first make its Wire Exit dr), or null. Null in the Starter Kit.
+     */
+    'rout.stepFirst': { ctx: { unit: PieceId }; value: string | null };
+    /**
+     * Full ASL: whether a routing unit still has a rout expenditure open within its Location (ASLRB B26.41: the Wire Exit
+     * dr), so its rout is not over, nor impossible, for want of a step. False in the Starter Kit.
+     */
+    'rout.inPlace': { ctx: { unit: PieceId }; value: boolean };
     /** Full ASL: MF a routing unit pays to take the stairs to Location `to` of its hex (ASLRB B23.4: one; A24.7 one more into a SMOKE Location). */
     'rout.stairsMf': { ctx: { unit: PieceId; to: LocId }; value: number };
   }
@@ -255,9 +277,6 @@ const enemyHexes = (env: QueryEnv, side: SideId) =>
 /** Enemy hexes in LOS of the given hex (known enemy locations). */
 const knownEnemyHexes = (env: QueryEnv, side: SideId, hex: HexId) => enemyHexes(env, side).filter((eh) => hasLos(env, hex, eh));
 
-const minDistTo = (env: QueryEnv, hex: HexId, targets: HexId[]) =>
-  targets.length === 0 ? Infinity : Math.min(...targets.map((t) => nodeDistance(env, hex, t)));
-
 /**
  * Is `hex` another hex of the building the rout started in? Such a hex is the nearest building hex and a
  * legal end to the rout, but the unit "may always rout out of a building in which it begins its RtPh"
@@ -351,7 +370,7 @@ export function planRout(env: QueryEnv, unitId: PieceId): RoutPlan {
     const c = cost.get(h)!;
     for (const n of routNeighbours(env, h).sort()) {
       if (stepIllegal(env, side, h, n, seen, unitId)) continue;
-      const nc = c + routStepCost(env, unitId, h, n);
+      const nc = c + routStepCost(env, unitId, h, n) + env.query('rout.planLeaveMf', { unit: unitId, hex: h, start: h === start }, 0);
       if (nc > mf) continue;
       const old = cost.get(n);
       if (old === undefined || nc < old) {
@@ -363,9 +382,11 @@ export function planRout(env: QueryEnv, unitId: PieceId): RoutPlan {
       }
     }
   }
-  const startEnemyDist = minDistTo(env, start, [...seen]);
   const shelters = [...cost.keys()].filter((h) => h !== start && isShelter(env, h) && !enemyAdjacent(env, side, h));
-  const ignorable = (h: HexId) => inStartBuilding(env, start, h) || minDistTo(env, h, [...seen]) <= startEnemyDist;
+  // "No further away from a Known Enemy Unit than its starting hex" (SK1 3.6): from any one of them. A shelter must be
+  // made for only when it takes the unit farther from them all (ASLRB A10.51 examples: "no farther away from a Known
+  // enemy unit than its present position"; "farther away from all KEUs").
+  const ignorable = (h: HexId) => inStartBuilding(env, start, h) || seen.size === 0 || [...seen].some((e) => nodeDistance(env, h, e) <= nodeDistance(env, start, e));
   const destinations = new Set<HexId>();
   if (shelters.length === 0) {
     for (const h of cost.keys()) if (h !== start) destinations.add(h);
@@ -402,10 +423,16 @@ interface RoutView {
   plan: Pick<RoutPlan, 'destinations' | 'onTheWay' | 'sheltered'>;
 }
 
-function freshView(env: QueryEnv, unitId: PieceId): RoutView {
+/** The MF of a rout: the unit's, or less when an escorting leader has fewer of his own (`rout.escortMf`). */
+function stackMf(env: QueryEnv, unitId: PieceId, escort: PieceId[]): number {
+  const own = env.query('rout.mf', { unit: unitId }, 6);
+  return Math.min(own, ...escort.map((l) => env.query('rout.escortMf', { leader: l }, null) ?? own));
+}
+
+function freshView(env: QueryEnv, unitId: PieceId, leaders: PieceId[] = []): RoutView {
   const u = pieceOf(env, unitId);
   const start = nodeOf(env, u)!;
-  return { unit: unitId, side: u.side, mf: env.query('rout.mf', { unit: unitId }, 6), start, at: start, level: levelOfLoc(locOf(env.state, u)!), spent: 0, seen: new Set(), reached: false, plan: planRout(env, unitId) };
+  return { unit: unitId, side: u.side, mf: stackMf(env, unitId, leaders), start, at: start, level: levelOfLoc(locOf(env.state, u)!), spent: 0, seen: new Set(), reached: false, plan: planRout(env, unitId) };
 }
 
 function activeView(env: QueryEnv, act: ActiveRout): RoutView {
@@ -413,7 +440,7 @@ function activeView(env: QueryEnv, act: ActiveRout): RoutView {
   return {
     unit: act.unit,
     side: u.side,
-    mf: env.query('rout.mf', { unit: act.unit }, 6),
+    mf: stackMf(env, act.unit, act.escort),
     start: act.start,
     at: nodeOf(env, u)!,
     level: levelOfLoc(locOf(env.state, u)!),
@@ -518,6 +545,11 @@ export function activeRoutEnds(env: QueryEnv): Set<HexId> | null {
 function stepCheck(env: QueryEnv, v: RoutView, toLoc: LocId, lowCrawl: boolean, woods = false, beneath = false): string | null {
   // A pinned broken unit cannot rout (SK4 8.2.1: a hut collapsing pins even a broken unit, "unable to rout").
   if (isPinned(pieceOf(env, v.unit))) return 'A pinned unit cannot rout';
+  // Full ASL: from where it stands the unit may first have to get free (ASLRB B26.41: off the Wire).
+  if (v.at === nodeOf(env, pieceOf(env, v.unit))) {
+    const first = env.query('rout.stepFirst', { unit: v.unit }, null);
+    if (first) return first;
+  }
   const to = routNode(toLoc);
   if (to === v.at) return stairStepCheck(env, v, toLoc, lowCrawl, woods);
   // Full ASL: an upper level is left only by the stairs or along the same floor of the building (ASLRB B23.25), and
@@ -600,6 +632,7 @@ export function routEscorts(env: QueryEnv, unit: PieceId): PieceId[] {
   if (!st || !u || !loc) return [];
   return Object.values(env.state.pieces)
     .filter((p) => p.side === u.side && p.id !== unit && !!smc(env, p) && locOf(env.state, p) === loc && !isBroken(p) && !isPinned(p) && !st.escorted?.includes(p.id))
+    .filter((p) => env.query('rout.escortIllegal', { leader: p.id }, null) === null)
     .sort(byId)
     .map((p) => p.id);
 }
@@ -607,10 +640,10 @@ export function routEscorts(env: QueryEnv, unit: PieceId): PieceId[] {
 /** The rout under way, if any. */
 export const activeRout = (env: QueryEnv): ActiveRout | undefined => routState(env)?.active;
 
-/** MF a routing unit has left (its whole allotment before it starts). */
-export function routMfLeft(env: QueryEnv, unit: PieceId): number {
+/** MF a routing unit has left (its whole allotment before it starts, with these `leaders` routing along). */
+export function routMfLeft(env: QueryEnv, unit: PieceId, leaders: PieceId[] = []): number {
   const act = activeRout(env);
-  return env.query('rout.mf', { unit }, 6) - (act?.unit === unit ? act.spent : 0);
+  return act?.unit === unit ? stackMf(env, unit, act.escort) - act.spent : stackMf(env, unit, leaders);
 }
 
 /** Why `unit` may not begin a rout now (with these leaders), or null. */
@@ -630,6 +663,8 @@ function startIllegal(env: QueryEnv, st: RoutState, a: { unit: PieceId; side: Si
       return `${l} cannot rout with the unit`;
     }
     if (st.escorted?.includes(l)) return `${l} has already routed with a unit this phase`;
+    const own = env.query('rout.escortIllegal', { leader: l }, null);
+    if (own) return own;
   }
   if (new Set(a.leaders ?? []).size !== (a.leaders ?? []).length) return 'A leader is listed twice';
   return null;
@@ -649,7 +684,7 @@ function stepActionIllegal(env: QueryEnv, a: RoutAction & { type: 'rout.step' })
   }
   const err = startIllegal(env, st, a);
   if (err) return err;
-  return stepCheck(env, freshView(env, a.unit), a.to, !!a.lowCrawl, !!a.woods, !!a.beneath);
+  return stepCheck(env, freshView(env, a.unit, a.leaders ?? []), a.to, !!a.lowCrawl, !!a.woods, !!a.beneath);
 }
 
 /** Legal next steps for a unit: fresh (normal and Low Crawl) or continuing its rout. */
@@ -807,7 +842,8 @@ export const routModule: RuleModule = {
         if (!over) {
           // Nowhere further to go: the rout ends here of its own accord.
           const after = activeView(ctx, act);
-          if (stepOptions(ctx, routState(ctx)!, a.unit).length === 0 || (!canStop(ctx, after) && !finishReachable(ctx, after))) over = true;
+          const open = ctx.query('rout.inPlace', { unit: a.unit }, false);
+          if (!open && (stepOptions(ctx, routState(ctx)!, a.unit).length === 0 || (!canStop(ctx, after) && !finishReachable(ctx, after)))) over = true;
         }
         if (over) finishRout(ctx, act, r.alive);
         reAsk(ctx);
@@ -866,6 +902,42 @@ export const routModule: RuleModule = {
   },
 };
 
+/** The units of the side now routing that may still rout this RtPh (none outside it). */
+export function routersNow(env: QueryEnv): Piece[] {
+  const st = routState(env);
+  return st && env.state.phase === 'RtPh' ? eligibleRouters(env, st).filter((p) => !st.active || st.active.unit === p.id) : [];
+}
+
+/** Whether `unit` must rout this RtPh (it is eliminated if it does not). */
+export const mustRoutNow = (env: QueryEnv, unit: PieceId): boolean => !!routState(env)?.mustRout.includes(unit);
+
+/**
+ * Full ASL: a rout expenditure within the unit's Location (ASLRB B26.41: the Wire Exit dr). It begins the rout when none is
+ * under way (the excess SW dropped, `leaders` restacked with it), spends `cost` of its rout MF and drops `leave` from its
+ * escort. The rout ends here when `end` (a Low Crawl, a unit hung up on the Wire) or when the unit has nowhere left to go;
+ * a unit whose rout ends so while it must still rout for `failure`'s reason is eliminated for Failure to Rout.
+ */
+export function routInPlace(ctx: Ctx, unit: PieceId, opts: { cost: number; end: boolean; leaders?: PieceId[]; leave?: PieceId[]; failure?: (env: QueryEnv) => string | null }) {
+  const st = routState(ctx)!;
+  let act = st.active?.unit === unit ? st.active : beginRout(ctx, unit, opts.leaders ?? []);
+  act = { ...act, spent: act.spent + opts.cost, escort: act.escort.filter((l) => !opts.leave?.includes(l)) };
+  ctx.emit('sk1.rout.state', { state: { ...routState(ctx)!, active: act } });
+  let over = opts.end;
+  if (!over) {
+    const after = activeView(ctx, act);
+    if (stepOptions(ctx, routState(ctx)!, unit).length === 0 || (!canStop(ctx, after) && !finishReachable(ctx, after))) over = true;
+  }
+  if (over) {
+    const why = opts.failure?.(ctx) ?? null;
+    finishRout(ctx, act, true);
+    if (why && ctx.state.pieces[unit]?.loc.kind === 'hex') {
+      eliminate(ctx, unit, why);
+      ctx.proc<FlushFn>(MP.flushLeaderLoss)(ctx);
+    }
+  }
+  reAsk(ctx);
+}
+
 function eligibleRouters(env: QueryEnv, st: RoutState): Piece[] {
   return Object.values(env.state.pieces)
     .filter((p) => p.side === st.side && p.loc.kind === 'hex' && isBroken(p) && hasDm(p) && !st.done.includes(p.id))
@@ -889,7 +961,7 @@ function startSide(ctx: Ctx, side: SideId) {
   for (const id of must) {
     // An earlier failure to rout can take this unit with it (a Leader Loss check after the leader died).
     if (ctx.state.pieces[id]?.loc.kind !== 'hex') continue;
-    if (stepOptions(ctx, st, id).length > 0) continue;
+    if (stepOptions(ctx, st, id).length > 0 || ctx.query('rout.inPlace', { unit: id }, false)) continue;
     eliminate(ctx, id, 'failure to rout: no legal rout path');
     ctx.proc<FlushFn>(MP.flushLeaderLoss)(ctx);
     st = { ...st, done: [...st.done, id] };
@@ -1084,8 +1156,8 @@ export function interdictionCheck(ctx: Ctx, unit: PieceId, leaderDrm: number, un
 /** A routing unit must drop SW in excess of its IPC (keeping as much PP as fits). */
 function dropExcessSw(ctx: Ctx, unit: PieceId) {
   const p = pieceOf(ctx, unit);
-  // Dropped where the unit is: in its Location (ASLRB A2.8).
-  const here = locationAt(locOf(ctx.state, p)!);
+  // Dropped where the unit is: in its Location (ASLRB A2.8), in its position there (full ASL: on or beneath Wire, B26.4).
+  const here = { ...locationAt(locOf(ctx.state, p)!), ...(p.loc.kind === 'hex' && p.loc.pos ? { pos: p.loc.pos } : {}) };
   const ipc = ctx.query('unit.ipc', { unit }, 0);
   const sws = swHeldBy(ctx.state, unit).sort((a, b) => ppOf(ctx, b) - ppOf(ctx, a) || (a.id < b.id ? -1 : 1));
   let carried = 0;

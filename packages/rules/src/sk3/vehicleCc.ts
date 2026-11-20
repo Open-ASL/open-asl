@@ -237,6 +237,18 @@ export const vehicleCcModule: RuleModule = {
       when: ({ attackers }, env) => !!attackers?.some((a) => vehicleOf(env, a)),
       apply: (_v, { unit }, env) => Math.max(0, env.query('cc.ccv', { unit, combined: false }, ccvBase(env, pieceOf(env, unit))) - (isPinned(pieceOf(env, unit)) ? 1 : 0)),
     });
+    // The panel's preview of an attack on a vehicle: its CCV, as `resolveVsVehicle` computes it.
+    r.contribute({
+      id: 'sk3.cc.vs-vehicle',
+      query: 'cc.vsVehicle',
+      ref: 'SK4 3.8',
+      layer: 0,
+      when: ({ attackers, targets }, env) => targets.length === 1 && !!vehicleOf(env, targets[0]!) && !attackers.some((a) => vehicleOf(env, a)),
+      apply: (_v, { attackers }, env) => {
+        const { ccv, explain } = attackCcv(env, attackers);
+        return { ccv, notes: explain.map((e) => e.label) };
+      },
+    });
     const vsVehicle = (id: string, label: string, when: (v: Piece, env: QueryEnv) => boolean, drm: number) =>
       r.contribute({
         id: `sk3.cc.drm.${id}`,

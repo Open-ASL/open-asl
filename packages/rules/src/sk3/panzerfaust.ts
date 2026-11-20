@@ -147,6 +147,16 @@ export function pfCheckNeedText(drm: number, notes: string[]): string {
   return need === 0 ? `no dr can succeed${why}` : `dr ≤ ${need}${why}`;
 }
 
+declare module '@asl/engine' {
+  interface QueryCatalog {
+    /**
+     * Full ASL: whether `firer`'s Panzerfaust may aim at the Infantry `units` in `target` for a cover the Starter Kit has
+     * no counter for: HEAT may fire at Infantry receiving a wall/building/rubble/pillbox TEM (ASLRB C8.31). False in the Starter Kit.
+     */
+    'pf.infantryCover': { ctx: { firer: PieceId; target: HexId; units: PieceId[] }; value: boolean };
+  }
+}
+
 const tryKey = (env: QueryEnv) => `${env.state.turn}:${env.state.attacker}:${env.state.phase}`;
 
 /** Why this unit may not try a Panzerfaust now at all, or null (target aside). */
@@ -205,7 +215,7 @@ export function pfIllegal(env: QueryEnv, side: SideId, pf: PfShot, mode: FireMod
   // Infantry in a building must be Known (SK4 8.3: a concealed stack is no Infantry Target Type target).
   const enemy = personnelAt(env, pf.target, otherSide(env.state, side)).filter((u) => env.query('piece.knownTo', { piece: u.id, viewer: side }, true));
   const gunThere = Object.values(env.state.pieces).some((g) => g.side !== side && gun(env, g) && hexOf(env.state, g) === pf.target);
-  if (!gunThere && !(enemy.length && map.hex(pf.target)?.buildingId)) return 'A Panzerfaust fires only at a vehicle, a Gun, or Infantry in a building';
+  if (!gunThere && !(enemy.length && (map.hex(pf.target)?.buildingId || env.query('pf.infantryCover', { firer: pf.unit, target: pf.target, units: enemy.map((u) => u.id) }, false)))) return 'A Panzerfaust fires only at a vehicle, a Gun, or Infantry in a building';
   return null;
 }
 

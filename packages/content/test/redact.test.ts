@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deepEqual, type GameState, type LoggedEvent } from '@asl/engine';
 import { breaches, fortCounters, fortifiedKnownTo, fortifiedState, hiddenFrom, redactState, scatterState, shownCounter, type Breach, type FortRecord, type FortifiedState, type ScatterState } from '@asl/rules';
-import { ASL_TESTBED_SCENARIO, PLAYABLE_SCENARIOS, mulberry, newGame, newSk1Game } from '../src';
+import { ASL_TESTBED_SCENARIO, FixtureBuilder, PLAYABLE_SCENARIOS, TESTBED_FORTIFIED, mulberry, newGame, newSk1Game, testbedBreachApproach } from '../src';
 
 /** Strings the viewer must never receive: ids of pieces hidden from them, and the other side's unrevealed secrets. */
 function secretsFrom(engine: ReturnType<typeof newSk1Game>['engine'], state: GameState, viewer: string | null): string[] {
@@ -142,6 +142,83 @@ describe('redacted views of a game being created', () => {
         expect(JSON.stringify(stream), `${viewer} sees the Secret dr`).not.toMatch(/Secret dr/);
         expect(stream.some((e) => e.type === 'asl.fort.dummies')).toBe(false);
       }
+    }
+  });
+});
+
+describe('a DC Breach attempt against a Location the attacker has not been shown (B23.9221, B23.911; Q&A [K33])', () => {
+  // The test bed with the 8-3-8 (DC) in Q3 beside P3, where the 5-2-7 holds. P3 is fortified in one game (the test bed's
+  // designation) and not in the other; nothing the German or a spectator receives may tell the two apart until the
+  // Breach DR decides, and every viewer's stream must fold into its snapshot.
+  const OTHER = ['uP2', 'uP2:1', 'uK4', 'uK5'];
+  const VIEWERS = ['ge', 'ru', null] as const;
+  function attempt(fortified: string[], dice: [number, number]) {
+    const g = newGame(ASL_TESTBED_SCENARIO, 'breach-unknown');
+    const f = new FixtureBuilder(g.engine, g.state);
+    testbedBreachApproach(f, fortified);
+    const engine = g.engine;
+    let s = f.state;
+    const trans: { from: GameState; to: GameState; events: LoggedEvent[] }[] = [];
+    const step = (a: Record<string, unknown>) => {
+      const d = engine.currentDecision(s)!;
+      const t = engine.submit(s, { ...a, side: d.owner, decisionId: d.id } as never);
+      trans.push({ from: s, to: t.state, events: t.events as LoggedEvent[] });
+      s = t.state;
+    };
+    step({ type: 'move.start', units: [f.unit('ge', 'ge.838')] });
+    step({ type: 'move.breach', dc: f.sw('ge', 'ge.DC'), target: 'uP3' });
+    let forced = false;
+    for (let i = 0; i < 40 && s.phase !== 'AFPh'; i++) {
+      if (s.phase === 'DFPh' && !forced) {
+        engine.forceDice(...dice);
+        forced = true;
+      }
+      const d = engine.currentDecision(s)!;
+      const legal = engine.legalActions(s, d.owner);
+      const pick = ['defPass', 'move.end', 'endPhase'].map((t) => legal.find((a) => a.type === t)).find(Boolean)!;
+      const { side: _s, decisionId: _d, ...rest } = pick;
+      step(rest);
+    }
+    expect(s.phase).toBe('AFPh');
+    const stream = (viewer: string | null) => trans.flatMap((t) => engine.redactTransition(viewer, (x) => redactState(engine, x, viewer), t.from, t.events));
+    // Each viewer's stream folds into its snapshot, transition by transition.
+    for (const viewer of VIEWERS)
+      for (const t of trans) {
+        const redact = (x: GameState) => redactState(engine, x, viewer);
+        expect(deepEqual(engine.applyEvents(redact(t.from), engine.redactTransition(viewer, redact, t.from, t.events)), redact(t.to)), `${viewer} at seq ${t.to.seq}`).toBe(true);
+      }
+    const attemptEv = trans.flatMap((t) => t.events).find((e) => e.type === 'asl.breach.attempt')?.payload as Record<string, unknown>;
+    return { engine, s, stream, attempt: attemptEv };
+  }
+  const strip = (stream: LoggedEvent[]) => stream.map((e) => ({ ...e, seq: undefined }));
+
+  it('a DR that Breaches nothing: the German and a spectator receive the same in both games, and P3 stays unshown', () => {
+    // An Original 10 (the elite 8-3-8's DC detonates): +3 stone +1 Fortified = 14, a PTC on the 30 column; no Breach.
+    const forted = attempt(TESTBED_FORTIFIED, [5, 5]);
+    const plain = attempt(OTHER, [5, 5]);
+    expect(forted.attempt).toMatchObject({ loc: 'uP3', breached: false, malfunctioned: false, drm: 4 });
+    expect(plain.attempt).toMatchObject({ loc: 'uP3', breached: false, malfunctioned: false, drm: 4 });
+    for (const viewer of ['ge', null]) expect(strip(forted.stream(viewer)), `${viewer}`).toEqual(strip(plain.stream(viewer)));
+    for (const viewer of ['ge', null]) {
+      expect(fortifiedKnownTo(forted.engine.env(forted.s), 'uP3', viewer)).toBe(false);
+      expect(redactState(forted.engine, forted.s, viewer).ext['asl.breach'] ?? []).toEqual([]);
+    }
+    expect(plain.s.ext['asl.breach.unfortified']).toBeUndefined();
+  });
+
+  it('a DR that would Breach: in the fortified game the Breach shows P3 to every viewer; in the other no Breach, and every viewer is told P3 is not fortified', () => {
+    // An Original 6: 6 +4 = 10 on the 30 column, a NMC or better.
+    const forted = attempt(TESTBED_FORTIFIED, [3, 3]);
+    const plain = attempt(OTHER, [3, 3]);
+    expect(forted.attempt).toMatchObject({ breached: true });
+    expect(plain.attempt).toMatchObject({ breached: false, unfortified: true });
+    for (const viewer of VIEWERS) {
+      expect(fortifiedKnownTo(forted.engine.env(forted.s), 'uP3', viewer), `${viewer}`).toBe(true);
+      expect(redactState(forted.engine, forted.s, viewer).ext['asl.breach'], `${viewer}`).toEqual([{ loc: 'uP3', toward: 'uQ3', by: 'dc' }]);
+      expect(redactState(plain.engine, plain.s, viewer).ext['asl.breach.unfortified'], `${viewer}`).toEqual(['uP3']);
+      expect(plain.stream(viewer).find((e) => e.type === 'asl.breach.attempt')?.payload).toMatchObject({ unfortified: true });
+      // Nothing else of the other game's designation is shown.
+      expect((redactState(plain.engine, plain.s, viewer).ext['sk1.fortified'] as FortifiedState).locations ?? [], `${viewer}`).toEqual(viewer === 'ru' ? [...OTHER].sort() : []);
     }
   });
 });

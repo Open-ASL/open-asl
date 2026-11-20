@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ASL_TESTBED_SCENARIO, BPV, COUNTERS, DEV_FIXTURES, SK1_COUNTER_IDS, SK2_COUNTER_IDS, SK3_COUNTER_IDS, TESTBED_FORTIFIED, TESTBED_HILL_HEXES, TESTBED_VC_BUILDINGS, buildingAt, fixtureActions, fixturesFor, newGame, scenarioById, staticsFor } from '../src';
 import type { Action } from '@asl/engine';
-import { fortifiableBuildings, fortifiableLocations, fortifiedKnownTo, fortifiedState, fortifyIllegal, ordnanceWeaponIllegal } from '@asl/rules';
+import { breachIllegal, fortifiableBuildings, fortifiableLocations, fortifiedKnownTo, fortifiedState, fortifyIllegal, moveState, ordnanceWeaponIllegal } from '@asl/rules';
 
 /** A fresh test bed game with a fixture's actions applied, as the dev UI does. */
 function load(id: string) {
@@ -94,7 +94,7 @@ describe('BPV (A./G. National Capabilities Chart)', () => {
 
 describe('Dev fixtures', () => {
   it('lists the test bed fixtures', () => {
-    expect(fixturesFor('asl-testbed').map((f) => f.id)).toEqual(['kindling', 'start', 'melee', 'building-assault', 'two-story-house', 'los-heights', 'orchard-road', 'bypass', 'fortified-breach', 'fortified-hidden', 'fort-setup', 'fort-owner', 'fort-placed', 'entrench', 'foxhole-fight', 'trench-move', 'foxhole-hidden', 'snap-shot']);
+    expect(fixturesFor('asl-testbed').map((f) => f.id)).toEqual(['kindling', 'start', 'melee', 'building-assault', 'two-story-house', 'los-heights', 'orchard-road', 'bypass', 'fortified-breach', 'breach-unknown', 'fortified-hidden', 'fort-setup', 'fort-owner', 'fort-placed', 'entrench', 'foxhole-fight', 'trench-move', 'foxhole-hidden', 'snap-shot']);
     expect(fixturesFor('asl-testbed-fire').map((f) => f.id)).toEqual(['blaze-spread', 'flame-clearance']);
     expect(DEV_FIXTURES.every((f) => f.title && f.description)).toBe(true);
   });
@@ -139,7 +139,23 @@ describe('Dev fixtures', () => {
     expect(hexOf(state, ae.id)).toBe('uQ3');
     expect(Object.values(state.pieces).find((p) => p.defId === 'ge.548')!.tags['advanced']).toBeUndefined();
     const s = engine.submit(state, { side: 'ge', decisionId: engine.currentDecision(state)!.id, type: 'move.start', units: [ae.id] } as Action).state;
-    expect(engine.legalActions(s, 'ge').filter((a) => a.type === 'move.breach')).toEqual([expect.objectContaining({ dc: dc.id, target: 'uP3' })]);
+    // P3, shown fortified, and P2 beside it, which may be (B23.9221: an attempt needs no knowledge of it).
+    expect(engine.legalActions(s, 'ge').filter((a) => a.type === 'move.breach').map((a) => [a['dc'], a['target']]).sort()).toEqual([[dc.id, 'uP2'], [dc.id, 'uP3']]);
+  });
+
+  it('breach-unknown: P3 is fortified but not shown, and the Breach is offered to the DC in Q3 all the same (B23.9221)', () => {
+    const { engine, state, env } = load('breach-unknown');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['MPh', 2, 'ge']);
+    expect(fortifiedKnownTo(env, 'uP3', 'ge')).toBe(false);
+    const ae = Object.values(state.pieces).find((p) => p.defId === 'ge.838')!;
+    const dc = Object.values(state.pieces).find((p) => p.defId === 'ge.DC')!;
+    expect(hexOf(state, ae.id)).toBe('uQ3');
+    expect(hexOf(state, Object.values(state.pieces).find((p) => p.defId === 'ru.527')!.id)).toBe('uP3');
+    const s = engine.submit(state, { side: 'ge', decisionId: engine.currentDecision(state)!.id, type: 'move.start', units: [ae.id] } as Action).state;
+    expect(engine.legalActions(s, 'ge').filter((a) => a.type === 'move.breach')).toContainEqual(expect.objectContaining({ dc: dc.id, target: 'uP3' }));
+    // R3, a house the Russians could not fortify (outside their setup area): refused, with the reason the wheel shows.
+    const ms = moveState(engine.env(s))!;
+    expect(breachIllegal(engine.env(s), ms, dc.id, 'uR3')).toMatch(/not fortified, as far as your side can tell.*B23.9221/);
   });
 
   it('fortified-hidden: the 5-2-7 is hidden in P3 and the German stack in Q4 may try to enter', () => {

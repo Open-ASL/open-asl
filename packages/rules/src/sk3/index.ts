@@ -35,6 +35,7 @@ export * from './noAfvBuildings';
 export * from './immobilizationDr';
 export * from './digIn';
 export * from './mpLimit';
+export * from './recall';
 export * from './ssrAttacks';
 
 /**

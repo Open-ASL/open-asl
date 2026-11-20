@@ -293,6 +293,18 @@ export const TESTBED_FORTIFIED = ['uP2', 'uP2:1', 'uP3', 'uP3:1'];
  * A German Turn 1 that reveals the fortified P3: the 9-2's stack walks T3-S3-R3-Q3 in the MPh and the 5-4-8 tries to
  * advance into P3 (held by the Good Order 5-2-7) in the APh, which is refused (ASLRB B23.922) and shows P3 fortified.
  */
+/**
+ * The test bed with `fortified` designated and the 9-2, the assault engineers (FT, DC) and the 5-4-8 moved up to Q3 beside
+ * P3 in German Turn 1 without trying to enter it: German Turn 2 MPh, nothing of P3 shown. A Breach attempt there is made
+ * without knowing whether P3 is fortified (B23.9221).
+ */
+export function testbedBreachApproach(f: FixtureBuilder, fortified: string[]) {
+  testbedSetup(f, fortified);
+  f.until('MPh', { turn: 1, attacker: 'ge' });
+  f.move([f.unit('ge', 'ge.L92'), f.unit('ge', 'ge.838'), f.unit('ge', 'ge.548')], ['uS3', 'uR3', 'uQ3']);
+  f.until('MPh', { turn: 2, attacker: 'ge' });
+}
+
 function revealP3(f: FixtureBuilder) {
   f.until('MPh', { turn: 1, attacker: 'ge' });
   f.move([f.unit('ge', 'ge.L92'), f.unit('ge', 'ge.838'), f.unit('ge', 'ge.548')], ['uS3', 'uR3', 'uQ3']);
@@ -580,6 +592,16 @@ export const DEV_FIXTURES: DevFixture[] = [
       testbedSetup(f, TESTBED_FORTIFIED);
       revealP3(f);
       f.until('MPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'breach-unknown',
+    scenarioId: 'asl-testbed',
+    title: 'Breach: a Location not known to be fortified',
+    description:
+      'German Turn 2 Movement Phase. The 9-2 with the assault engineers (FT, DC) and the 5-4-8 stand in Q3 beside P3, where the Russian 5-2-7 is; the Germans have not been shown whether P3 is fortified (it is). Move the stack, choose Place DC… and click P3: the wheel offers "Breach P3/Q3" all the same (ASLRB B23.9221; official Q&A). In the AFPh the hexside takes the fortified TEM: a NMC or better Breaches it and shows P3 fortified; a lesser result shows nothing. Click R3 behind them instead, a wooden house outside the Russian setup area that cannot be fortified: the Breach entry is greyed, with the reason.',
+    build(f) {
+      testbedBreachApproach(f, TESTBED_FORTIFIED);
     },
   },
   {

@@ -483,18 +483,83 @@ function hipChip(): Container {
   return c;
 }
 
-function crewTab(ce: boolean, size: number, spent: boolean): Container {
+/** A status tab on a vehicle counter: the crew's posture, a state that hampers the vehicle, or a weapon out for good. */
+export interface VehicleTab {
+  text: string;
+  tone: 'ce' | 'bu' | 'bad' | 'out';
+}
+
+const TAB_STYLE: Record<VehicleTab['tone'], { fill: number; stroke: number; text: number }> = {
+  ce: { fill: 0xf0b030, stroke: 0xffe08a, text: 0x1a1205 },
+  bu: { fill: 0x2b3138, stroke: 0x8a96a3, text: 0xdfe6ee },
+  bad: { fill: 0xc0392b, stroke: 0xf3a59c, text: 0xffffff },
+  out: { fill: 0x1b1b1b, stroke: 0xc0392b, text: 0xf3a59c },
+};
+
+/**
+ * The status tabs a vehicle wears in place of full-size marker counters, as VASL draws them: the crew's posture when it
+ * differs from the vehicle's usual one (an AFV is Buttoned Up, an Open-Topped one Crew Exposed: SK4 3.3.2, 7.13), and each
+ * state that hampers it (Bog and Mired SK4 3.3.2; Immobilized 7.2; Low Ammo 7.6; Shock, UK, Stun and Recall 7.7; a
+ * malfunctioned or disabled MA or MG 7.10). Motion and the fire markers stay counters.
+ */
+export function vehicleTabs(env: { state: GameState; statics: Statics }, p: Piece): VehicleTab[] {
+  const t = p.tags;
+  if (t['vca'] === undefined || t['wreck']) return [];
+  const out: VehicleTab[] = [];
+  const openTopped = !!(defOf(env as unknown as QueryEnv, p) as { openTopped?: boolean }).openTopped;
+  if (!!t['ce'] !== openTopped) out.push(t['ce'] ? { text: 'CE', tone: 'ce' } : { text: 'BU', tone: 'bu' });
+  if (t['bog'] === 'bogged') out.push({ text: 'BOG', tone: 'bad' });
+  if (t['bog'] === 'mired') out.push({ text: 'MIRED', tone: 'bad' });
+  if (t['immob']) out.push({ text: 'IMM', tone: 'out' });
+  if (t['shock'] === 'shock') out.push({ text: 'SHOCK', tone: 'bad' });
+  if (t['shock'] === 'uk') out.push({ text: 'UK', tone: 'bad' });
+  if (t['stun'] === 'fresh') out.push({ text: 'STUN', tone: 'bad' });
+  if (t['stun'] === 'plus1') out.push({ text: 'STUN +1', tone: 'bad' });
+  if (t['recall']) out.push({ text: 'RECALL', tone: 'bad' });
+  if (t['lowAmmo']) out.push({ text: 'LOW AMMO', tone: 'bad' });
+  if (t['maDisabled']) out.push({ text: 'MA', tone: 'out' });
+  else if (t['malf']) out.push({ text: 'MA', tone: 'bad' });
+  for (const w of swHeldBy(env.state, p.id)) {
+    const d = defOf(env as unknown as QueryEnv, w);
+    if (d.kind !== 'sw' || !d.fixed) continue;
+    if (w.tags['mgDisabled']) out.push({ text: d.type, tone: 'out' });
+    else if (w.tags['malf']) out.push({ text: d.type, tone: 'bad' });
+  }
+  return out;
+}
+
+/**
+ * Draw a vehicle's tabs (`vehicleTabs`) in a column on the middle of its counter: the one spot that holds no printed
+ * value at any facing (the values run round the edges; the middle is the vehicle's picture) and that no other hex's
+ * counters overlap. A red tab is a state that hampers it, a black one with red letters a weapon (or its movement) out
+ * for good.
+ */
+function vehicleTabsBox(tabs: VehicleTab[], size: number, spent: boolean): Container {
   const c = new Container();
-  const w = 30;
-  const h = 16;
-  const x = -5;
-  const y = size - h + 5;
-  c.addChild(new Graphics().roundRect(x + 1, y + 2, w, h, 4).fill({ color: 0x000000, alpha: 0.5 }));
-  c.addChild(new Graphics().roundRect(x, y, w, h, 4).fill({ color: ce ? 0xf0b030 : 0x2b3138 }).stroke({ color: ce ? 0xffe08a : 0x8a96a3, width: 1.5 }));
-  const tx = new Text({ text: ce ? 'CE' : 'BU', style: { fontSize: 11, fill: ce ? 0x1a1205 : 0xdfe6ee, fontWeight: 'bold', letterSpacing: 1 } });
-  tx.anchor.set(0.5);
-  tx.position.set(x + w / 2, y + h / 2 + 0.5);
-  c.addChild(tx);
+  const h = 13;
+  const gap = 1;
+  // One column for one or two tabs; from three on, two to a row so the block stays clear of the edges.
+  const perRow = tabs.length >= 3 ? 2 : 1;
+  const rows: VehicleTab[][] = [];
+  for (let i = 0; i < tabs.length; i += perRow) rows.push(tabs.slice(i, i + perRow));
+  const total = rows.length * (h + gap) - gap;
+  let y = size / 2 - total / 2 + (tabs.length === 1 ? size * 0.12 : 0);
+  for (const row of rows) {
+    const texts = row.map((tab) => new Text({ text: tab.text, style: { fontSize: 9, fill: TAB_STYLE[tab.tone].text, fontWeight: 'bold', letterSpacing: 0.5 } }));
+    const widths = texts.map((tx) => Math.max(perRow === 1 ? 24 : 20, Math.ceil(tx.width) + 8));
+    let x = size / 2 - (widths.reduce((a, w) => a + w, 0) + gap * (row.length - 1)) / 2;
+    row.forEach((tab, k) => {
+      const st = TAB_STYLE[tab.tone];
+      const w = widths[k]!;
+      c.addChild(new Graphics().roundRect(x + 1, y + 2, w, h, 4).fill({ color: 0x000000, alpha: 0.5 }));
+      c.addChild(new Graphics().roundRect(x, y, w, h, 4).fill({ color: st.fill }).stroke({ color: st.stroke, width: 1.25 }));
+      texts[k]!.anchor.set(0.5);
+      texts[k]!.position.set(x + w / 2, y + h / 2 + 0.5);
+      c.addChild(texts[k]!);
+      x += w + gap;
+    });
+    y += h + gap;
+  }
   if (spent) c.alpha = 0.8;
   return c;
 }
@@ -513,8 +578,8 @@ function dashedLine(g: Graphics, ax: number, ay: number, bx: number, by: number,
 /**
  * Draw the Covered Arc (SK4 3.2.4) of each Gun `shown` picks: the map hexes in it out to `reach`
  * hexes (the arc runs on to the map edge; this shows its direction and true shape), tinted and
- * outlined in the Gun's nationality colour. Every Gun's Acquired Target line is drawn regardless: a
- * dashed line in its identity colour from the Gun to the hex its Acquired Target counter lies in.
+ * outlined in the Gun's nationality colour. No line joins a Gun to its Acquired Target counter: it would show a LOS
+ * along it to anyone; selecting either one outlines the other instead (`drawHighlights`).
  */
 /** Tint the hexes of one Covered Arc out to `reach` and outline its edge (dashed for a turret's arc, or a preview). */
 function drawWedge(g: Graphics, statics: Statics, t: ViewTransform, h: MapHex, spine: number, nat: string, dashed: boolean, reach = 4) {
@@ -562,7 +627,6 @@ function drawCoveredArcs(g: Graphics, s: GameState, statics: Statics, hexOf: (id
     const at = veh ? hexOfPiece(s, p) : gunHex(env as never, p);
     const h = at ? hexOf(at) : undefined;
     if (!at || !h) continue;
-    const c = hexPixel(h.cube);
     if (shown(p, at)) {
       const nat = defOf(env as never, p).nationality;
       if (veh) {
@@ -572,17 +636,6 @@ function drawCoveredArcs(g: Graphics, s: GameState, statics: Statics, hexOf: (id
         wedge(h, vca, nat, false);
         if (veh.turret !== 'NT' && tca !== vca) wedge(h, tca, nat, true);
       } else wedge(h, coveredArc(p), nat, false);
-    }
-    const a = acquisitionOf(p);
-    const ah = a ? hexOf(a.hex) : undefined;
-    if (a && ah && a.hex !== at) {
-      const d = hexPixel(ah.cube);
-      const v0 = t.toView(c.x, c.y);
-      const v1 = t.toView(d.x, d.y);
-      const ic = identColor(idents.get(p.id) ?? 'A');
-      dashedLine(g, v0.x, v0.y, v1.x, v1.y);
-      g.stroke({ color: ic, width: 2, alpha: 0.85 });
-      g.circle(v1.x, v1.y, 5).fill({ color: ic, alpha: 0.9 });
     }
   }
 }
@@ -630,19 +683,25 @@ function starPoints(cx: number, cy: number, r: number): number[] {
 }
 
 /**
- * Draw the scenario objectives: single hexes get a yellow star and outline (VASL style); regions
- * are tinted in the condition's colour with a solid line around their outer boundary only.
+ * Draw the scenario objectives: single hexes, and every hex of an objective made only of building hexes, get a yellow
+ * star and outline (VASL style); other regions (an exit edge, a hill, hexes within a range) are tinted in the
+ * condition's colour with a solid line around their outer boundary only.
  */
 function drawObjectives(g: Graphics, objectives: ObjectiveArea[], placements: Placement[], t: ViewTransform, hexOf: (id: HexId) => MapHex | undefined) {
+  const starred = new Set<HexId>();
   for (const o of objectives) {
     const color = OBJECTIVE_COLORS[o.group % OBJECTIVE_COLORS.length]!;
-    const centers = o.hexes.map((id) => hexOf(id)).filter((h): h is MapHex => !!h).map((h) => hexCenter(h, placements));
-    if (o.kind === 'hex') {
+    const hexes = o.hexes.map((id) => hexOf(id)).filter((h): h is MapHex => !!h);
+    const centers = hexes.map((h) => hexCenter(h, placements));
+    if (o.kind === 'hex' || (hexes.length > 0 && hexes.every((h) => h.buildingId || h.terrain.startsWith('building')))) {
       // A thin outline and a small star tucked under the top of the hex, so the terrain stays readable.
-      for (const c of centers) {
+      hexes.forEach((h, i) => {
+        if (starred.has(h.id)) return;
+        starred.add(h.id);
+        const c = centers[i]!;
         g.poly(hexPolygon(c.x, c.y, t)).stroke({ color: STAR, width: 2, alpha: 0.9 });
         g.poly(toViewPoly(starPoints(c.x, c.y - GEO.px.hexHeight * 0.3, GEO.px.hexHeight * 0.13), t)).fill({ color: STAR, alpha: 0.95 }).stroke({ color: 0x3b2a00, width: 1, alpha: 0.9 });
-      }
+      });
       continue;
     }
     for (const c of centers) g.poly(hexPolygon(c.x, c.y, t)).fill({ color, alpha: 0.2 });
@@ -732,6 +791,8 @@ export interface RubbleHex {
   from: number;
   kind: 'stone' | 'wood';
   burning?: boolean;
+  /** Trail Breaks through the rubble (ASLRB B24.71): each across two hexsides, drawn as a track through the centre dot. */
+  tbs?: [number, number][];
 }
 
 /** A fortification counter as the board shows it: its marker, hidden (the owner's view: faint, tagged), a roadblock's hexside and extension, a pillbox's Covered Arc. */
@@ -744,6 +805,8 @@ export interface FortHex {
   extension?: HexId[];
   ca?: number;
   label: string;
+  /** The card shown when the pointer is on the counter's own mark (a roadblock's bar). */
+  tip?: string;
 }
 
 const ROADBLOCK_COLOR = 0xf2e8c8;
@@ -800,6 +863,7 @@ function drawFortifications(g: Graphics, forts: FortHex[], hexOf: (id: HexId) =>
 const BLAZE_COLOR = 0xe11e14;
 const FLAME_COLOR = 0xff8c00;
 const RUBBLE_COLOR = 0xb0b0b0;
+const TB_COLOR = 0x8b5a2b;
 /** Fire and rubble rings: a tinted wash and a thick ring on the hex, so a burning or rubbled hex reads under a stack and from afar. */
 function drawFires(g: Graphics, fires: FireHex[], rubble: RubbleHex[], hexOf: (id: HexId) => MapHex | undefined, t: ViewTransform) {
   const ring = (hex: HexId, color: number, fill: number, width: number) => {
@@ -811,6 +875,20 @@ function drawFires(g: Graphics, fires: FireHex[], rubble: RubbleHex[], hexOf: (i
     g.poly(poly).stroke({ color, width, alpha: 0.9 });
   };
   for (const r of rubble) ring(r.hex, RUBBLE_COLOR, r.from === 0 ? 0.28 : 0.12, 5);
+  // Trail Breaks: a track from the middle of each of its two hexsides to the centre dot (B24.71).
+  for (const r of rubble) {
+    const h = hexOf(r.hex);
+    if (!h || !r.tbs?.length) continue;
+    const c = hexCenter(h, placementsUnused);
+    for (const [k1, k2] of r.tbs) {
+      const mid = (k: number) => t.toView(c.x + (cornerOffset(k).x + cornerOffset(k + 1).x) / 2, c.y + (cornerOffset(k).y + cornerOffset(k + 1).y) / 2);
+      const o = t.toView(c.x, c.y);
+      const a = mid(k1);
+      const b = mid(k2);
+      g.moveTo(a.x, a.y).lineTo(o.x, o.y).lineTo(b.x, b.y).stroke({ color: 0x000000, width: 7, alpha: 0.45 });
+      g.moveTo(a.x, a.y).lineTo(o.x, o.y).lineTo(b.x, b.y).stroke({ color: TB_COLOR, width: 4, alpha: 0.95 });
+    }
+  }
   // A Flame's ring under a Blaze's, when a hex holds both at different levels.
   for (const f of fires.filter((x) => !x.blaze)) ring(hexOfLoc(f.loc), FLAME_COLOR, 0.1, 5);
   for (const f of fires.filter((x) => x.blaze)) ring(hexOfLoc(f.loc), BLAZE_COLOR, 0.18, 6);
@@ -869,21 +947,13 @@ const placementsUnused: Placement[] = [];
  * The MG "Malfunction" / "Disabled" markers a vehicle wears for its vehicular MGs (SK4 7.8): the MG
  * pieces are held by the vehicle and never drawn, so their state shows on the vehicle.
  */
-export function vehicleMgMarkers(env: { state: GameState; statics: Statics }, p: Piece): string[] {
-  if (p.tags['vca'] === undefined || p.tags['wreck']) return [];
-  const out: string[] = [];
-  for (const w of swHeldBy(env.state, p.id)) {
-    const d = defOf(env as unknown as QueryEnv, w);
-    if (d.kind !== 'sw' || !d.fixed) continue;
-    if (w.tags['mgDisabled']) out.push(`Dis${d.type}`);
-    else if (w.tags['malf']) out.push(`Malf${d.type}`);
-  }
-  return out;
-}
-
 /**
  * Badge markers drawn on a unit for its status tags, bottom first; `moving` is the vehicle now spending MP, if any.
  */
+/** Full ASL: the units engaged in a Clearance Task, its DR at the end of the CCPh (ASLRB B24.7): a TASK badge on each. */
+const clearingUnits = (s: { ext: Record<string, unknown> }): Set<string> =>
+  new Set(((s.ext['asl.clearance'] as { tasks?: { units: string[]; director?: string }[] } | undefined)?.tasks ?? []).flatMap((t) => [...t.units, ...(t.director ? [t.director] : [])]));
+
 export function unitMarkers(p: Piece, nationality?: string, moving?: string): string[] {
   const m: string[] = [];
   const t = p.tags;
@@ -910,21 +980,10 @@ export function unitMarkers(p: Piece, nationality?: string, moving?: string): st
   if (t['banzai'] !== undefined) m.push('Banzai');
   // SK3 vehicles (SK4 3.3.2, 7.2, 7.6, 7.7, 7.10).
   if (t['vca'] !== undefined) {
-    // No CE counter: the vehicle's CE/BU tab shows its crew status (`crewTab`).
+    // The crew's posture and the states that hamper a vehicle are tabs on its counter (`vehicleTabs`), not counters.
     // The Motion counter comes off when the vehicle starts its MPh: it is marked only before or after its MPh (ASLRB D2.4).
     if (t['motion'] && p.id !== moving) m.push('Motion');
-    if (t['bog'] === 'bogged') m.push('Bog');
-    if (t['bog'] === 'mired') m.push('Mired');
-    if (t['immob']) m.push('Immob');
-    if (t['shock'] === 'shock') m.push('Shock');
-    if (t['shock'] === 'uk') m.push('UK');
-    if (t['stun'] === 'fresh') m.push('Stun');
-    if (t['stun'] === 'plus1') m.push('StunPlus1');
-    if (t['recall']) m.push('Recall');
     if (t['bff']) m.push('FireBnd');
-    if (t['lowAmmo']) m.push('LowAmmo');
-    if (t['malf']) m.push('MalfMA');
-    if (t['maDisabled']) m.push('DisMA');
   }
   return m;
 }
@@ -1007,8 +1066,10 @@ export function BoardView({
   const ready = useRef(false);
   /** Floating result texts still on screen, per hex: a new one starts at the counter and pushes these up. */
   const liveTexts = useRef(new Map<string, FloatText[]>());
-  const latest = useRef({ state, overlay, control, fortified, outOfPlay });
-  latest.current = { state, overlay, control, fortified, outOfPlay };
+  const latest = useRef({ state, overlay, control, fortified, outOfPlay, fortifications });
+  latest.current = { state, overlay, control, fortified, outOfPlay, fortifications };
+  /** The roadblock bar under the pointer, whose card is shown beside it (ASLRB B29.2). */
+  const barTip = useRef<{ key: string | null; layer: Container | null }>({ key: null, layer: null });
   /** The hex under the pointer: a Gun there shows its Covered Arc. */
   const hoverHex = useRef<HexId | null>(null);
   /** Covered Arcs only for a Gun under the pointer, in the selected hex or among the selected units (or held by one). */
@@ -1332,7 +1393,10 @@ export function BoardView({
       const fxLayer = new Container();
       const top = new Graphics();
       const controls = new Container();
-      w.addChild(fort, fortLabels, highlights, control, ca, pieces, fxLayer, top, controls);
+      const barLayer = new Container();
+      barLayer.eventMode = 'none';
+      barTip.current = { key: null, layer: barLayer };
+      w.addChild(fort, fortLabels, highlights, control, ca, pieces, fxLayer, top, controls, barLayer);
       layers.current = { highlights, fort, fortLabels, control, ca, pieces, fx: fxLayer, top, controls };
       showUnitLayers(layers.current, !hideRef.current);
       // Weather over the whole pane, in screen space above the map; it takes no pointer events.
@@ -1835,6 +1899,25 @@ export function BoardView({
       const rect = canvas.getBoundingClientRect();
       return xf.current.toMap((e.clientX - rect.left - w.x) / w.scale.x, (e.clientY - rect.top - w.y) / w.scale.y);
     };
+    /** The roadblock bar (its hexside, in view space) within a few pixels of the pointer, and the point to show its card at. */
+    const barUnder = (vx: number, vy: number): { f: FortHex; x: number; y: number } | null => {
+      const tol = 6 / Math.min(1, w.scale.x);
+      for (const f of latest.current.fortifications ?? []) {
+        if (f.kind !== 'roadblock' || f.hexside === undefined) continue;
+        const h = anyHex(f.hex);
+        if (!h) continue;
+        const m = hexCenter(h, placementsUnused);
+        const a = xf.current.toView(m.x + cornerOffset(f.hexside).x, m.y + cornerOffset(f.hexside).y);
+        const b = xf.current.toView(m.x + cornerOffset(f.hexside + 1).x, m.y + cornerOffset(f.hexside + 1).y);
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const u = Math.max(0, Math.min(1, ((vx - a.x) * dx + (vy - a.y) * dy) / (dx * dx + dy * dy || 1)));
+        const px = a.x + u * dx;
+        const py = a.y + u * dy;
+        if (Math.hypot(vx - px, vy - py) <= tol) return { f, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      }
+      return null;
+    };
     /** The on-map handle under the pointer, if any. */
     const controlUnder = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
@@ -1965,6 +2048,19 @@ export function BoardView({
         drawArcs();
       }
       const ctl = drag?.moved ? null : controlUnder(e);
+      // A roadblock's bar: its own card beside it while the pointer is on it.
+      {
+        const vx = (e.clientX - rect.left - w.x) / w.scale.x;
+        const vy = (e.clientY - rect.top - w.y) / w.scale.y;
+        const bar = drag?.moved ? null : barUnder(vx, vy);
+        const key = bar ? `${bar.f.hex}:${bar.f.hexside}` : null;
+        const bt = barTip.current;
+        if (key !== bt.key && bt.layer) {
+          bt.key = key;
+          bt.layer.removeChildren().forEach((ch) => ch.destroy({ children: true }));
+          if (bar?.f.tip) bt.layer.addChild(controlTip(bar.f.tip, bar.x, bar.y, false, 1 / Math.min(1, w.scale.x)));
+        }
+      }
       canvas.style.cursor = ctl && !ctl.disabled ? 'pointer' : '';
       if ((ctl?.id ?? null) !== hoverControl.current) {
         hoverControl.current = ctl?.id ?? null;
@@ -2015,6 +2111,10 @@ export function BoardView({
       drag = null;
     });
     canvas.addEventListener('pointerleave', () => {
+      if (barTip.current.key !== null) {
+        barTip.current.key = null;
+        barTip.current.layer?.removeChildren().forEach((ch) => ch.destroy({ children: true }));
+      }
       if (hoverHex.current !== null) {
         hoverHex.current = null;
         drawArcs();
@@ -2132,7 +2232,7 @@ export function BoardView({
     };
     const moving = moveState(env as unknown as QueryEnv)?.units[0];
     const bare = hideMarkersRef.current;
-    const markersOf = (p: Piece) => (bare ? [] : [...unitMarkers(p, natOf(p), moving), ...vehicleMgMarkers(env, p)]);
+    const markersOf = (p: Piece) => (bare ? [] : unitMarkers(p, natOf(p), moving));
     drawControl(L.control, ctl, statics, anyHex, center);
     drawFortified(L.fort, L.fortLabels, fort, anyHex, xf.current);
     drawOutOfPlay(L.fort, dead, anyHex, xf.current);
@@ -2179,6 +2279,30 @@ export function BoardView({
       if (h) {
         const c = hexCenter(h, placements);
         L.highlights.poly(hexPolygon(c.x, c.y, xf.current)).stroke({ color: 0xffe066, width: 3 });
+      }
+    }
+    // A Gun (or AFV) and its Acquired Target counter (SK4 6.10): selecting either outlines the other in the Gun's
+    // identity colour. No line joins them, which would tell anyone the LOS along it.
+    {
+      const idents = gunIdents(s, env);
+      const outline = (hex: HexId, color: number) => {
+        const h = anyHex(hex);
+        if (!h) return;
+        const c = hexCenter(h, placements);
+        const poly = hexPolygon(c.x, c.y, xf.current);
+        L.highlights.poly(poly).fill({ color, alpha: 0.18 }).stroke({ color: 0x111111, width: 8, alpha: 0.45 });
+        L.highlights.poly(poly).stroke({ color, width: 4, alpha: 1 });
+      };
+      for (const p of Object.values(s.pieces)) {
+        const a = ordnanceOf(env as never, p) ? acquisitionOf(p) : null;
+        if (!a || p.loc.kind === 'eliminated') continue;
+        const at = vehicleDef(env as never, p) ? hexOfPiece(s, p) : gunHex(env as never, p);
+        if (!at || at === a.hex) continue;
+        const sel = o.selectedPieces;
+        const firerSelected = !!sel?.has(p.id) || (p.loc.kind === 'held' && !!sel?.has(p.loc.by)) || o.selectedHex === at;
+        const color = identColor(idents.get(p.id) ?? 'A');
+        if (firerSelected) outline(a.hex, color);
+        if (o.selectedHex === a.hex) outline(at, color);
       }
     }
 
@@ -2481,9 +2605,12 @@ export function BoardView({
           box.addChild(new Graphics().roundRect(ms.x + 2, ms.y + 3, MARKER, MARKER, 3).fill({ color: 0x000000, alpha: 0.4 }));
           box.addChild(ms);
         }
-        // The crew's posture (SK4 3.3.2) as a tab hanging off the counter's bottom-left corner, drawn
-        // over the markers and clear of where the stack steps up-right, so CE/BU reads under any pile.
-        if (veh && !bare && !isWreck(p) && p.tags['vca'] !== undefined) box.addChild(crewTab(!!p.tags['ce'], size, spent));
+        // The crew's posture and the states that hamper a vehicle as tabs on the middle of its counter, over the markers
+        // (`vehicleTabs`). The hover card names them all.
+        if (veh && !bare) {
+          const tabs = vehicleTabs(env, p);
+          if (tabs.length) box.addChild(vehicleTabsBox(tabs, size, spent));
+        }
         // A Gun's identity letter (top left), and text badges for Gun states with no marker art. A
         // vehicle wears its letter only when it is needed: to pair it with its Acquired Target
         // counter, or to tell it from another vehicle in the same hex (an offboard pile).
@@ -2491,9 +2618,9 @@ export function BoardView({
           const letter = gunIdents(s, env).get(p.id);
           if (letter) box.addChild(identBadge(letter, 9, 9, 8));
         }
-        const badges = d.kind === 'gun' ? unitBadges(p, isCaptured(env as never, p)) : [...(o.onRoad?.has(p.id) ? ['ROAD'] : []), ...(o.assaultMoving?.has(p.id) ? ['AM'] : []), ...(o.inBypass?.has(p.id) ? ['BYP'] : []), ...(o.snap?.units.has(p.id) ? ['SNAP'] : []), ...(o.smokeTried?.has(p.id) ? ['SMK'] : [])];
+        const badges = d.kind === 'gun' ? unitBadges(p, isCaptured(env as never, p)) : [...(o.onRoad?.has(p.id) ? ['ROAD'] : []), ...(o.assaultMoving?.has(p.id) ? ['AM'] : []), ...(o.inBypass?.has(p.id) ? ['BYP'] : []), ...(o.snap?.units.has(p.id) ? ['SNAP'] : []), ...(o.smokeTried?.has(p.id) ? ['SMK'] : []), ...(typeof p.tags['wa'] === 'string' ? ['WA'] : []), ...(clearingUnits(s).has(p.id) ? ['TASK'] : [])];
         badges.forEach((label, k) => {
-          const bg = new Graphics().roundRect(size - 26, 2 + k * 14, 24, 12, 3).fill({ color: label === 'CAPT' ? 0xc0392b : label === 'ROAD' ? 0x8a6a2c : label === 'BYP' ? 0xc77d0a : label === 'SNAP' ? 0x2f7fd6 : label === 'SMK' ? 0x5b6670 : label === 'AM' ? 0x1f8a5b : 0x2a2a2a, alpha: 0.9 });
+          const bg = new Graphics().roundRect(size - 26, 2 + k * 14, 24, 12, 3).fill({ color: label === 'CAPT' ? 0xc0392b : label === 'ROAD' ? 0x8a6a2c : label === 'BYP' ? 0xc77d0a : label === 'SNAP' ? 0x2f7fd6 : label === 'SMK' ? 0x5b6670 : label === 'AM' ? 0x1f8a5b : label === 'WA' ? 0x6b5b3e : label === 'TASK' ? 0x7a4bb0 : 0x2a2a2a, alpha: 0.9 });
           const tx = new Text({ text: label, style: { fontSize: 9, fill: 0xffffff, fontWeight: 'bold' } });
           tx.position.set(size - 24, 2 + k * 14);
           box.addChild(bg, tx);

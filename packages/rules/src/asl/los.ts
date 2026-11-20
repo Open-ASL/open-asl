@@ -1,4 +1,5 @@
 import type { HexId, QueryEnv, RuleModule } from '@asl/engine';
+import type { HexsideObstacle } from '../common/statics';
 import { hexOfLoc } from '../common/location';
 import { statics } from '../common/pieces';
 import type { LosResult } from '../common/statics';
@@ -6,6 +7,13 @@ import { grainInSeason, terrainOf, type LosTrace } from '../sk1/terrain';
 import { heightOf } from '../sk2/elevation';
 import { orchardsInSeason } from '../sk2/ssr';
 import { rubbledHeights } from './rubble';
+
+declare module '@asl/engine' {
+  interface QueryCatalog {
+    /** The hexside obstacles every LOS is tested against (B9.2, B29.2): the roadblocks in play (`asl/roadblocks.ts`). */
+    'los.hexsides': { ctx: Record<string, never>; value: HexsideObstacle[] };
+  }
+}
 
 /**
  * LOS with heights in full ASL (ASLRB A6.2, A6.4–A6.43, A6.5, A6.7, B10.2–B10.23, B12.2, B13.2, B14.2, B15.2,
@@ -36,7 +44,8 @@ export const aslLosModule: RuleModule = {
         const to = hexOfLoc(c.to);
         if (!map.losAt) throw new Error('asl.los: the map has no LOS between heights');
         const rubbled = rubbledHeights(env);
-        const res = map.losAt({ hex: from, height: heightOf(env, c.from), ...c.fromAt }, { hex: to, height: heightOf(env, c.to), ...c.toAt }, { orchardInSeason: orchardsInSeason(env), ...(c.noBlind ? { noBlind: true } : {}), ...(Object.keys(rubbled).length ? { rubbled } : {}) });
+        const hexsides = env.query('los.hexsides', {}, []);
+        const res = map.losAt({ hex: from, height: heightOf(env, c.from), ...c.fromAt }, { hex: to, height: heightOf(env, c.to), ...c.toAt }, { orchardInSeason: orchardsInSeason(env), ...(c.noBlind ? { noBlind: true } : {}), ...(Object.keys(rubbled).length ? { rubbled } : {}), ...(hexsides.length ? { hexsides } : {}) });
         if (!res.clear) {
           return {
             clear: false,
@@ -45,6 +54,7 @@ export const aslLosModule: RuleModule = {
             blockedBy: blockedBy(env, res),
             ...(res.near ? { near: true } : {}),
             ...(res.blockedAt ? { blockedAt: res.blockedAt } : {}),
+            ...(res.hexsides ? { hexsides: res.hexsides } : {}),
           };
         }
         // `losAt` lists only the Hindrances that apply between these heights; grain is open ground out of season.
@@ -57,7 +67,7 @@ export const aslLosModule: RuleModule = {
           seen.add(x.hex);
           parts.push({ label: `+1 ${hind.name} hindrance`, hex: x.hex, drm: 1, terrain: hind.id });
         }
-        return { clear: true, hindrance: parts.length, parts, ...(res.woods ? { woods: res.woods } : {}), ...(res.orchard ? { orchard: res.orchard } : {}) };
+        return { clear: true, hindrance: parts.length, parts, ...(res.woods ? { woods: res.woods } : {}), ...(res.orchard ? { orchard: res.orchard } : {}), ...(res.hexsides ? { hexsides: res.hexsides } : {}) };
       },
     });
     // A6.7, B10.22: a vehicle or wreck is a Hindrance only between same-level firer and target.
@@ -75,6 +85,7 @@ export const aslLosModule: RuleModule = {
 function blockedBy(env: QueryEnv, res: LosResult): string {
   const o = res.obstacle;
   if (!o) return res.crest ? 'higher ground (Crest Line)' : 'terrain obstacle';
+  if (o.hexside) return `the ${o.terrain} on ${o.hexside[0]}–${o.hexside[1]} (ASLRB ${o.terrain === 'roadblock' ? 'B29.2' : 'B9.2'})`;
   const h = statics(env).map.hex(o.hex);
   const name = o.terrain === 'hill' ? 'higher ground' : h?.obstacleHeight === 1.5 ? 'Two Story House' : (statics(env).terrain[o.terrain]?.name ?? o.terrain);
   if (o.blind) return o.terrain === 'hill' ? `a Blind Hex behind the Crest Line in ${o.hex} (ASLRB B10.23)` : `a Blind Hex behind the ${name} in ${o.hex} (ASLRB A6.4)`;

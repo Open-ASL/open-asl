@@ -163,6 +163,15 @@ describe('Rubble creation by HE (B24.11)', () => {
     expect(rubbleAt(engine.env(t.state), 'uK5')).toMatchObject({ from: 0 });
   });
 
+  it('no Fortification stays in a rubble Location: rubbling a building removes the minefield in it (B24.5; Q&A [K33] to B24.11, B24.5 & B28)', () => {
+    const far: PieceSpec[] = [{ id: 'gf', def: 'ge.467', side: 'ge', hex: 'uY10' }, { id: 'rf', def: 'ru.447', side: 'ru', hex: 'uA1' }];
+    const { engine, state } = game(far, { dice: [1, 1, 1] });
+    const mined = { ...state, ext: { ...state.ext, 'asl.fortifications': { counters: [{ id: 'ru.fort1', side: 'ru', kind: 'mines', hex: 'uM6', hidden: true, mines: { ap: 6 } }] } } };
+    const t = act(engine, mined, { type: 'test.beforeApply', group: ['uM6'], dr: 2, column: 30, by: 'dc' });
+    expect(rubbleAt(engine.env(t.state), 'uM6')).toMatchObject({ from: 0 });
+    expect(fortCounters(engine.env(t.state))).toEqual([]);
+  });
+
   it('a rubble dr beyond the KIA number leaves the building, and the attack is resolved on the occupants', () => {
     const p = probe();
     const { engine, state } = game(pieces(p.engine, p.state), { dice: [2, 1, 1, 1, 3, 3, 4] });

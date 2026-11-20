@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Engine, GameState } from '@asl/engine';
 import { aslCoreModules } from '../src';
+import { ccAttackPreview } from '../src/sk1/closeCombat';
 import { controlState } from '../src/sk1/scenario';
 import { interdicted } from '../src/sk1/rout';
 import { sk2CoreModules } from '../src/sk2';
@@ -86,9 +87,15 @@ describe('Close Combat with a vehicle (SK4 3.8)', () => {
     expect(opts).toContainEqual([{ attackers: ['b'], targets: ['pziv'] }]);
     expect(opts).not.toContainEqual([{ attackers: ['a', 'b'], targets: ['pziv'] }]);
     expect(validate(engine, state, { type: 'cc.declare', attacks: [{ attackers: ['a', 'b'], targets: ['pziv'] }] })).toMatch(/MMC with a SMC/);
+    // What the panel shows before the roll is what the roll then uses: CCV 6 (no odds column), DRM 0, eliminated under 6.
+    const pv = ccAttackPreview(engine.env(state), 'yM5', 'ru', { attackers: ['a', 'l'], targets: ['pziv'] });
+    expect(pv).toMatchObject({ ccv: { value: 6 }, odds: null, drm: 0, kill: 5, illegal: null });
+    expect(ccAttackPreview(engine.env(state), 'yM5', 'ru', { attackers: ['b'], targets: ['pziv'] }).ccv?.value).toBe(5);
     const r = act(engine, state, { type: 'cc.declare', attacks: [{ attackers: ['a', 'l'], targets: ['pziv'] }] });
     const cc = ev(r, 'sk3.cc.vsVehicle')[0]!;
     expect(cc).toMatchObject({ ccv: 6, drm: 0, result: 'immobilized' });
+    // The panzer's attack on the Infantry is odds of its FP against their CCV, as before.
+    expect(ccAttackPreview(engine.env(r.state), 'yM5', 'ge', { attackers: ['pziv'], targets: ['a', 'b', 'l'] }).ccv).toBeUndefined();
     expect(cc['drmExplain']).toEqual(expect.arrayContaining([expect.objectContaining({ label: '-1 vs Crew Exposed AFV' }), expect.objectContaining({ label: '+2 vs Motion/Non-Stopped vehicle' })]));
     expect(r.state.pieces['pziv']!.tags[T3.immob]).toBe(true);
     // The German's turn: the panzer attacks with its 5 FP CMG against the Russians' CCV.

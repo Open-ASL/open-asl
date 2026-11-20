@@ -47,6 +47,22 @@ describe('A19.2 GREEN & CONSCRIPT TROOPS, A19.3 INEXPERIENCED PERSONNEL RESTRICT
     expect(inexperienced('ru.426', {})).toBe(true);
     expect(inexperienced('am.747')).toBe(false);
   });
+
+  it('under the full ASL rules an unbroken leader exempts the Green MMC even when not Good Order (in Melee); a hero does not (A19.3; Q&A [K33])', () => {
+    const run = (other: PieceSpec, melee: boolean) => {
+      const { engine, state } = makeEngine({
+        modules: [piecesModule, turnModule, ...sk1CoreModules, ...sk2CoreModules, ...sk3CoreModules, ...aslCoreModules],
+        pieces: [{ id: 'u', def: 'am.536', side: 'am', hex: 'yN5' }, other, { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yP9' }],
+        scenario: { sides: [{ side: 'am', name: 'American', nationality: 'am', elr: 3 }, { side: 'ge', name: 'German', nationality: 'ge', elr: 3 }] },
+        ...(melee ? { hexMarkers: { yN5: { melee: true } } } : {}),
+      });
+      return engine.env(state).query('unit.inexperienced', { unit: 'u' }, false);
+    };
+    const leader: PieceSpec = { id: 'l', def: 'am.L80', side: 'am', hex: 'yN5' };
+    expect(run(leader, false)).toBe(false);
+    expect(run(leader, true)).toBe(false);
+    expect(run({ ...leader, tags: { broken: true } }, false)).toBe(true);
+  });
 });
 
 describe('A21.11 MALFUNCTION, A21.12 PERFORMANCE (captured SW)', () => {

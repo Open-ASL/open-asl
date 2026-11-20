@@ -382,6 +382,21 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         } else if (st.buildings.length) out.push({ seq: e.seq, kind: 'info', text: `${sideNameOf(env, st.side)} secretly designated ${st.buildings.length} fortified building${st.buildings.length === 1 ? '' : 's'} (SSR)` });
         break;
       }
+      case 'asl.bypass.wireRefused': {
+        const units = (p['units'] as string[]).map(name).join(', ');
+        const wire = (p['wire'] as string[]).map(hexLabel).join(', ');
+        out.push({ seq: e.seq, kind: 'move', text: `  ▣ Wire in ${wire}: ${units} cannot bypass ${hexLabel(p['hex'] as string)} (ASLRB B26.44); nothing is spent and the move goes on` });
+        break;
+      }
+      case 'asl.wire.vehicleRefused': {
+        out.push({ seq: e.seq, kind: 'move', text: `  ▣ ${name(p['vehicle'] as string)} finds Wire in ${hexLabel(p['hex'] as string)}: nothing is spent, and entering it costs its Wire MP and a Bog Check (ASLRB B26.43)` });
+        break;
+      }
+      case 'asl.ent.vehicleRefused': {
+        const what = p['kind'] === 'ditch' ? 'an A-T Ditch: no vehicle may enter it (ASLRB B27.56)' : 'a trench: no wheeled vehicle or halftrack may enter its hex (ASLRB B27.55)';
+        out.push({ seq: e.seq, kind: 'move', text: `  ▣ ${name(p['vehicle'] as string)} finds ${what} in ${hexLabel(p['hex'] as string)}; nothing is spent` });
+        break;
+      }
       case 'asl.fortified.refused': {
         const units = (p['units'] as string[]).map(name).join(', ');
         const loc = p['loc'] as string;
@@ -404,7 +419,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         const side = `${hexLabel(hexOfLoc(loc))}/${hexLabel(p['toward'] as string)}`;
         const text = p['malfunctioned']
           ? `  ✸ Breach attempt on the ${side} hexside: the DC fails to detonate (DR ${dr2(p['dr'], 'Breach')})`
-          : `  ✸ Breach attempt on the ${side} hexside: DR ${dr2(p['dr'], 'Breach')}${(p['drm'] as number) ? ` ${(p['drm'] as number) > 0 ? '+' : ''}${p['drm']}` : ''} — ${p['result'] === 'none' ? 'no effect' : p['result']}: ${p['breached'] ? 'the hexside is Breached' : 'the wall holds'}`;
+          : `  ✸ Breach attempt on the ${side} hexside: DR ${dr2(p['dr'], 'Breach')}${(p['drm'] as number) ? ` ${(p['drm'] as number) > 0 ? '+' : ''}${p['drm']}` : ''} — ${p['result'] === 'none' ? 'no effect' : p['result']}: ${p['breached'] ? 'the hexside is Breached' : p['unfortified'] ? `no Breach: ${hexLabel(hexOfLoc(loc))} is not a Fortified Building Location, and the DC attacks only as Area Fire (ASLRB B23.9221)` : 'the wall holds'}`;
         out.push({ seq: e.seq, kind: 'fire', text });
         break;
       }
@@ -464,6 +479,48 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         out.push({ seq: e.seq, kind: 'move', text: `  ${units} ${p['beneath'] ? 'go beneath' : 'climb out of'} the entrenchment in ${hexLabel(p['hex'] as string)}${p['phase'] === 'MPh' ? ` (${mf ? `${mf} MF` : 'no MF: hidden'})` : p['phase'] === 'RtPh' ? ` (+${mf} MF, no Interdiction there)` : ''} (ASLRB ${p['phase'] === 'RtPh' ? 'B27.41' : p['phase'] === 'APh' ? 'B27.44' : 'B27.4'})` });
         break;
       }
+      case 'asl.wire.exit': {
+        const rs = p['units'] as { unit: string; dr: number; mf: number; outcome: string }[];
+        const where = hexLabel(p['hex'] as string);
+        if (p['free']) {
+          out.push({ seq: e.seq, kind: 'move', text: `  ${rs.map((r) => name(r.unit)).join(', ')} get beneath their hidden Wire in ${where} (no MF, no dr: ASLRB A12.33)` });
+          break;
+        }
+        for (const r of rs)
+          out.push({ seq: e.seq, kind: 'check', text: `  ⌇ ${name(r.unit)} Wire Exit dr in ${where}: ${r.dr}${r.outcome === 'beneath' ? `, beneath the Wire (${r.mf} ${p['phase'] === 'RtPh' ? 'rout ' : ''}MF)` : `, more than its ${r.mf} MF left: hung up on top for this ${p['phase']}`} (ASLRB ${p['phase'] === 'RtPh' ? 'B26.41' : 'B26.4'})` });
+        break;
+      }
+      case 'asl.clearance.declared': {
+        const t = p['task'] as { kind: string; loc: string; units: string[]; director?: string };
+        out.push({ seq: e.seq, kind: 'info', text: `  🧹 ${t.units.map(name).join(', ')}${t.director ? ` (directed by ${name(t.director)})` : ''} ${p['joined'] ? 'join the work on' : 'start clearing'} the ${t.kind === 'wire' ? 'Wire' : t.kind === 'rubble' ? 'rubble' : 'roadblock'} in ${hexLabel(hexOfLoc(t.loc))}: TI, DR at the end of the CCPh${t.kind !== 'wire' ? ', Hazardous Movement' : ''} (ASLRB ${t.kind === 'wire' ? 'B24.73' : t.kind === 'rubble' ? 'B24.71' : 'B24.76'})` });
+        break;
+      }
+      case 'asl.clearance.dr': {
+        const t = p['task'] as { kind: string; loc: string };
+        const what = `the ${t.kind === 'wire' ? 'Wire' : t.kind === 'rubble' ? 'rubble' : 'roadblock'} in ${hexLabel(hexOfLoc(t.loc))}`;
+        if (p['abandoned']) {
+          out.push({ seq: e.seq, kind: 'info', text: `  🧹 no Clearance DR for ${what}: no MMC still at it (ASLRB B24.7)` });
+          break;
+        }
+        const drm = p['drm'] as number;
+        const ex = ((p['explain'] as string[] | undefined) ?? []).join(', ');
+        out.push({ seq: e.seq, kind: 'check', text: `  🧹 Clearance DR for ${what}: ${drText(p['dr'] as number[])}${drm ? ` ${drm > 0 ? '+' : ''}${drm}` : ''}${ex ? ` (${ex})` : ''} ≤ 2? ${p['success'] ? (t.kind === 'rubble' ? 'yes: a Trail Break' : 'yes: removed') : `no${p['labor'] !== undefined ? `; Labor ${p['labor']}` : ''}`} (ASLRB ${t.kind === 'wire' ? 'B24.73' : t.kind === 'rubble' ? 'B24.71' : 'B24.76'}, B24.8)` });
+        break;
+      }
+      case 'asl.tb': {
+        const tbs = p['tbs'] as [number, number][];
+        out.push({ seq: e.seq, kind: 'info', text: p['cleared'] ? `  🧹 every hexside of ${hexLabel(p['hex'] as string)} is crossed by a Trail Break: the rubble and the TB are removed (ASLRB B24.71)` : tbs.length ? `  🧹 a Trail Break through the rubble in ${hexLabel(p['hex'] as string)}: entry across its hexsides at the pre-rubble cost (ASLRB B24.71)` : `  the Trail Breaks in ${hexLabel(p['hex'] as string)} are gone under falling rubble (ASLRB B24.121)` });
+        break;
+      }
+      case 'asl.roadblock.he': {
+        const where = `${hexLabel(p['a'] as string)}–${hexLabel(p['b'] as string)}`;
+        const th = p['indirect'] ? 'the hit' : `To Hit vs the roadblock: Final ${p['final']} vs ${p['th']}`;
+        out.push({ seq: e.seq, kind: 'check', text: `  ▥ roadblock ${where}: ${th}${p['hit'] ? `, IFT DR ${p['dr']}${p['indirect'] ? ' +2' : ''}: ${p['kia'] ? 'KIA, removed' : 'no KIA'}` : ', missed'} (ASLRB B29.5)` });
+        break;
+      }
+      case 'asl.wire.drop':
+        out.push({ seq: e.seq, kind: 'info', text: `  ${name(p['unit'] as string)} leaves ${(p['sw'] as string[]).map(name).join(', ')} on top of the Wire to get beneath it (ASLRB B26.4)` });
+        break;
       case 'asl.fort.grown':
         out.push({ seq: e.seq, kind: 'info', text: `  ▣ the foxhole grows to ${p['capacity']}S (ASLRB B27.12)` });
         break;
@@ -761,7 +818,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
       }
       case 'asl.fort.revealed': {
         const c = shownCounter(p['counter'] as FortRecord, viewer) ?? (p['counter'] as FortRecord);
-        const how = { los: 'a Good Order enemy unit in LOS', tem: 'its TEM being claimed', concealment: 'a unit in it losing concealment', entry: 'a unit entering it', attack: 'its attack', search: 'a Search', grown: 'a new foxhole dug there replacing its counter (ASLRB B27.12)', rout: 'a routing unit going beneath it, out of reach of Interdiction (ASLRB B27.41)', strength: 'a Good Order enemy unit in LOS: its A-T mine factors are shown (ASLRB B28.53)' }[p['reason'] as string] ?? String(p['reason']);
+        const how = { los: 'a Good Order enemy unit in LOS', tem: 'its TEM being claimed', concealment: 'a unit in it losing concealment', entry: 'a unit entering it', attempt: 'an enemy move it bars', attack: 'its attack', search: 'a Search', grown: 'a new foxhole dug there replacing its counter (ASLRB B27.12)', rout: 'a routing unit going beneath it, out of reach of Interdiction (ASLRB B27.41)', strength: 'a Good Order enemy unit in LOS: its A-T mine factors are shown (ASLRB B28.53)' }[p['reason'] as string] ?? String(p['reason']);
         out.push({ seq: e.seq, kind: 'info', text: `  ▣ ${fortKindName(c)} in ${hexLabel(c.hex)} revealed by ${how} (ASLRB A12.33)` });
         break;
       }

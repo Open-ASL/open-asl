@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Action, Decision, HexId, LoggedEvent, Piece, PieceId, QueryEnv, SideId } from '@asl/engine';
 import {
   ccAttackPreview,
@@ -115,7 +115,8 @@ interface View {
   melee: boolean;
 }
 
-const LINGER = 2600;
+/** How long the results stay up once the hex's Close Combat is over, for both players to read (Close dismisses it sooner). */
+const LINGER = 7000;
 const FADE = 450;
 
 /** The odds column as the QRDC prints it: "3-2". */
@@ -123,7 +124,9 @@ const oddsLabel = (odds: string | null) => (odds ? odds.replace(':', '-') : '—
 const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 const shortLabel = (env: QueryEnv, p: Piece | undefined) => pieceLabel(env, p).replace(/^\S+ /, '');
 
-const RESULT_TEXT: Record<string, string> = { eliminated: 'Eliminated', 'casualty reduction': 'Casualty Reduction', 'no effect': 'No effect' };
+const RESULT_TEXT: Record<string, string> = { eliminated: 'Eliminated', 'casualty reduction': 'Casualty Reduction', 'no effect': 'No effect', immobilized: 'Immobilized' };
+/** An attack on a vehicle (`sk3.cc.vsVehicle`) as a result card reads it: its CCV in place of the odds column. */
+const VS_VEHICLE_RESULT: Record<string, string> = { eliminated: 'eliminated', immobilized: 'immobilized', casualtyReduction: 'casualty reduction', none: 'no effect' };
 
 // ------------------------------------------------------------------ session: when the overlay is up and what it remembers
 
@@ -138,7 +141,7 @@ function openedSeqOf(log: LoggedEvent[], hex: HexId, fallback: number): number {
   return fallback;
 }
 
-function useCcSession(env: QueryEnv, log: LoggedEvent[], animate: boolean, linger: number): CcSession | null {
+function useCcSession(env: QueryEnv, log: LoggedEvent[], animate: boolean, linger: number): { session: CcSession | null; dismiss(): void } {
   const [session, setSession] = useState<CcSession | null>(null);
   // A game that ends (a concession, say) with a Close Combat still open lets the overlay go.
   const hex = env.state.result ? undefined : ccStateOf(env)?.hex;
@@ -172,7 +175,8 @@ function useCcSession(env: QueryEnv, log: LoggedEvent[], animate: boolean, linge
     }
     return undefined;
   }, [session, animate, linger]);
-  return session;
+  const dismiss = useCallback(() => setSession((s) => (s?.phase === 'linger' ? { ...s, phase: 'out' } : s)), []);
+  return { session, dismiss };
 }
 
 // ------------------------------------------------------------------ view: the hex's Close Combat as far as it has been revealed
@@ -234,8 +238,15 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
     const notes = new Map<number, string>();
     for (const e of after) {
       const p = e.payload as Record<string, unknown>;
-      if (e.type === 'dice.rolled' && p['label'] === `CC ${side} in ${hex}`) rolled.push({ dice: p['dice'] as number[], seq: e.seq });
+      // An attack on a vehicle rolls under its own label (`CC ru vs <vehicle> in <hex>`), against the attackers' CCV.
+      const label = String(p['label'] ?? '');
+      if (e.type === 'dice.rolled' && (label === `CC ${side} in ${hex}` || (label.startsWith(`CC ${side} vs `) && label.endsWith(` in ${hex}`)))) rolled.push({ dice: p['dice'] as number[], seq: e.seq });
       else if (e.type === 'sk1.cc.attack' && p['side'] === side && p['hex'] === hex) events.push(p as unknown as (typeof events)[number]);
+      else if (e.type === 'sk3.cc.vsVehicle' && p['side'] === side && p['hex'] === hex && !p['reaction']) {
+        const dice = p['dice'] as number[] | undefined;
+        const dr = (p['dr'] as number[] | undefined) ?? dice ?? [];
+        events.push({ attack: { attackers: p['attackers'] as PieceId[], targets: [p['vehicle'] as PieceId] }, odds: `CCV ${p['ccv']}`, drm: p['drm'] as number, dr: dr.reduce((a, b) => a + b, 0), kill: (p['ccv'] as number) - 1, result: VS_VEHICLE_RESULT[p['result'] as string] ?? String(p['result']) });
+      }
       else if (e.type === 'sk1.leaderCreation' && rolled.length > events.length) {
         const leader = p['leader'] as PieceId | null;
         notes.set(rolled.length - 1, leader ? `Field promotion: ${shortLabel(env, env.state.pieces[leader])}` : 'Field promotion fails');
@@ -339,7 +350,7 @@ function useCcDrag(opts: DragOpts) {
 
 export function CloseCombat(props: Props) {
   const { env, log, decision, animate, linger = LINGER, onShown, onLinger } = props;
-  const session = useCcSession(env, log, animate, linger);
+  const { session, dismiss } = useCcSession(env, log, animate, linger);
   const shown = !!session;
   useEffect(() => onShown?.(shown), [shown, onShown]);
   const lingering = !!session && session.phase !== 'open';
@@ -353,15 +364,17 @@ export function CloseCombat(props: Props) {
   const slice = lastHere.current;
   const view = useMemo(() => (session && slice ? buildView(session, slice, env, log, decision) : null), [session, slice, env, log, decision]);
   if (!session || !view) return null;
-  return <Panel key={session.hex} {...props} session={session} view={view} />;
+  return <Panel key={session.hex} {...props} session={session} view={view} dismiss={dismiss} />;
 }
 
 interface PanelProps extends Props {
   session: CcSession;
   view: View;
+  /** Ends the linger over the results now. */
+  dismiss(): void;
 }
 
-function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, check, plain, animate, session, view }: PanelProps) {
+function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, check, plain, animate, session, view, dismiss }: PanelProps) {
   const { hex, step, acting, sequential, roster, order } = view;
   const mine = !!owner && acting === owner && session.phase === 'open' && !resolving;
   const me = mine ? owner : undefined;
@@ -558,7 +571,7 @@ function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, chec
               </div>
               <div className="cc-math">
                 DR {r.dr}
-                {r.drm ? ` ${signed(r.drm)} = ${final}` : ''} · kill ≤ {r.kill}
+                {r.drm ? ` ${signed(r.drm)} = ${final}` : ''} · {r.odds.startsWith('CCV') ? `eliminate ≤ ${r.kill}, immobilize ${r.kill + 1}` : `kill ≤ ${r.kill}`}
               </div>
               <div className="cc-result">{RESULT_TEXT[r.result] ?? r.result}</div>
               {c.note && <div className="cc-note">{c.note}</div>}
@@ -651,6 +664,11 @@ function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, chec
         </div>
 
         <div className="cc-foot">
+          {session.phase === 'linger' && (
+            <button className="ghost" onClick={dismiss}>
+              Close
+            </button>
+          )}
           {error && <span className="cc-error">{error}</span>}
           {!error && lockErr && attacks.length > 0 && <span className="cc-error">{lockErr}</span>}
           {mine && step === 'arrange' && (
@@ -683,6 +701,22 @@ function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, chec
 function Odds({ pv, ready, plain }: { pv: CcAttackPreview | null; ready: boolean; plain(m: string | null): string | null }) {
   if (!pv || !ready) return <div className="cc-mid idle">vs</div>;
   const notes = pv.drmNotes.map((n) => n.label).filter(Boolean).join(', ');
+  // Against a vehicle: a final DR under the attackers' CCV eliminates it, equal to it Immobilizes (SK4 3.8).
+  if (pv.ccv)
+    return (
+      <div className="cc-mid">
+        <div className="cc-fp">{pv.ccv.notes.join(', ')}</div>
+        <div className="cc-odds">CCV {pv.ccv.value}</div>
+        <div className="cc-math">
+          DRM {signed(pv.drm)}
+          {notes ? ` (${notes})` : ''}
+        </div>
+        <div className="cc-math">
+          final DR &lt; {pv.ccv.value} eliminates, = {pv.ccv.value} immobilizes
+        </div>
+        {pv.illegal && <div className="cc-illegal">{plain(pv.illegal)}</div>}
+      </div>
+    );
   return (
     <div className="cc-mid">
       <div className="cc-fp">

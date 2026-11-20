@@ -346,3 +346,27 @@ describe('vehicle movement (SK4 3.3.2)', () => {
     expect(check(pfph.state, { type: 'sw.destroy', sw: 't34.cmg' })).toMatch(/part of its vehicle/);
   });
 });
+
+describe('Residual FP and a moving vehicle (SK1 3.3.1; SK4 3.2.3, 7.7)', () => {
+  const enter = (tags: Record<string, string | number | boolean>) => {
+    const { engine, state } = game([t34('yM5', tags)], { dice: [3, 3, 6, 6, 6, 6] });
+    let s = play(engine, state, { type: 'vmove.start', vehicle: 't34' });
+    const to = neighbours(engine, s, 'yM5')![0]!;
+    s = { ...s, hexMarkers: { ...s.hexMarkers, [to]: { residualFp: 4 } } };
+    const t = act(engine, s, { type: 'move.step', to });
+    return { engine, t, attacks: t.events.filter((e) => e.type === 'sk1.fire.attack') };
+  };
+
+  it('a Buttoned Up AFV entering Residual FP takes no attack and no DR is made: no IFT result can affect it', () => {
+    const { engine, t, attacks } = enter({});
+    expect(attacks).toEqual([]);
+    expect(t.events.some((e) => e.type === 'dice.rolled')).toBe(false);
+    // The move goes on as usual.
+    expect(engine.legalActions(t.state, 'ru').some((a) => a.type === 'move.step')).toBe(true);
+  });
+
+  it('a Crew Exposed AFV entering Residual FP is attacked: its crew may take the result', () => {
+    const { attacks } = enter({ ce: true });
+    expect(attacks).toHaveLength(1);
+  });
+});

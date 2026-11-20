@@ -1,6 +1,6 @@
 import type { HexId, PieceId, QueryEnv, RuleModule } from '@asl/engine';
 import { statics } from '../common/pieces';
-import type { TerrainDef } from '../common/statics';
+import type { TerrainDef, HexsideCrossing } from '../common/statics';
 import { hexOfLoc, type LocId } from '../common/location';
 
 declare module '@asl/engine' {
@@ -15,7 +15,7 @@ declare module '@asl/engine' {
     /** Infantry MF to enter `to` from `from`. */
     /** `loc`: the Location entered in `to` when it is not the ground level (an upper floor, a cave). */
     /** `off`: the offboard hex a step onto the map comes from (`from` is null then), for terrain that extends offboard (a path). */
-    'move.cost': { ctx: { unit: PieceId; from: HexId | null; to: HexId; viaRoad: boolean; loc?: LocId; off?: HexId }; value: number };
+    'move.cost': { ctx: { unit: PieceId; from: HexId | null; to: HexId; viaRoad: boolean; loc?: LocId; off?: HexId; /** Full ASL: decline a Trail Break's reduced cost (ASLRB B13.4212). */ noTb?: boolean }; value: number };
     /**
      * Whether roads give their road movement rate (the Infantry road bonus, a vehicle's road MP): true unless a rule
      * treats them as Open Ground (LMA5 SSR 3: snow-covered roads).
@@ -63,6 +63,8 @@ export interface LosTrace {
   woods?: HexId[];
   /** The end Orchard-Road hexes in which the thread leaves the road (see LosResult.orchard). */
   orchard?: HexId[];
+  /** Full ASL: the hexside obstacles the thread crossed, ran along or ended at (see LosResult.hexsides). */
+  hexsides?: HexsideCrossing[];
 }
 
 export const terrainOf = (env: QueryEnv, loc: HexId | LocId): TerrainDef => {

@@ -539,9 +539,12 @@ describe('Flame clearance (B25.7, B24.7, B24.72, B24.721, B24.8)', () => {
     const t = act(engine, s, { type: 'fire.extinguish', loc: 'uK4', flame: flame.id, units: ['s1', 'h1'], director: 'l' });
     expect(events(t, 'asl.fire.extinguish')[0]).toMatchObject({ drm: -3, outcome: 'hampered', explain: ['-1 leadership', '-2 1 squad and 1 HS/crew'] });
     expect(flamesAt(engine.env(t.state), 'uK4')[0]!.hampered).toBe(true);
-    for (const id of ['l', 's1', 'h1']) expect(t.state.pieces[id]!.tags).toMatchObject({ ti: true, hazardous: true });
-    // Fired on, the -2 says why (A4.62 via B24.72), not "manhandling a Gun".
-    expect(engine.env(t.state).explain('fire.unitDrm', { attack: { target: 'uK4', parts: [], mode: 'prep', side: 'ge', hindrance: 0 } as never, unit: 's1' }, 0).trace.map((c) => c.label ?? '').join('|')).toMatch(/Hazardous Movement \(fighting a Flame/);
+    // TI, but no Hazardous Movement left: it ended with the DR (B24.7; Q&A [K33] to B24.7 & E1.21).
+    for (const id of ['l', 's1', 'h1']) {
+      expect(t.state.pieces[id]!.tags).toMatchObject({ ti: true });
+      expect(t.state.pieces[id]!.tags['hazardous']).toBeUndefined();
+    }
+    expect(engine.env(t.state).explain('fire.unitDrm', { attack: { target: 'uK4', parts: [], mode: 'prep', side: 'ge', hindrance: 0 } as never, unit: 's1' }, 0).trace.map((c) => c.label ?? '').join('|')).not.toMatch(/Hazardous Movement/);
     // TI: no move this turn, no AFPh fire, no advance; the Hamper stops the Blaze DR this turn; next turn they are free again.
     expect(engine.legalActions(t.state, 'ru').some((a) => a.type === 'move.start' && (a['units'] as string[]).includes('s1'))).toBe(false);
     s = until(engine, t.state, 'AFPh', { turn: 1, attacker: 'ru' });
@@ -555,25 +558,14 @@ describe('Flame clearance (B25.7, B24.7, B24.72, B24.721, B24.8)', () => {
     expect(engine.legalActions(s, 'ru').some((a) => a.type === 'move.start' && (a['units'] as string[]).includes('s1'))).toBe(true);
   });
 
-  it('in the MPh the attempt is Hazardous Movement: the DEFENDER may First Fire at the units then, -2 and no FFNAM or FFMO (B24.72, A4.62)', () => {
-    // Clearance DR 4+3 -3: Hampered. Then g1 (P4) fires: 4 FP at range 5, DR 3+3.
+  it('Flame clearance spends no MF: the DEFENDER has no First Fire at it in the MPh, and the clearers keep the phase (B24.72; Q&A [K33] to B24.7 & E1.21)', () => {
     const { engine, state } = game(pieces, { scenario: { firstSide: 'ru' }, startPhase: 'MPh', dice: [4, 3, 3, 3, 6, 6, 6, 6, 6, 6] });
     let s = act(engine, state, { type: 'test.flame', loc: 'uK4' }).state;
     const flame = flamesAt(engine.env(s), 'uK4')[0]!;
     s = act(engine, s, { type: 'fire.extinguish', loc: 'uK4', flame: flame.id, units: ['s1', 'h1'], director: 'l' }).state;
-    expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', owner: 'ge' });
-    const r = act(engine, s, { type: 'defFire', decl: { units: ['g1'], sw: [], target: 'uK4' } });
-    const attack = events(r, 'sk1.fire.attack')[0] as { explain: { label?: string }[] };
-    const labels = attack.explain.map((n) => n.label ?? '');
-    expect(labels.some((l) => /FFNAM|FFMO/.test(l))).toBe(false);
-    const unitDrm = events(r, 'sk1.fire.result').map((e) => JSON.stringify(e)).join('|');
-    expect(unitDrm).toMatch(/Hazardous Movement/);
-    s = r.state;
-    while (engine.currentDecision(s)?.owner === 'ge') s = act(engine, s, { type: 'defPass' }).state;
-    // The clearers are neither moved nor marked by it; the MPh goes on.
+    expect(engine.currentDecision(s)).toMatchObject({ kind: 'phase', owner: 'ru' });
     expect(moveState(engine.env(s))).toBeFalsy();
     expect(s.pieces['s1']!.tags['moved']).toBeUndefined();
-    expect(engine.currentDecision(s)).toMatchObject({ owner: 'ru' });
   });
 
   it('a Final DR of 2 extinguishes; a failure earns a Labor counter that helps the next attempt in place and goes when the unit leaves', () => {
@@ -788,7 +780,7 @@ describe('A Flame from a FT, HE or DC attack (B25.12, B25.13)', () => {
     return { flame: events(t, 'asl.fire.attackFlame')[0], flames: flamesAt(engine.env(t.state), info.target) };
   };
 
-  it('a FT attack whose Original DR is a K or KIA makes a Flame DR, with the EC DRM even in a building (B25.12)', () => {
+  it('a FT attack whose Original DR is a K or KIA makes a Flame DR: no EC DRM in a building, the EC DRM in rubble (B25.12; official Q&A to B25.12)', () => {
     // The German FT in K3 (woods, adjacent) at the Russians in K4: 24 FP, Original DR 2: a KIA. Then the Flame DR.
     const { engine, state } = game([...RU_HOUSE, { id: 'gs', def: 'ge.467', side: 'ge', hex: 'uK3' }, { id: 'ft', def: 'ge.FT', side: 'ge', heldBy: 'gs' }], {
       scenario: { ec: 'dry' },
@@ -796,11 +788,15 @@ describe('A Flame from a FT, HE or DC attack (B25.12, B25.13)', () => {
     });
     const t = act(engine, state, { type: 'test.fire', decl: { units: [], sw: ['ft'], target: 'uK4' }, mode: 'prep' });
     const f = events(t, 'asl.fire.attackFlame')[0]!;
-    expect(f).toMatchObject({ loc: 'uK4', source: 'ft', drm: 1, flame: true });
-    expect(f['explain']).toContain('EC +1');
+    expect(f).toMatchObject({ loc: 'uK4', source: 'ft', drm: 0, flame: true });
+    expect(f['explain']).not.toContain('EC +1');
     expect(flamesAt(engine.env(t.state), 'uK4')).toHaveLength(1);
     expect(flameOf({ target: 'uK4', by: 'ft', originalResult: 'K' }).flame).toMatchObject({ source: 'ft' });
     expect(flameOf({ target: 'uK4', by: 'ft', originalResult: '1MC' as never }).flame).toBeUndefined();
+    // Wooden rubble: the FT's Flame DR takes the EC DRM; a HE attack's does not (the rubble reading of B25.5 stands for HE).
+    const rubble = game(far, { scenario: { ec: 'dry' }, extra: [testResolved], dice: [6, 6], terrain: { ...TERRAIN, uM6: { terrain: 'rubble-wood' } } });
+    const ft = act(rubble.engine, rubble.state, { type: 'test.resolved', info: { result: 'KIA', malfunctioned: false, target: 'uM6', by: 'ft', originalResult: 'KIA' } });
+    expect(events(ft, 'asl.fire.attackFlame')[0]).toMatchObject({ loc: 'uM6', source: 'ft', drm: 1 });
   });
 
   it('a HE or DC attack whose Original DR is a KIA makes a Flame DR: in woods with the EC DRM, in a building without (B25.13)', () => {

@@ -4,15 +4,17 @@ import { adjacentLocs, hexOfLoc, isGroundLoc, locOf, locationAt, type LocId } fr
 import { PHASE_DECISION } from '../common/turn';
 import { AP, type AdvanceAction, type AdvanceEnterFn } from '../sk1/advance';
 import { ffmoApplies, type FireAttackCtx } from '../sk1/fire';
-import { MOVE_ENTER, afterMfExpenditure, inPlaceIllegal, remaining, spendInPlace, type MoveEnterFn, type MoveState } from '../sk1/movement';
+import { MOVE_ENTER, afterMfExpenditure, inPlaceIllegal, moveInternals, remaining, spendInPlace, type MoveEnterFn, type MoveState } from '../sk1/movement';
 import { expenditureKey, moveLoc, moveState } from '../sk1/moveState';
 import { ROUT_ENTERED, type RoutEnteredFn } from '../sk1/rout';
 import { T, fireMarker, gun, gunHeldBy, isBroken, isGoodOrder, isPinned, mmc, pieceOf, setTags, smc, squadEquivalents } from '../sk1/status';
 import { smokeIn, terrainOf } from '../sk1/terrain';
 import { heightAdvantage, heightOf, levelOf } from '../sk2/elevation';
 import { OP, toHitNumber, type ResolveHitFn, type ShotCtx } from '../sk2/ordnance';
+import { vehicle } from '../sk3/status';
 import { counterTerrainIllegal, entrenchmentAt, fortCounters, fortHiddenAt, pillboxAt, removeFortification, revealFortification, shownCounter, type FortRecord } from './fortifications';
 import { isTi, laborTag, parseLabor, tiIllegal } from './labor';
+import { onWire, ownHiddenWire, wireKnownTo } from './wire';
 
 /*
  * Foxholes and trenches in play, and Entrenching (ASLRB B27; full ASL only).
@@ -297,6 +299,9 @@ export function entrenchmentMoveIllegal(env: QueryEnv, beneath: boolean): string
   if (beneath === !!ms.ent) return beneath ? `Already beneath the ${entName(c)}` : `Not beneath the ${entName(c)}`;
   if (ms.units.length === 0) return 'No unit is still moving';
   if (beneath) {
+    // On top of Wire a unit may not enter an entrenchment (B26.4): first beneath the Wire.
+    const wire = wireKnownTo(env, ms.hex, side);
+    if (wire && !ownHiddenWire(wire, side) && ms.units.some((u) => onWire(pieceOf(env, u)))) return 'Units on top of the Wire cannot enter an entrenchment: get beneath the Wire first (ASLRB B26.4)';
     const why = beneathIllegal(env, ms.hex, side, ms.units.map((u) => pieceOf(env, u)), !!ms.manhandle);
     if (why) return why;
   } else if (ms.manhandle) {
@@ -485,18 +490,42 @@ export const aslEntrenchmentsModule: RuleModule = {
         return [...v, { type: 'move.step' as const, to, beneath: true as const }];
       },
     });
-    // B27.56: "no vehicle may enter an unbridged A-T Ditch" (there are no bridges yet). A hidden ditch is revealed by the
-    // vehicle's own LOS from the adjacent hex before it can try (A12.33: a Good Order enemy ground unit, vehicles included),
-    // so the refusal never depends on a counter the moving side cannot see.
+    // B27.56: "no vehicle may enter an unbridged A-T Ditch" (there are no bridges yet); B27.55: "Wheeled vehicles or
+    // halftracks may not enter a trench hex". Both bind while the counter is hidden (Q&A [K33] to A12.33, B27.55, B27.56:
+    // a HIP A-T Ditch prohibits vehicular movement; a HIP trench prohibits entrance). Legality refuses only what the
+    // moving side knows; a counter it cannot see is found by the attempt (below), so no refusal leaks it.
+    const vehicleBarred = (env: QueryEnv, vid: PieceId, c: FortRecord | null): string | null => {
+      if (!c) return null;
+      if (c.kind === 'ditch') return `No vehicle may enter an A-T Ditch (${c.hex}; ASLRB B27.56)`;
+      if (c.kind === 'trench' && !vehicle(env, pieceOf(env, vid))?.tracked) return `Wheeled vehicles and halftracks may not enter a trench hex (${c.hex}; ASLRB B27.55)`;
+      return null;
+    };
     r.contribute({
       id: 'asl.ent.ditchVehicle',
       query: 'vehicle.stepIllegal',
-      ref: 'ASLRB B27.56',
-      apply(v, { to }, env) {
+      ref: 'ASLRB B27.55, B27.56',
+      apply(v, { ms, to }, env) {
         if (v) return v;
-        const c = entrenchmentKnownTo(env, to, env.state.attacker);
-        return c?.kind === 'ditch' ? `No vehicle may enter an A-T Ditch (${to}; ASLRB B27.56)` : null;
+        return vehicleBarred(env, ms.units[0]!, entrenchmentKnownTo(env, to, env.state.attacker));
       },
+    });
+    // The attempt on a counter the mover cannot see: it is revealed (the vehicle at its edge is a Good Order enemy ground
+    // unit with a LOS to its Location, A12.33), the step is not taken and nothing is spent; the vehicle moves on knowing.
+    r.procedure<MoveEnterFn>(MOVE_ENTER, (next) => (ctx, ms, to, cost, woods, extra) => {
+      const c = ms.vehicle && isGroundLoc(to) ? entrenchmentAt(ctx, hexOfLoc(to)) : null;
+      if (!c || shownCounter(c, ctx.state.attacker) || !vehicleBarred(ctx, ms.units[0]!, c)) return next?.(ctx, ms, to, cost, woods, extra);
+      revealFortification(ctx, c.id, 'attempt');
+      ctx.emit('asl.ent.vehicleRefused', { vehicle: ms.units[0]!, hex: c.hex, kind: c.kind });
+      moveInternals.reAskMover(ctx);
+    });
+    r.event<{ vehicle: PieceId; hex: HexId; kind: string }>({ type: 'asl.ent.vehicleRefused', apply() {} });
+    // B27.55: a fully-tracked vehicle enters a trench hex at the COT of its other terrain, is never beneath the trench, and
+    // chances a Bog DR on entering and on changing VCA there, hidden trench or not (Q&A [K33] to A12.33, B27.55).
+    r.contribute({
+      id: 'asl.ent.trenchBog',
+      query: 'vehicle.bogIn',
+      ref: 'ASLRB B27.55, D8.2',
+      apply: (v, { hex }, env) => v || entrenchmentAt(env, hex)?.kind === 'trench',
     });
     r.contribute({
       id: 'asl.ent.stepIllegal',

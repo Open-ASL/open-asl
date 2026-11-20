@@ -1,6 +1,6 @@
 import { COUNTERS, newGame } from '@asl/content';
 import type { Action, GameEvent, GameState, Piece, QueryEnv } from '@asl/engine';
-import { PHASE_NAME, achieved, casualtyVp, controlState, defLabel, defOf, exitVp, hexLabel, hexOfLoc, humanize, isWeaponDef, pieceLabel, statics, vpTally, type Casualty, type ScenarioDef, type VictoryCondition } from '@asl/rules';
+import { PHASE_NAME, achieved, hasUnitsLeft, casualtyVp, controlState, defLabel, defOf, exitVp, hexLabel, hexOfLoc, humanize, isWeaponDef, pieceLabel, statics, vpTally, type Casualty, type ScenarioDef, type VictoryCondition } from '@asl/rules';
 import { AAR_VERSION, type AarCasualty, type AarControl, type AarDice, type AarDoc, type AarFire, type AarRollKind, type AarHighlight, type AarLuck, type AarPlayer, type AarRace, type AarStrength, type AarVictory, type Competition, type MatchMode, type Timestamp } from '@asl/platform';
 import { buildingLabel, conditionText, leaves, list, plural, sideName, victoryStandings, winningClause } from './vc';
 
@@ -566,7 +566,11 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
       if (met[0]) hl(winner, m, 'Sudden death', `${conditionText(env, scenario, met[0])}: the game ends at once.`, 10);
       break;
     case 'annihilation':
-      how = loser ? `The last ${name(loser)} unit died in Turn ${state.turn}` : `Both sides were wiped out in Turn ${state.turn}`;
+      {
+        // The side wiped out, which the VC then settled may still favour (the game ends only where they are settled).
+        const gone = scenario.sides.map((x) => x.side).find((x) => !hasUnitsLeft(env, x));
+        how = gone ? `The last ${name(gone)} unit died in Turn ${state.turn}` : `Both sides were wiped out in Turn ${state.turn}`;
+      }
       if (casualties.length) {
         const last = casualties[casualties.length - 1]!;
         hl(winner, m, 'Annihilation', `${name(last.side)} ${last.label} in ${last.hex ?? '?'} was the last unit standing: ${last.cause}.`, 10);

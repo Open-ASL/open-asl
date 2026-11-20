@@ -377,6 +377,38 @@ export interface LosEnd {
   side?: number;
 }
 
+/**
+ * A Half-Level obstacle along a hexside (full ASL: a roadblock, B29.2; walls and hedges, B9, when a board has them): the
+ * hexside `k` of hex `a` (vertex `k` to vertex `k + 1`, numbered as `sideToward` does), `b` the hex across it, `level` its
+ * base level (the higher of the two hexes' Base Levels: a Hillside wall, B9.6, B29.4), and the extension segments from a
+ * vertex of the hexside (a corner index of `a`) to the centre dot of a woods/building hex at that vertex (B29.2).
+ */
+export interface HexsideObstacle {
+  id: string;
+  kind: 'roadblock' | 'wall' | 'hedge';
+  a: HexId;
+  b: HexId;
+  k: number;
+  level: number;
+  /** The two hexes are at different Base Levels (B9.6): only the higher hex's units are behind it. */
+  hillside: boolean;
+  tem: number;
+  extension: { hex: HexId; vertex: number }[];
+}
+
+/** How a LOS thread met a hexside obstacle (`LosResult.hexsides`): crossed it, ran along it, or ended at one of its vertices. */
+export interface HexsideCrossing {
+  id: string;
+  /** The thread crosses the hexside (its vertices included) between its ends. */
+  crossed: boolean;
+  /** The thread runs exactly along the hexside (B9.2, B9.42). */
+  along: boolean;
+  /** The thread ends at a vertex of the hexside: the hex of the obstacle (`a` or `b`) on whose side the other end lies, or null when on the line (B9.42). */
+  vertexFrom?: HexId | null;
+  /** The thread crosses an extension segment (B29.2), whose hex is named. */
+  extension?: HexId[];
+}
+
 /** What a LOS between heights needs to know beyond the map: the season makes an orchard an obstacle (ASLRB B14.2). */
 export interface LosAtOptions {
   /** Orchards are in season (April–October, or as an SSR says): a one-level obstacle to a LOS to/from a higher elevation. */
@@ -392,6 +424,8 @@ export interface LosAtOptions {
    * The tracers treat such a hex as an Inherent obstacle of those heights whatever its printed terrain.
    */
   rubbled?: Record<HexId, { hex: number; art?: number }>;
+  /** Full ASL: hexside obstacles to test the thread against (B9.2, B29.2). None in the Starter Kit. */
+  hexsides?: HexsideObstacle[];
 }
 
 export interface LosResult {
@@ -411,7 +445,9 @@ export interface LosResult {
    * What blocked a LOS between heights (`losAt`): the obstacle's hex and terrain ('hill' for higher ground), and
    * `blind` when the LOS passed over it but the lower end is in one of its Blind Hexes (ASLRB A6.4, B10.23).
    */
-  obstacle?: { hex: HexId; terrain: string; blind?: boolean };
+  obstacle?: { hex: HexId; terrain: string; blind?: boolean; hexside?: [HexId, HexId] };
+  /** Full ASL: every hexside obstacle the thread crossed, ran along or ended at, blocked or not (B9.3, B9.42, A8.26). */
+  hexsides?: HexsideCrossing[];
   /**
    * The firer's and target's own hexes whose woods depiction the thread crosses (pixel LOS only). A unit
    * that entered a Woods-Road hex along the road keeps the woods TEM against a LOS that crosses a green

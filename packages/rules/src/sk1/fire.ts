@@ -157,6 +157,8 @@ declare module '@asl/engine' {
     'fire.partFp': { ctx: { attack: FireAttackCtx; part: FirePart }; value: number };
     /** The targets of this attack it may affect only as Area Fire (concealed units, SK4 8.3.2), resolved apart with `vsConcealed`. */
     'fire.areaTargets': { ctx: { attack: FireAttackCtx }; value: PieceId[] };
+    /** The targets of an attack its firers can see; all of them in the Starter Kit (full ASL: units beneath an entrenchment behind a wall, ASLRB B9.21). */
+    'fire.targetsSeen': { ctx: { attack: FireAttackCtx }; value: PieceId[] };
     /**
      * The Locations an Indirect Fire hit on Location `target` attacks, each with the same IFT DR (mortars and OBA;
      * ASLRB C.1, B23.32). The Starter Kit's hexes have one Location: the target alone.
@@ -168,6 +170,13 @@ declare module '@asl/engine' {
     'fire.drm': { ctx: { attack: FireAttackCtx }; value: number };
     /** Additional DRM vs one specific target unit (e.g. FT possession). */
     'fire.unitDrm': { ctx: { attack: FireAttackCtx; unit: PieceId }; value: number };
+    /** Whether no IFT result of this attack can affect `unit` (a Buttoned Up AFV, SK4 3.2.3, 7.7); false by default. */
+    'fire.immune': { ctx: { attack: FireAttackCtx; unit: PieceId }; value: boolean };
+    /**
+     * The `fire.drm` contributions caused by conditions outside the target Location, each positive one of which lowers the
+     * Residual FP left by one IFT column (SK1 3.3.1; ASLRB A8.26). Full ASL adds the firer on Wire (B26.31) and hexside TEM.
+     */
+    'fire.residualOutside': { ctx: { attack: FireAttackCtx }; value: string[] };
     /** Column shift when the attack cowers (0 = cannot cower). */
     'fire.cowerShift': { ctx: { attack: FireAttackCtx }; value: number };
     /** Whether a squad has Assault Fire capability (its counter's underlined FP; SSRs may grant it). */
@@ -388,6 +397,18 @@ const severity = (r: IftResult) =>
   r.kind === 'KIA' ? 5 : r.kind === 'K' ? 4 : r.kind === 'NMC' || r.kind === 'MC' ? 3 : r.kind === 'PTC' ? 1 : 0;
 
 /**
+ * Whether an attack of `fp` at `drm` could inflict at least a NMC, Cowering taken into account (SK1 3.2.1): the best DR is
+ * snake eyes, which cowers `cowerShift` columns (0 when a leader directs it or the firers never cower), or a 3 on the full
+ * column. Neither is always the worse: an Inexperienced firer's two-column cower, or a cower off the 1 column, can leave
+ * the 3 as the only roll that reaches a NMC. It decides whether a broken target goes under DM; the computer opponent
+ * asks the same before it fires for DM.
+ */
+export function couldInflictNmc(env: QueryEnv, fp: number, drm: number, cowerShift: number): boolean {
+  const nmcAt = (col: number | null, dr: number) => col !== null && severity(statics(env).tables.ift(col, dr)) >= 3;
+  return cowerShift > 0 ? nmcAt(iftColumn(env, fp, cowerShift), 2 + drm) || nmcAt(iftColumn(env, fp), 3 + drm) : nmcAt(iftColumn(env, fp), 2 + drm);
+}
+
+/**
  * An explained DRM without its secret contributions (`Contribution.secret`, e.g. an unrevealed
  * fortified building's +1): the DRM the players are shown while the secret part changes nothing.
  */
@@ -512,7 +533,7 @@ export function buildAttack(
     const los = firerLos(env, from, decl);
     hindrance = Math.max(hindrance, los.hindrance);
   }
-  return {
+  const attack: FireAttackCtx = {
     mode,
     side,
     target: decl.target,
@@ -525,6 +546,8 @@ export function buildAttack(
     ...(decl.tca !== undefined ? { tca: decl.tca } : {}),
     ...(decl.snap ? { snap: decl.snap } : {}),
   };
+  const seen = env.query('fire.targetsSeen', { attack }, attack.targets);
+  return seen.length === attack.targets.length ? attack : { ...attack, targets: seen };
 }
 
 /** FP a weapon fires on the IFT: a SW's printed FP, a Gun's (or a vehicle MA's) Infantry Firepower Equivalent (SK4 6.8). */
@@ -1206,14 +1229,9 @@ function resolveFire(
   const fullDrm = ctx.explain('fire.drm', { attack }, 0);
   let secretMatters = false;
 
-  // A broken target not under DM becomes DM if the attack could possibly inflict a NMC, taking
-  // Cowering into account (SK1 3.2.1): the best DR is snake eyes, which cowers, or a 3 on the
-  // full column. Neither is always the worse: an Inexperienced firer's two-column cower, or a
-  // cower off the 1 column, can leave the 3 as the only roll that reaches a NMC.
+  // A broken target not under DM becomes DM if the attack could possibly inflict a NMC, Cowering included (SK1 3.2.1).
   const cowerShift = ctx.query('fire.cowerShift', { attack }, 0);
-  const nmcAt = (col: number | null, dr: number) => col !== null && severity(statics(ctx).tables.ift(col, dr)) >= 3;
-  const couldNmc = (drm: number) =>
-    cowerShift > 0 ? nmcAt(iftColumn(ctx, fp, cowerShift), 2 + drm) || nmcAt(iftColumn(ctx, fp), 3 + drm) : nmcAt(iftColumn(ctx, fp), 2 + drm);
+  const couldNmc = (drm: number) => couldInflictNmc(ctx, fp, drm, cowerShift);
   const dmCandidates = attack.targets.filter((u) => isBroken(pieceOf(ctx, u)) && !hasDm(pieceOf(ctx, u)));
   const desperate = couldNmc(fullDrm.value) ? dmCandidates : [];
   for (const u of desperate) setTags(ctx, u, { [T.dm]: true });
@@ -1254,7 +1272,7 @@ function resolveFire(
   if ((mode === 'first' || mode === 'subsequentFirst' || mode === 'fpf') && column !== null && ctx.query('fire.leavesResidual', { attack }, true)) {
     // An ATR leaves no Residual FP (SK4 4.4.4).
     const atrs = attack.parts.filter((p) => p.kind === 'sw' && isAtr(ctx, p.piece)).map((p) => p.piece);
-    const outside = outsideDrm(drmRes, ['sk1.drm.hindrance', 'sk1.drm.cx', 'sk1.drm.leadership']);
+    const outside = outsideDrm(drmRes, ctx.query('fire.residualOutside', { attack }, ['sk1.drm.hindrance', 'sk1.drm.cx', 'sk1.drm.leadership']));
     const bonus = ctx.query('fire.residualBonus', { target: decl.target, attack }, 0);
     const columnFor = (keeping: PieceId[]) => iftColumn(ctx, attackFp(ctx, attack, [...malfunctioned, ...removed, ...keeping, ...atrs]), cowered ? cowerShift : 0);
     const left = (keeping: PieceId[]) => {
@@ -1420,6 +1438,7 @@ export function residualFpLeft(env: QueryEnv, column: number, outsidePoints: num
   const half = Math.min(12, Math.floor(column / 2));
   const at = cols.filter((c) => c <= half).length - 1 - outsidePoints;
   if (at < 0) return 0;
+  if (bonusColumns < 0) return at + bonusColumns < 0 ? 0 : cols[at + bonusColumns]!;
   return bonusColumns > 0 ? cols[Math.min(cols.length - 1, at + bonusColumns)]! : cols[at]!;
 }
 
@@ -1496,6 +1515,8 @@ export function markFirers(ctx: Ctx, attack: FireAttackCtx, mode: FireMode, cowe
     if (p.kind !== 'inherent' && ctx.state.pieces[p.firer]?.tags[T.firedSw] !== true) setTags(ctx, p.firer, { [T.firedSw]: true, [T.firedSwAs]: markerFor(p.firer) });
   }
   for (const d of attack.directors ?? []) pieces.add(d);
+  // A cowering attack marks "the cowering unit" (SK1 3.2.1): the MMC whose attack it was, also when only its SW fired.
+  if (cowered) for (const p of attack.parts) if (p.kind !== 'inherent' && ctx.state.pieces[p.firer] && mmc(ctx, pieceOf(ctx, p.firer))) pieces.add(p.firer);
   // SFF / FPF / Final after First Fire: a unit firing again flips to Final Fire with all its SW,
   // "whether or not they all fired" (SK1 3.3.1); its fellows firing for the first time do not. In the DFPh only a unit
   // marked First Fire flips: one already marked Final there has nothing to flip, and its MG that kept ROF stays

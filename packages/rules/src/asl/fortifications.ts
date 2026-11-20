@@ -492,7 +492,7 @@ export function seenByEnemy(env: QueryEnv, c: FortRecord): boolean {
     });
 }
 
-export function revealFortification(ctx: Ctx, id: string, reason: 'los' | 'tem' | 'concealment' | 'entry' | 'attack' | 'search' | 'grown' | 'rout') {
+export function revealFortification(ctx: Ctx, id: string, reason: 'los' | 'tem' | 'concealment' | 'entry' | 'attempt' | 'attack' | 'search' | 'grown' | 'rout') {
   const c = fortCounters(ctx).find((x) => x.id === id);
   if (!c || !c.hidden || c.revealed) return;
   ctx.emit('asl.fort.revealed', { counter: { ...c, revealed: true }, reason });
@@ -528,14 +528,23 @@ function sweep(ctx: Ctx) {
 /** A pillbox's two CA hexsides (B30.1: the only part of its own hex in its CA): the hexsides either side of its hexspine. */
 export const pillboxCaHexsides = (ca: number): [number, number] => [mod6(ca - 1), mod6(ca)];
 
-/** The adjacent woods or building hexes a roadblock extends into (B29.2): those sharing a vertex of its hexside that are not road hexes themselves. */
-export function roadblockExtension(env: QueryEnv, c: Pick<FortPlacement, 'hex' | 'hexside'>): HexId[] {
+/**
+ * The woods or building hexes a roadblock extends into (B29.2), with the vertex of the hexside (a corner of the counter's
+ * hex) the extension runs from: those meeting the hexside at a vertex, not the hex across it. A rubbled building is no
+ * building (B24.2): no extension into it.
+ */
+export function roadblockExtensionAt(env: QueryEnv, c: Pick<FortPlacement, 'hex' | 'hexside'>): { hex: HexId; vertex: number }[] {
   if (c.hexside === undefined) return [];
   const map = statics(env).map;
   const across = acrossSide(map, c.hex, c.hexside);
-  const out = new Set<HexId>();
-  for (const k of [c.hexside, c.hexside + 1]) for (const h of cornerHexes(map, c.hex, k)) if (h !== across && (terrainOf(env, h).id === 'woods' || isBuildingHex(env, h))) out.add(h);
-  return [...out].sort();
+  const out: { hex: HexId; vertex: number }[] = [];
+  for (const k of [c.hexside, c.hexside + 1])
+    for (const h of cornerHexes(map, c.hex, k)) if (h !== across && (terrainOf(env, h).id === 'woods' || (isBuildingHex(env, h) && !isRubbled(env, h)))) out.push({ hex: h, vertex: mod6(k) });
+  return out.sort((a, b) => (a.hex < b.hex ? -1 : 1));
+}
+/** The adjacent woods or building hexes a roadblock extends into (B29.2). */
+export function roadblockExtension(env: QueryEnv, c: Pick<FortPlacement, 'hex' | 'hexside'>): HexId[] {
+  return [...new Set(roadblockExtensionAt(env, c).map((e) => e.hex))].sort();
 }
 
 // ---------------------------------------------------------------- the module
@@ -626,6 +635,17 @@ export const aslFortificationsModule: RuleModule = {
         const to = ev.payload.to;
         if (!ev.payload.falls || !to) return;
         for (const c of fortificationsAt(ctx, to)) if (!ENTRENCHMENTS.includes(c.kind)) removeFortification(ctx, c.id, 'falling rubble (ASLRB B24.121)');
+      },
+    });
+
+    // B24.5: "No Fortifications are allowed in a rubble Location": a building whose ground level is rubbled loses the
+    // counters in its hex (a minefield; Q&A [K33] to B24.11, B24.5 & B28: the mines are eliminated).
+    r.on<{ hex: HexId; from: number }>({
+      id: 'asl.fort.rubbled',
+      event: 'asl.rubble',
+      handler(ctx, ev) {
+        if (ev.payload.from !== 0) return;
+        for (const c of fortificationsAt(ctx, ev.payload.hex)) removeFortification(ctx, c.id, 'its Location rubbled (ASLRB B24.5)');
       },
     });
 

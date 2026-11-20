@@ -59,6 +59,8 @@ export function tankWeights(a: Action, legal: Action[], state: GameState, engine
     const to = String(a['to']).split(':')[0]!;
     if (!from) return true;
     const map = statics(env).map;
+    // Off the map (a Recalled AFV leaving by its edge): the move goes on.
+    if (!map.hex(to)) return true;
     const enemy = Object.values(state.pieces).filter((p) => p.side !== state.attacker && p.loc.kind === 'hex' && p.tags['vca'] !== undefined);
     if (enemy.length === 0) return true;
     const near = (h: string) => Math.min(...enemy.map((p) => map.distance(h, (p.loc as { hex: string }).hex)));

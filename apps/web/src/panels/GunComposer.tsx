@@ -68,6 +68,11 @@ export function GunComposer({ gunLabel, mannedBy, targetType, ammo, depletion, i
               </span>
             )}
           </div>
+          {preview.also?.map((line) => (
+            <div key={line} className="muted">
+              {line}
+            </div>
+          ))}
           {preview.caChange > 0 && <div className="muted">The Gun turns {preview.caChange} hexspine{preview.caChange === 1 ? '' : 's'} to bear first</div>}
           {targetType === 'VTT' && preview.tk === null && !preview.illegal && <div className="error">No enemy vehicle there to aim at</div>}
           {preview.tk && (

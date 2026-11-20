@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { T, T2, T3, TAG_LIFECYCLE } from '@asl/rules';
+import { T, T2, T3, TAG_LIFECYCLE, moveState, sideToward, statics } from '@asl/rules';
 import { ALL_SCENARIOS, PLAYABLE_SCENARIOS, applyBalance, isPlayable, mulberry, newSk1Game, playRandom, scenarioById, sk1Ruleset, staticsFor, weightedPicker } from '../src';
 import { skLocationViolation, tankWeights, turnBoundaryCheck } from './randomPlayChecks';
 
@@ -163,6 +163,140 @@ describe('catalogued scenarios', () => {
     expect(counts['dug'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
     expect(counts['move.entrenchment'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
     expect((counts['move:MPh'] ?? 0) + (counts['move:RtPh'] ?? 0) + (counts['move:APh'] ?? 0), JSON.stringify(counts)).toBeGreaterThan(0);
+  }, 120_000);
+
+  it('asl-testbed: weighted random play crosses Wire, makes Wire Exit drs in the MPh and RtPh, and every Player Turn boundary is clean', () => {
+    const scenario = scenarioById('asl-testbed')!;
+    const counts: Record<string, number> = {};
+    const bump = (k: string, n = 1) => (counts[k] = (counts[k] ?? 0) + n);
+    // Head for the Wire hexes and roll whenever it is offered, else play as usual.
+    const wireHexes = new Set<string>();
+    const weigh = weightedPicker((a, _legal, state, engine) => {
+      if (a.type === 'fort.place') return 400;
+      if (a.type === 'move.wire') return 40;
+      if (a.type === 'clearance.declare') return 40;
+      if (a.type === 'rout.wire') return 20;
+      if (a.type === 'wire.drop' || a.type === 'wire.keep') return 5;
+      if (a.type === 'move.start') return 20;
+      if (a.type === 'move.step') {
+        const to = String(a['to']);
+        if (wireHexes.has(to)) return 80;
+        if (to.includes(':')) return 1;
+        const env = engine.env(state);
+        const from = moveState(env)?.hex;
+        const map = statics(env).map;
+        const near = (h: string) => Math.min(99, ...[...wireHexes].map((w) => map.distance(h, w)));
+        return from && map.hex(to) && near(to) < near(from) ? 20 : 1;
+      }
+      if (a.type === 'advance' && wireHexes.has(String(a['to']))) return 30;
+      if (a.type === 'endPhase') return state.phase === 'MPh' ? 1 : 4;
+      return 1;
+    });
+    // The Wire where the Germans meet it: the test bed's own placement puts it at P9 (open) and O4 (hidden).
+    const toFront = ['uP9', 'uO4'];
+    const pick: typeof weigh = (legal, state, engine, rand) => {
+      const a = weigh(legal, state, engine, rand);
+      const bad = engine.validate(state, a);
+      if (bad) throw new Error(`listed but refused: ${JSON.stringify(a)}: ${bad}`);
+      if (a.type !== 'fort.place') return a;
+      let i = 0;
+      const counters = (a['counters'] as { kind: string; hex: string }[]).map((c) => (c.kind === 'wire' && i < toFront.length ? { ...c, hex: toFront[i++]! } : c));
+      const moved = { ...a, counters };
+      return engine.validate(state, moved as never) ? a : (moved as typeof a);
+    };
+    for (const seed of [21, 22, 23]) {
+      const check = turnBoundaryCheck(`asl-testbed wire seed ${seed}`);
+      const { state, steps } = playRandom(scenario, `wire-${seed}`, {
+        rand: mulberry(seed),
+        maxSteps: 9000,
+        pick,
+        onStep: (st, events, a) => {
+          bump(a.type);
+          const forts = (st.ext['asl.fortifications'] as { counters: { kind: string; hex: string }[] } | undefined)?.counters ?? [];
+          for (const c of forts) if (c.kind === 'wire') wireHexes.add(c.hex);
+          for (const ev of events) {
+            if (ev.type === 'asl.wire.exit') for (const u of (ev.payload as { units: { outcome: string }[]; phase: string }).units) bump(`${(ev.payload as { phase: string }).phase}:${u.outcome}`);
+            if (ev.type === 'asl.clearance.dr') bump((ev.payload as { abandoned?: true }).abandoned ? 'task:abandoned' : 'task:rolled');
+          }
+          check(st, events);
+          // Every unit on or beneath Wire stands in a hex that holds Wire (B26.4: the position goes with the counter).
+          for (const p of Object.values(st.pieces)) {
+            if (p.loc.kind !== 'hex' || !p.loc.pos?.wire) continue;
+            expect(forts.some((c) => c.hex === (p.loc as { hex: string }).hex && c.kind === 'wire'), `${p.id} on Wire that is not there in ${p.loc.hex}`).toBe(true);
+          }
+          // A Wire Exit dr is pending only while its owner decides whether to leave PP on top (B26.4).
+          if (st.decisions[st.decisions.length - 1]?.kind !== 'wireDrop') expect(st.ext['asl.wire'], 'a Wire Exit dr left pending').toBeUndefined();
+        },
+      });
+      expect(state.result, `seed ${seed} reached no result in ${steps} steps`).not.toBeNull();
+    }
+    expect(counts['MPh:beneath'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
+    expect(counts['MPh:hung'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
+    expect((counts['RtPh:beneath'] ?? 0) + (counts['RtPh:hung'] ?? 0), JSON.stringify(counts)).toBeGreaterThan(0);
+  }, 120_000);
+
+  it('asl-testbed: weighted random play crosses the roadblock, claims and loses Wall Advantage, and every Player Turn boundary is clean', () => {
+    const scenario = scenarioById('asl-testbed')!;
+    const counts: Record<string, number> = {};
+    const bump = (k: string, n = 1) => (counts[k] = (counts[k] ?? 0) + n);
+    const near = ['uO9', 'uP8'];
+    const weigh = weightedPicker((a, _legal, state, engine) => {
+      if (a.type === 'fort.place') return 400;
+      if (a.type === 'wa.claim' || a.type === 'wa.forfeit') return 10;
+      if (a.type === 'clearance.declare') return 40;
+      if (a.type === 'move.start') return 20;
+      if (a.type === 'move.step') {
+        const to = String(a['to']);
+        if (near.includes(to)) return 60;
+        if (to.includes(':')) return 1;
+        const env = engine.env(state);
+        const from = moveState(env)?.hex;
+        const map = statics(env).map;
+        const d = (h: string) => Math.min(...near.map((n) => map.distance(h, n)));
+        return from && map.hex(to) && d(to) < d(from) ? 20 : 1;
+      }
+      if (a.type === 'endPhase') return state.phase === 'MPh' ? 1 : 4;
+      return 1;
+    });
+    // The roadblock where the test bed's own placement has it: on the O9–P8 road hexside, open.
+    const pick: typeof weigh = (legal, state, engine, rand) => {
+      const a = weigh(legal, state, engine, rand);
+      if (a.type !== 'fort.place') return a;
+      const map = statics(engine.env(state)).map;
+      const hexside = sideToward(map, 'uO9', 'uP8');
+      const counters = (a['counters'] as { kind: string; hex: string; hidden: boolean }[]).map((c) => (c.kind === 'roadblock' ? { ...c, hex: 'uO9', hexside, hidden: false } : c));
+      const moved = { ...a, counters };
+      return engine.validate(state, moved as never) ? a : (moved as typeof a);
+    };
+    for (const seed of [31, 32, 33]) {
+      const check = turnBoundaryCheck(`asl-testbed roadblock seed ${seed}`);
+      const { state, steps } = playRandom(scenario, `roadblock-${seed}`, {
+        rand: mulberry(seed),
+        maxSteps: 9000,
+        pick,
+        onStep: (st, events, a) => {
+          bump(a.type);
+          for (const ev of events) {
+            if (ev.type === 'asl.wa.changed') bump((ev.payload as { wa: boolean }).wa ? 'wa:on' : 'wa:off');
+            if (ev.type === 'asl.clearance.dr') bump((ev.payload as { abandoned?: true }).abandoned ? 'task:abandoned' : 'task:rolled');
+            if (ev.type === 'sk1.move.state') {
+              const ms = (ev.payload as { state: { hex?: string; from?: string } | null }).state;
+              if (ms?.hex && ms.from && near.includes(ms.hex) && near.includes(ms.from) && ms.hex !== ms.from) bump('crossed');
+            }
+          }
+          check(st, events);
+          // Every unit claiming WA stands in the Location it claimed it in, a hex of the roadblock hexside (B9.32, B9.41).
+          for (const p of Object.values(st.pieces)) {
+            const wa = p.tags['wa'];
+            if (typeof wa !== 'string' || p.loc.kind !== 'hex') continue;
+            expect(near, `${p.id} claims WA in ${wa}`).toContain(wa);
+          }
+        },
+      });
+      expect(state.result, `seed ${seed} reached no result in ${steps} steps`).not.toBeNull();
+    }
+    expect(counts['wa:on'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
+    expect(counts['task:rolled'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
   }, 120_000);
 
   for (const s of PLAYABLE_SCENARIOS) {

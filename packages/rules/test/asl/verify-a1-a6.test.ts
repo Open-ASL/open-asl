@@ -79,6 +79,24 @@ describe('A4.61 ASSAULT MOVEMENT', () => {
   });
 });
 
+describe('A4.62 HAZARDOUS MOVEMENT', () => {
+  it('pushing a Gun is Hazardous Movement only during the MPh (A4.62; Q&A [K33]); the Starter Kit keeps it for the Player Turn (SK4 6.5)', () => {
+    const labels = (asl: boolean, phase: string) => {
+      const { engine, state } = makeEngine({
+        modules: [piecesModule, turnModule, ...sk1CoreModules, ...sk2CoreModules, ...sk3CoreModules, ...(asl ? aslCoreModules : [])],
+        scenario: RU_VS_GE,
+        startPhase: phase,
+        pieces: [{ id: 'c', def: 'ru.247', side: 'ru', hex: 'yN5', tags: { manhandled: true, hazardous: true } }, { id: 'g', def: 'ge.467', side: 'ge', hex: 'yN8' }],
+      });
+      const attack = { target: 'yN5', parts: [{ firer: 'g' }], mode: phase === 'MPh' ? 'first' : 'final', side: 'ge', hindrance: 0 };
+      return engine.env(state).explain('fire.unitDrm', { attack: attack as never, unit: 'c' }, 0).trace.filter((t) => !t.suppressedBy).map((t) => t.label ?? '').join('|');
+    };
+    expect(labels(true, 'MPh')).toMatch(/Hazardous Movement/);
+    expect(labels(true, 'DFPh')).not.toMatch(/Hazardous Movement/);
+    expect(labels(false, 'DFPh')).toMatch(/Hazardous Movement/);
+  });
+});
+
 describe('A4.72 vs DIFFICULT TERRAIN (◐: the "≥ four MF" clause)', () => {
   // Test-only terrain: yN6 costs 4 MF to enter (a woods hex entered uphill, say).
   const fourMf: RuleModule = {

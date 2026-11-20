@@ -5,7 +5,7 @@ import { hexOfLoc, isGroundLoc, locationsOf, locOf, type LocId } from '../common
 import { personnelAt, statics } from '../common/pieces';
 import { isAblaze } from './fire';
 import { rubbleAt } from './rubble';
-import { shownCounter, wireAt } from './fortifications';
+import { revealFortification, shownCounter, wireAt, type FortRecord } from './fortifications';
 import type { FireAttackCtx } from '../sk1/fire';
 import { FORTIFIED_DRM, fortifiedState, revealFortified } from '../sk1/fortified';
 import { visibleEnemyAt } from '../sk1/known';
@@ -16,6 +16,14 @@ import { inPlay, smokeIn, terrainOf } from '../sk1/terrain';
 import { entryHexside, heightOf, levelOf } from '../sk2/elevation';
 import { hiddenGunsAt, hiddenUnitsAt, revealHex } from '../sk2/hip';
 import { ceDrmApplies } from '../sk3/vehicleFire';
+
+
+declare module '@asl/engine' {
+  interface QueryCatalog {
+    /** Full ASL: MF more for a Bypass that passes through corner `corner` of `hex` (B29.4 EX: a roadblock vertex); 0 by default. */
+    'bypass.cornerCost': { ctx: { hex: HexId; corner: number }; value: number };
+  }
+}
 
 /**
  * Bypass movement in full ASL (ASLRB A4.3–A4.34, with A6.12, A8.2, A26.11, B13.3, B23.31, B23.4).
@@ -55,12 +63,22 @@ export function bypassable(env: QueryEnv, hex: HexId): boolean {
   return !!map.hex(hex) && BYPASS_TERRAIN(terrainOf(env, hex).id) && (map.bypassSides?.(hex) ?? 0) !== 0 && !isAblaze(env, hex) && !rubbleAt(env, hex) && !knownWire(env, hex);
 }
 /**
- * Wire the moving side knows of in a hex (A4.3, B26.44). A hidden Wire counter is passed as if it were not there: a unit
- * entering a hidden Fortification, Wire included, pays nothing for it while it stays hidden (A12.33).
+ * Wire the moving side knows of in a hex (A4.3, B26.44): legality refuses only what the mover can see. Hidden Wire bars
+ * Bypass too (Q&A [K33] to A12.33, B26.44: "Does a HIP Wire ... prevent Bypass? Yes."), but only the attempt finds it
+ * (`hiddenWireBarring`), so that no refusal shows a client a counter its redacted view does not hold.
  */
 function knownWire(env: QueryEnv, hex: HexId): boolean {
   const w = wireAt(env, hex);
   return !!w && !!shownCounter(w, env.state.attacker);
+}
+/** Wire still hidden from the moving side that bars this Bypass step: in the hex bypassed, or across a hexside gone along (B26.44). */
+function hiddenWireBarring(env: QueryEnv, ms: MoveState, hex: HexId, via: HexId[]): FortRecord[] {
+  const map = statics(env).map;
+  const hexes = [...(ms.bypass?.hex === hex ? [] : [hex]), ...via.map((nb) => acrossSide(map, hex, sideToward(map, hex, nb)!)).filter((h): h is HexId => !!h)];
+  return [...new Set(hexes)]
+    .map((h) => wireAt(env, h))
+    .filter((w): w is FortRecord => !!w && !shownCounter(w, env.state.attacker))
+    .sort((a, b) => (a.id < b.id ? -1 : 1));
 }
 /** A hexside open to Bypass: the obstacle does not touch it, and it is no part of a hex containing Wire on either side (A4.3, B26.44). */
 function sideFree(env: QueryEnv, hex: HexId, k: number): boolean {
@@ -69,8 +87,12 @@ function sideFree(env: QueryEnv, hex: HexId, k: number): boolean {
   return !(across && knownWire(env, across));
 }
 
-/** A Known enemy unit in any Location of the hex (the obstacle may not be bypassed: A4.3; nor its Location entered: A4.14). */
-const enemyIn = (env: QueryEnv, hex: HexId) => locationsOf(env, hex).some((l) => visibleEnemyAt(env, l, env.state.attacker).length > 0);
+/**
+ * A Known enemy unit in the obstacle's ground Location (the obstacle may not be bypassed: A4.3; nor its Location entered:
+ * A4.14). One only on a level above does not bar the Bypass (Q&A [K33] to A4.3: a building Location holding such a unit
+ * ONLY at level 1 may still be bypassed).
+ */
+const enemyIn = (env: QueryEnv, hex: HexId) => locationsOf(env, hex).some((l) => isGroundLoc(l) && visibleEnemyAt(env, l, env.state.attacker).length > 0);
 
 /** The Bypass cost of a hex for one or two hexsides: Open Ground, doubled uphill from the hex the stack is in; SMOKE +1. */
 function baseCost(env: QueryEnv, fromHex: HexId, hex: HexId): number {
@@ -126,10 +148,17 @@ export function plan(env: QueryEnv, ms: MoveState, hex: HexId, via: HexId[]): { 
   const { corners, entrySide } = startCorners(env, ms, hex);
   if (corners.length === 0) return ms.bypass ? `${hex} does not meet the stack's corner` : 'Bypass starts from the hex next to it, at ground level';
   if (entrySide !== null && ks.includes(entrySide)) return 'Bypass goes round the obstacle, not along the hexside crossed into the hex';
-  const reached = corners.map((c) => walk(c, ks)).find((c) => c !== null);
-  if (reached === undefined || reached === null) return 'The hexsides must follow one another round the hex from the corner the stack is at';
+  const start = corners.find((c) => walk(c, ks) !== null);
+  const reached = start === undefined ? null : walk(start, ks);
+  if (start === undefined || reached === null) return 'The hexsides must follow one another round the hex from the corner the stack is at';
   const base = same ? ms.bypass!.base : baseCost(env, ms.hex!, hex);
-  const cost = costFor(base, before.length + ks.length) - costFor(base, before.length);
+  // Every corner the path leaves along a hexside is one it passes through (B29.4 EX: a roadblock vertex costs one MF more).
+  let through = 0;
+  for (let i = 0, cur = start; i < ks.length; i++) {
+    through += env.query('bypass.cornerCost', { hex, corner: cur }, 0);
+    cur = ks[i] === cur ? mod6(ks[i]! + 1) : ks[i]!;
+  }
+  const cost = costFor(base, before.length + ks.length) - costFor(base, before.length) + through;
   return { pos: { hex, sides: [...before, ...ks], at: reached, base }, cost };
 }
 
@@ -421,6 +450,7 @@ export const aslBypassModule: RuleModule = {
       },
     });
     r.procedure<MoveBypassFn>(MOVE_BYPASS, () => (ctx, ms, to, via, cost) => bypassStep(ctx, ms, to, via, cost));
+    r.event<{ units: PieceId[]; hex: HexId; wire: HexId[] }>({ type: 'asl.bypass.wireRefused', apply() {} });
     // A4.33, A12.151: "Concealed enemy units in the Location lose that status at the end of the moving unit's MPh": a stack
     // ending its MPh in Bypass (stranded, halted by unknown units in its exit hex, or broken or pinned there) finds what
     // hides in the obstacle's Location then, not before.
@@ -587,6 +617,16 @@ function bypassStep(ctx: Ctx, ms: MoveState, to: LocId, via: HexId[] | undefined
     // Entering the obstacle is entering its Location: a fortified one is revealed (B23.911), as by a step into the hex.
     if (fortifiedState(ctx) && fortifiedState(ctx)!.side !== ctx.state.attacker) revealFortified(ctx, hex, 'entered');
     moveInternals.afterMfExpenditure(ctx);
+    return;
+  }
+  // Hidden Wire bars the Bypass (B26.44; Q&A [K33] to A12.33): the attempt finds it. The Good Order mover beside it sees
+  // its Location (A12.33), so the counter is revealed; the step is not taken and nothing is spent, and the stack moves on
+  // knowing of it.
+  const wires = hiddenWireBarring(ctx, ms, hex, via);
+  if (wires.length) {
+    for (const w of wires) revealFortification(ctx, w.id, 'attempt');
+    ctx.emit('asl.bypass.wireRefused', { units: ms.units, hex, wire: wires.map((w) => w.hex) });
+    moveInternals.reAskMover(ctx);
     return;
   }
   const p = plan(ctx, ms, hex, via);

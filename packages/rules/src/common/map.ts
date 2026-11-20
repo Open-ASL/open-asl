@@ -7,7 +7,7 @@ import {
   type Cube,
   type HexId,
 } from '@asl/engine';
-import type { GameMap, LosAtOptions, LosEnd, LosResult, MapHex } from './statics';
+import type { GameMap, HexsideCrossing, HexsideObstacle, LosAtOptions, LosEnd, LosResult, MapHex } from './statics';
 import { blindHexesBehind, obstacleEffect, type HeightObstacle } from './losHeights';
 
 /**
@@ -503,10 +503,13 @@ export class HexGridMap implements GameMap {
     let res = this.losAtCache.get(k);
     if (!res) {
       const atPoint = pt(hi) !== '' || pt(lo) !== '';
-      res = this.opts.losAt ? this.opts.losAt(hi, lo, this, opts) : atPoint ? this.gridLosAtPoints(hi, lo, opts) : this.gridLosAt(hi, lo, opts);
+      const { hexsides: _h, ...terrainOpts } = opts;
+      void _h;
+      res = this.opts.losAt ? this.opts.losAt(hi, lo, this, terrainOpts) : atPoint ? this.gridLosAtPoints(hi, lo, terrainOpts) : this.gridLosAt(hi, lo, terrainOpts);
       this.losAtCache.set(k, res);
     }
-    return res;
+    // Full ASL hexside obstacles (B9.2, B29.2): a segment test on top of the terrain trace, never cached with it.
+    return opts.hexsides?.length ? withHexsides(this, hi, lo, res, opts.hexsides) : res;
   }
 
   private bypassCache = new Map<HexId, number>();
@@ -805,4 +808,103 @@ export function losEndPoint(h: MapHex, e: LosEnd): { x: number; y: number } {
     return { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
   }
   return c;
+}
+
+/** Where segment p→q meets segment r→s: the fractions along each, or null when parallel. */
+function segmentHit(p: { x: number; y: number }, q: { x: number; y: number }, r: { x: number; y: number }, s: { x: number; y: number }): { t: number; u: number } | null {
+  const dx = q.x - p.x, dy = q.y - p.y, ex = s.x - r.x, ey = s.y - r.y;
+  const den = dx * ey - dy * ex;
+  if (Math.abs(den) < 1e-9 * (Math.hypot(dx, dy) * Math.hypot(ex, ey) || 1)) return null;
+  const t = ((r.x - p.x) * ey - (r.y - p.y) * ex) / den;
+  const u = ((r.x - p.x) * dy - (r.y - p.y) * dx) / den;
+  return { t, u };
+}
+const sideOf = (p: { x: number; y: number }, q: { x: number; y: number }, z: { x: number; y: number }) => (q.x - p.x) * (z.y - p.y) - (q.y - p.y) * (z.x - p.x);
+const near = (p: { x: number; y: number }, q: { x: number; y: number }, d = 1) => Math.hypot(p.x - q.x, p.y - q.y) < d;
+
+/**
+ * How the thread between two LOS ends meets one hexside obstacle (pure geometry, map pixels): crossed between its ends
+ * (vertices included, B9.1), run along exactly, ended at one of its vertices, or across an extension segment.
+ */
+export function hexsideCrossing(map: Pick<GameMap, 'hex'>, from: LosEnd, to: LosEnd, o: HexsideObstacle): HexsideCrossing {
+  const ha = map.hex(o.a)!;
+  const A = losEndPoint(map.hex(from.hex)!, from);
+  const B = losEndPoint(map.hex(to.hex)!, to);
+  const P = losEndPoint(ha, { hex: o.a, height: 0, vertex: o.k });
+  const Q = losEndPoint(ha, { hex: o.a, height: 0, vertex: o.k + 1 });
+  const out: HexsideCrossing = { id: o.id, crossed: false, along: false };
+  const len = Math.hypot(B.x - A.x, B.y - A.y) || 1;
+  const off = (z: { x: number; y: number }) => Math.abs(sideOf(A, B, z)) / len;
+  if (off(P) < 0.75 && off(Q) < 0.75) {
+    // Collinear: along the hexside where the thread overlaps it (more than at a single point).
+    const proj = (z: { x: number; y: number }) => ((z.x - A.x) * (B.x - A.x) + (z.y - A.y) * (B.y - A.y)) / (len * len);
+    const [lo, hi] = [proj(P), proj(Q)].sort((x, y) => x - y) as [number, number];
+    if (Math.min(hi, 1) - Math.max(lo, 0) > 0.05) out.along = true;
+  } else {
+    const h = segmentHit(A, B, P, Q);
+    if (h && h.u >= -0.02 && h.u <= 1.02 && h.t > 0.01 && h.t < 0.99) out.crossed = true;
+  }
+  // A thread ending at a vertex of the hexside (a Bypass corner, a Snap Shot's corner, B9.42): which side the other end is on.
+  for (const [end, other] of [[A, B], [B, A]] as const) {
+    if (!out.along && (near(end, P) || near(end, Q))) {
+      const sb = sideOf(P, Q, other);
+      const ca = sideOf(P, Q, losEndPoint(ha, { hex: o.a, height: 0 }));
+      out.vertexFrom = Math.abs(sb) < 1 ? null : Math.sign(sb) === Math.sign(ca) ? o.a : o.b;
+    }
+  }
+  const ext: HexId[] = [];
+  for (const e of o.extension) {
+    const V = losEndPoint(ha, { hex: o.a, height: 0, vertex: e.vertex });
+    const C = losEndPoint(map.hex(e.hex)!, { hex: e.hex, height: 0 });
+    const h = segmentHit(A, B, V, C);
+    if (h && h.u >= 0 && h.u <= 1 && h.t > 0.01 && h.t < 0.99) ext.push(e.hex);
+  }
+  if (ext.length) out.extension = ext;
+  return out;
+}
+
+/**
+ * Whether a hexside obstacle blocks the thread (B9.2, A6.21, B29.2, B9.6): only a same-level LOS at its level, never through
+ * a hexside of the viewing or target hex (nor an extension into the end's own hex, read as part of the same wall), and
+ * along the hexside only when neither end hex touches it.
+ */
+export function hexsideBlocks(map: Pick<GameMap, 'hex'>, hi: LosEnd, lo: LosEnd, o: HexsideObstacle, c: HexsideCrossing): boolean {
+  if (hi.height !== lo.height || hi.height > o.level) return false;
+  const ends = [hi.hex, lo.hex];
+  if (c.crossed && !ends.includes(o.a) && !ends.includes(o.b)) return true;
+  if (c.along) {
+    const ha = map.hex(o.a)!;
+    const P = losEndPoint(ha, { hex: o.a, height: 0, vertex: o.k });
+    const Q = losEndPoint(ha, { hex: o.a, height: 0, vertex: o.k + 1 });
+    const touches = (id: HexId) => [0, 1, 2, 3, 4, 5].some((v) => {
+      const z = losEndPoint(map.hex(id)!, { hex: id, height: 0, vertex: v });
+      return near(z, P) || near(z, Q);
+    });
+    if (!ends.some(touches)) return true;
+  }
+  // The extension: never a LOS into or out of the centre dot of its own hex (B9.2 read for the extension).
+  const centreEnd = (id: HexId) => (hi.hex === id && hi.vertex === undefined && hi.side === undefined) || (lo.hex === id && lo.vertex === undefined && lo.side === undefined);
+  return (c.extension ?? []).some((x) => !centreEnd(x));
+}
+
+function withHexsides(map: Pick<GameMap, 'hex'>, hi: LosEnd, lo: LosEnd, res: LosResult, obstacles: HexsideObstacle[]): LosResult {
+  const crossings: HexsideCrossing[] = [];
+  let block: { o: HexsideObstacle } | null = null;
+  for (const o of obstacles) {
+    if (!map.hex(o.a) || !map.hex(o.b)) continue;
+    const c = hexsideCrossing(map, hi, lo, o);
+    if (!c.crossed && !c.along && c.vertexFrom === undefined && !c.extension) continue;
+    crossings.push(c);
+    if (!block && hexsideBlocks(map, hi, lo, o, c)) block = { o };
+  }
+  if (!crossings.length) return res;
+  if (!res.clear || !block) return { ...res, hexsides: crossings };
+  const ha = map.hex(block.o.a)!;
+  const P = losEndPoint(ha, { hex: block.o.a, height: 0, vertex: block.o.k });
+  const Q = losEndPoint(ha, { hex: block.o.a, height: 0, vertex: block.o.k + 1 });
+  const A = losEndPoint(map.hex(hi.hex)!, hi);
+  const B = losEndPoint(map.hex(lo.hex)!, lo);
+  const h = segmentHit(A, B, P, Q);
+  const at = h ? { x: A.x + (B.x - A.x) * h.t, y: A.y + (B.y - A.y) * h.t } : { x: (P.x + Q.x) / 2, y: (P.y + Q.y) / 2 };
+  return { clear: false, crossed: res.crossed, blockedAt: at, obstacle: { hex: block.o.a, terrain: block.o.kind, hexside: [block.o.a, block.o.b] }, hexsides: crossings };
 }

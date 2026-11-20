@@ -26,6 +26,8 @@ export interface ShotOutlook {
   nonStopped: boolean;
   /** A Vehicle Target Type shot: the To Kill number and the target's Armor Factors per aspect. */
   tk?: { target: string; tk: number | null; hull: Record<Facing, number>; turret: Record<Facing, number>; turretType: string } | null;
+  /** What else the shot attacks (ASLRB B29.5: a roadblock, with the original DR that hits it). */
+  also?: string[];
 }
 
 export function shotOutlook(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, side: SideId, moving?: PieceId[]): ShotOutlook {
@@ -42,6 +44,7 @@ export function shotOutlook(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, s
     const tv = sc.targetVehicle ? env.state.pieces[sc.targetVehicle] : undefined;
     const tvd = tv ? vehicle(env, tv) : null;
     const tkn = tvd ? toKillNumbers(env, sc) : null;
+    const also = env.query('ordnance.alsoAttacks', sc, []);
     return {
       illegal,
       th: thn?.th ?? null,
@@ -52,6 +55,7 @@ export function shotOutlook(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, s
       hitOn: thn ? thn.th - drm.value : null,
       caChange: sc.spines,
       nonStopped,
+      ...(also.length ? { also } : {}),
       ...(shot.targetType === 'VTT' ? { tk: tvd && tkn ? { target: tvd.name, tk: tkn.tk, hull: tkn.hull, turret: tkn.turret, turretType: tvd.turret } : null } : {}),
     };
   } catch (e) {

@@ -5,7 +5,7 @@ import { hexPixel } from '../common/map';
 import { byId, otherSide, personnelAt, statics } from '../common/pieces';
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
 import { AP, type AdvanceEnterFn } from '../sk1/advance';
-import { FP, iftColumn, type ApplyResultFn, type AttackResolvedFn, type BeforeApplyFn, type FireAttackCtx } from '../sk1/fire';
+import { FP, discloseDrm, iftColumn, withoutSecrets, type ApplyResultFn, type AttackResolvedFn, type BeforeApplyFn, type FireAttackCtx } from '../sk1/fire';
 import { FPP, type ResolveDcFn } from '../sk1/firePhases';
 import { fortifiableBuildings, fortifiableLocations, fortifiedKnownTo, fortifiedParams, fortifiedState, isFortified, revealFortified } from '../sk1/fortified';
 import { knownEnemyAt } from '../sk1/known';
@@ -14,6 +14,7 @@ import { MOVE_ENTER, MOVE_FINISH, leftUnits, moveInternals, moveLoc, moveState, 
 import { drmNotes, gun, isGoodOrder, isPinned, mmc, pieceOf, setTags, squadEquivalents, sw } from '../sk1/status';
 import { revealHex } from '../sk2/hip';
 import { T4 } from '../sk4/status';
+import { hasWa } from './wallAdvantage';
 
 /*
  * Fortified Building Locations in full ASL (ASLRB B23.9), beyond the shared designation and +1 TEM of
@@ -26,11 +27,19 @@ import { T4 } from '../sk4/status';
  *   though the Fortified Location cannot be entered"). A Location whose fortification the moving side has already
  *   seen is refused up front, with the reason; one it has not seen is never refused by legality, so that no refusal
  *   leaks the secret to a client that validates on its own, redacted view: the attempt is resolved and refused.
- * - B23.9221 BREACH: unpinned Good Order Infantry with a DC may Place it against a hexside of a known Fortified
- *   Location for one MF (B23.711), declaring the hexside (the one toward its own hex, at its own level). In the AFPh
- *   one DR resolves the DC against the hexside (30 FP, the Location's TEM with the fortification's +1, CX) and, as
- *   Area Fire with the same DR, against the units inside (the A23.3 example). A NMC or better Breaches the hexside;
- *   an Original 12 (10 captured) does neither. A hexside is also Breached by the line of fire of a HE attack whose
+ * - B23.9221 BREACH: unpinned Good Order Infantry with a DC may Place it against a hexside of a Fortified Location
+ *   for one MF (B23.711), declaring the hexside (the one toward its own hex, at its own level). In the AFPh one DR
+ *   resolves the DC against the hexside (30 FP, the Location's TEM with the fortification's +1, CX) and, as Area Fire
+ *   with the same DR, against the units inside (the A23.3 example). A NMC or better Breaches the hexside; an Original
+ *   12 (10 captured) does neither. Nothing in B23.711 or B23.9221 asks the attacker to know the Location is fortified
+ *   (official Q&A [K33] to A23.3, B23.711 & B23.9221: "the attempt can be made regardless"; against a Location that is
+ *   not fortified the DC is "resolved with the same strength ... using Area Fire, but with no breach possible"). So
+ *   the attempt is offered against any building Location the attacker cannot rule out (`fortifiedPossibleTo`), and
+ *   nothing the attacker is shown tells the two apart until the DR decides: the hexside's DR always takes the
+ *   Fortified TEM (B23.921 "including vs DC Breach attempt"), and the Area Fire at the units shows the fortification's
+ *   +1 only when it changes a result (B23.911). A DR that Breaches a Fortified Location places the Breach, which shows
+ *   the Location; the same DR against one that is not fortified Breaches nothing, which shows the attacker that it is
+ *   not (recorded, so it is no longer offered); any other DR shows nothing. A hexside is also Breached by the line of fire of a HE attack whose
  *   Final IFT DR is a KIA (ordnance and on-board mortar HE; the firer chooses one of the two hexsides along a
  *   hexspine). A Breach of a Location the firer has not been shown to be fortified stays secret with it (B23.911): the
  *   firer is asked along a hexspine whenever the Location might be fortified, as far as he knows, and the record and
@@ -67,6 +76,8 @@ export interface Breach {
 }
 
 const EXT = 'asl.breach';
+/** Locations a Breach DR has shown not to be fortified (B23.9221 with B23.911): public, both sides know it. */
+const UNFORTIFIED = 'asl.breach.unfortified';
 /** A hexspine Breach choice waiting for the firing action to finish (its decision goes on top of whatever it asks next). */
 const PENDING = 'asl.breach.pending';
 export const BREACH_SIDE_DECISION = 'breachSide';
@@ -86,10 +97,16 @@ export function fortifiedPossibleTo(env: QueryEnv, loc: LocId, side: SideId): bo
   if (fortifiedKnownTo(env, loc, side)) return true;
   if (side === st.side) return false;
   const count = fortifiedParams(env)?.count ?? 0;
-  if (st.locations) return (st.revealedLocs ?? []).length < count && fortifiableLocations(env, st.side).includes(loc);
-  const b = statics(env).map.hex(hexOfLoc(loc))?.buildingId;
-  return !!b && st.revealed.length < count && fortifiableBuildings(env, st.side).includes(b);
+  const map = statics(env).map;
+  const ruledOut = shownUnfortified(env);
+  if (st.locations) return (st.revealedLocs ?? []).length < count && fortifiableLocations(env, st.side).includes(loc) && !ruledOut.includes(loc);
+  const b = map.hex(hexOfLoc(loc))?.buildingId;
+  // A building-wide designation: one Location shown not fortified shows its whole building.
+  return !!b && st.revealed.length < count && fortifiableBuildings(env, st.side).includes(b) && !ruledOut.some((l) => map.hex(hexOfLoc(l))?.buildingId === b);
 }
+
+/** The Locations a Breach DR has shown not to be fortified (B23.9221). */
+export const shownUnfortified = (env: QueryEnv): LocId[] => (env.state.ext[UNFORTIFIED] as LocId[] | undefined) ?? [];
 
 /** Whether the hexside between `loc` and the adjacent hex `from` has been Breached. */
 export const breachedToward = (env: QueryEnv, loc: LocId, from: HexId): boolean => breaches(env).some((b) => b.loc === loc && b.toward === from);
@@ -133,7 +150,9 @@ function forceBackFromBypass(ctx: Ctx, ms: MoveState, units: PieceId[]) {
 export function heldBySquad(env: QueryEnv, loc: LocId, side: SideId, knownOnly = false): boolean {
   const enemy = otherSide(env.state, side);
   const there = knownOnly ? knownEnemyAt(env, loc, side) : personnelAt(env, loc, enemy);
-  const good = there.filter((p) => mmc(env, p) && isGoodOrder(env, p) && !isPinned(p));
+  // A squad claiming Wall Advantage no longer holds the Location against entry (official Q&A to B23.922 [An95w; An96]:
+  // an enemy unit may advance in "if the squad is still marked with a Wall Advantage counter").
+  const good = there.filter((p) => mmc(env, p) && isGoodOrder(env, p) && !isPinned(p) && !hasWa(env, p));
   return squadEquivalents(env, good) >= 1;
 }
 
@@ -200,7 +219,15 @@ export const aslFortifiedModule: RuleModule = {
       },
     });
     r.event<{ dc: PieceId; placer: PieceId; loc: LocId; toward: HexId }>({ type: 'asl.breach.declared', apply() {} });
-    r.event<{ dc: PieceId; loc: LocId; toward: HexId; dr: [number, number]; drm: number; result: string | null; breached: boolean; malfunctioned: boolean }>({ type: 'asl.breach.attempt', apply() {} });
+    // `unfortified`: the DR would have Breached a Fortified Location, and Breached nothing (B23.9221).
+    r.event<{ dc: PieceId; loc: LocId; toward: HexId; dr: [number, number]; drm: number; result: string | null; breached: boolean; malfunctioned: boolean; unfortified?: true }>({
+      type: 'asl.breach.attempt',
+      apply(d, p) {
+        if (!p.unfortified) return;
+        const list = (d.ext[UNFORTIFIED] as LocId[] | undefined) ?? [];
+        if (!list.includes(p.loc)) d.ext[UNFORTIFIED] = [...list, p.loc].sort();
+      },
+    });
     r.event<{ units: PieceId[]; loc: LocId; phase: 'MPh' | 'APh'; side: SideId; reason: 'held' | 'gun' }>({ type: 'asl.fortified.refused', apply() {} });
     r.contribute({ id: 'asl.fortified.breaches', query: 'fortified.breaches', layer: 0, apply: (_v, _c, env) => breaches(env) });
 
@@ -316,8 +343,7 @@ export const aslFortifiedModule: RuleModule = {
       resolve(ctx, a) {
         const ms = moveState(ctx)!;
         const placer = (pieceOf(ctx, a.dc).loc as { by: PieceId }).by;
-        // Declaring a Breach attempt names the Location as fortified for everyone.
-        revealFortified(ctx, a.target, 'attempt');
+        // The attempt itself shows nothing of the Location: it may be made whether or not it is fortified (B23.9221).
         ctx.emit('asl.breach.declared', { dc: a.dc, placer, loc: a.target, toward: ms.hex! });
         // One MF, spent in the placer's hex (B23.711; the DC is operably Placed once the stack has survived the fire there).
         moveInternals.spendInPlace(ctx, ms, 1, { dcPending: { dc: a.dc, placer, target: a.target, breach: ms.hex! } });
@@ -426,7 +452,8 @@ export function breachIllegal(env: QueryEnv, ms: MoveState, dcId: PieceId, targe
   if (ms.dcPending) return 'A DC placement is already in progress';
   if (hexOfLoc(target) === ms.hex) return 'A stairwell is not a hexside: a Breach is made from the next hex at the same level (ASLRB B23.9221)';
   if (!adjacentLocs(env, moveLoc(ms)!).includes(target)) return 'The hexside must be one of the placer’s own Location (ADJACENT, at the same level)';
-  if (!fortifiedKnownTo(env, target, env.state.attacker)) return 'Only a Location known to be fortified can be Breached (ASLRB B23.9221)';
+  if (!fortifiedState(env)) return 'No building here can be fortified: a Breach is made only in a Fortified Building Location (ASLRB B23.9221)';
+  if (!fortifiedPossibleTo(env, target, env.state.attacker)) return 'That Location is not fortified, as far as your side can tell: a Breach is made only in a Fortified Building Location (ASLRB B23.9221)';
   if (breachedToward(env, target, ms.hex!)) return 'That hexside is already Breached';
   if (moveInternals.remaining(ms, dc.loc.by) < 1) return 'Not enough MF to place the DC (one MF)';
   return null;
@@ -437,6 +464,12 @@ export function breachIllegal(env: QueryEnv, ms: MoveState, dcId: PieceId, targe
  * DC's full column against the hexside (NMC or better Breaches it) and, as Area Fire, against the units in the
  * Location, both with the Location's TEM, the fortification's +1 and the placer's CX; no leadership. An Original
  * malfunction DR removes the DC without either.
+ *
+ * A Location the attacker has not been shown to be fortified (B23.911, B23.9221): the hexside's DR takes the
+ * Fortified TEM whether or not the Location is fortified (a Breach is attempted only against one, B23.921), so its
+ * DRM and result read alike either way. Only its outcome tells: a Breach of a Fortified Location (placed, and the
+ * Location shown), or, the same DR against one that is not fortified, no Breach and the Location shown unfortified.
+ * The Area Fire at the units takes the real TEM, the fortification's +1 told of only when it changes a result.
  */
 function resolveBreachDc(ctx: Ctx, dc: { id: PieceId; loc: { kind: string }; tags: Record<string, unknown> }, toward: HexId) {
   const loc = locKey(dc.loc as { kind: 'hex'; hex: HexId; level?: number });
@@ -444,53 +477,64 @@ function resolveBreachDc(ctx: Ctx, dc: { id: PieceId; loc: { kind: string }; tag
   const placer = dc.tags['dcPlacer'] as PieceId;
   const placerDef = ctx.state.pieces[placer] ? mmc(ctx, ctx.state.pieces[placer]!) : null;
   const x = (dc.tags['dcX'] as number | undefined) ?? (d.x ?? 12) - (placerDef && placerDef.quality !== 'E' ? 2 : 0);
-  const enemy = otherSide(ctx.state, ctx.state.attacker);
+  const side = ctx.state.attacker;
+  const enemy = otherSide(ctx.state, side);
   const targets = personnelAt(ctx, loc, enemy).map((p) => p.id).sort();
-  const attack: FireAttackCtx = { mode: 'advancing', side: ctx.state.attacker, target: loc, parts: [], targets, hindrance: 0, residual: true };
-  // The Location is known fortified (a Breach is only declared against one), so nothing here is secret.
+  const attack: FireAttackCtx = { mode: 'advancing', side, target: loc, parts: [], targets, hindrance: 0, residual: true };
+  const known = fortifiedKnownTo(ctx, loc, side);
+  const fortified = isFortified(ctx, loc);
   const extraRes = ctx.explain('dc.drm', { target: loc }, 0);
   const tem = ctx.query('hex.tem', { hex: loc }, 0);
-  const drm = tem + (dc.tags['dcCx'] ? 1 : 0) + extraRes.value;
+  const cx = dc.tags['dcCx'] ? 1 : 0;
+  // The units' DRM: the real TEM (the fortification's +1 secret while the Location is unshown).
+  const full = { value: tem + cx + extraRes.value, trace: extraRes.trace };
+  // The hexside's: a known Fortified Location as it is; otherwise the visible DRM and the Fortified +1 (B23.921).
+  const shownExtra = withoutSecrets(extraRes);
+  const wallDrm = known ? full.value : tem + cx + shownExtra.value + 1;
   const roll = ctx.roll(`Breach attempt on ${loc}`);
   const column = iftColumn(ctx, d.fp);
   const detonated = roll.total < x && column !== null;
-  const wall = detonated ? statics(ctx).tables.ift(column!, roll.total + drm) : null;
-  const breached = !!wall && wall.kind !== 'none' && wall.kind !== 'PTC';
+  const wall = detonated ? statics(ctx).tables.ift(column!, roll.total + wallDrm) : null;
+  const wouldBreach = !!wall && wall.kind !== 'none' && wall.kind !== 'PTC';
+  const breached = wouldBreach && fortified;
   ctx.emit('sk1.fire.attack', {
     attack: { mode: 'advancing', target: loc, parts: [dc.id] },
     fp: d.fp,
     column,
     dr: roll.dice as [number, number],
-    drm,
+    drm: wallDrm,
     cowered: false,
     explain: [
       { id: 'asl.breach', label: `Breach attempt: DC ${d.fp} FP vs the hexside toward ${toward}` },
       ...(tem ? [{ id: 'sk1.drm.tem', label: `+${tem} TEM` }] : []),
-      ...(dc.tags['dcCx'] ? [{ id: 'sk1.drm.cx', label: '+1 CX' }] : []),
-      ...drmNotes(extraRes),
+      ...(cx ? [{ id: 'sk1.drm.cx', label: '+1 CX' }] : []),
+      ...(known ? drmNotes(extraRes) : [...drmNotes(shownExtra), { id: 'asl.breach.fortifiedTem', label: '+1 Fortified Building (a Breach attempt takes it, ASLRB B23.921)' }]),
     ],
   });
-  ctx.emit('asl.breach.attempt', { dc: dc.id, loc, toward, dr: roll.dice as [number, number], drm, result: wall?.kind ?? null, breached, malfunctioned: !detonated });
+  // A Breach of a Location not shown till now shows it (B23.911: the result is the fortification's).
+  if (breached && !known) revealFortified(ctx, loc, 'fire');
+  ctx.emit('asl.breach.attempt', { dc: dc.id, loc, toward, dr: roll.dice as [number, number], drm: wallDrm, result: wall?.kind ?? null, breached, malfunctioned: !detonated, ...(wouldBreach && !fortified ? { unfortified: true as const } : {}) });
   if (breached) ctx.emit('asl.breach', { breach: { loc, toward, by: 'dc' } });
   // The DC explodes in the Location: an Original KIA on the column of its Area Fire attack there may rubble it first
   // (A23.41, B24.11; the concealment halving does not count for rubble, A23.1), its occupants then eliminated instead.
   const area = iftColumn(ctx, d.fp / 2);
-  const rubbled = detonated && area !== null && ctx.proc<BeforeApplyFn>(FP.beforeApply)(ctx, { target: loc, by: 'dc', column: area, originalDr: roll.total, side: ctx.state.attacker });
+  const rubbled = detonated && area !== null && ctx.proc<BeforeApplyFn>(FP.beforeApply)(ctx, { target: loc, by: 'dc', column: area, originalDr: roll.total, side });
   // The same DR attacks the units inside as Area Fire (halved again if they were concealed when the DC was Placed).
   if (detonated && !rubbled && targets.length) {
     const fp = d.fp / 2 / (dc.tags[T4.dcVsConcealed] ? 2 : 1);
     const half = iftColumn(ctx, fp);
+    const shown = discloseDrm(ctx, attack, half, roll.total, full);
     ctx.emit('sk1.fire.attack', {
       attack: { mode: 'advancing', target: loc, parts: [dc.id] },
       fp,
       column: half,
       dr: roll.dice as [number, number],
-      drm,
+      drm: shown.value,
       cowered: false,
-      explain: [{ id: 'asl.breach.area', label: `Area Fire at the units: ${fp} FP (the same DR)` }],
+      explain: [{ id: 'asl.breach.area', label: `Area Fire at the units: ${fp} FP (the same DR)` }, ...drmNotes(shown)],
     });
     if (half !== null) {
-      ctx.proc<ApplyResultFn>(FP.applyResult)(ctx, attack, half, roll.total + drm, {});
+      ctx.proc<ApplyResultFn>(FP.applyResult)(ctx, attack, half, roll.total + shown.value, {});
       ctx.proc<FlushFn>(MP.flushLeaderLoss)(ctx);
     }
   }
@@ -502,7 +546,7 @@ function resolveBreachDc(ctx: Ctx, dc: { id: PieceId; loc: { kind: string }; tag
     malfunctioned: !detonated,
     originalResult: detonated && area !== null ? statics(ctx).tables.ift(area, roll.total).kind : null,
     originalDr: roll.total,
-    side: ctx.state.attacker,
+    side,
     ...(rubbled ? { rubbled: true } : {}),
   });
   ctx.emit('piece.eliminated', { id: dc.id, reason: detonated ? 'DC detonated' : 'DC malfunctioned' });

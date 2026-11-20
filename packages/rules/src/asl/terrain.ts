@@ -1,6 +1,7 @@
 import { Layer, type RuleModule } from '@asl/engine';
-import { defOf } from '../common/pieces';
-import { pieceOf } from '../sk1/status';
+import { defOf, personnelAt } from '../common/pieces';
+import { locOf } from '../common/location';
+import { isBroken, mmc, pieceOf } from '../sk1/status';
 import { smokeIn } from '../sk1/terrain';
 import { ceDrmApplies } from '../sk3/vehicleFire';
 
@@ -15,8 +16,8 @@ import { ceDrmApplies } from '../sk3/vehicleFire';
  */
 export const aslTerrainModule: RuleModule = {
   id: 'asl.terrain',
-  ref: 'ASLRB B.2, B10.4, A4.12, B10.31',
-  summary: 'Chapter B terrain beyond the Starter Kit: SMOKE is part of the COT doubled uphill; the leader MF bonus needs the same nationality (A4.12); no Height Advantage with a CE DRM (B10.31).',
+  ref: 'ASLRB B.2, B10.4, A4.12, B10.31, A19.3',
+  summary: 'Chapter B terrain beyond the Starter Kit: SMOKE is part of the COT doubled uphill; the leader MF bonus needs the same nationality (A4.12); no Height Advantage with a CE DRM (B10.31); a Green MMC with an unbroken leader is not Inexperienced (A19.3).',
   requires: ['sk1.terrain'],
   install(r) {
     // A4.12: the leader MF bonus only from a leader "of the same nationality" (the Starter Kit names none).
@@ -35,6 +36,31 @@ export const aslTerrainModule: RuleModule = {
       ref: 'ASLRB B10.31',
       label: 'no Height Advantage with a CE DRM',
       when: ({ attack, unit }, env) => ceDrmApplies(env, attack, unit),
+    });
+    // A19.3: a Green MMC "stacked with an unbroken leader" is exempt from the Inexperienced restrictions: unbroken, not
+    // Good Order (the Starter Kit's 5.4 wording), and a leader, not a hero (Q&A [K33] to A19.3: "is a leader who is unbroken
+    // but not Good Order still eligible to cancel any Inexperienced Personnel penalties? Yes."; the leader exempts the
+    // squad whether or not he takes part in the attack, the PAATC or the CC).
+    r.contribute({
+      id: 'asl.inexperienced.unbroken-leader',
+      query: 'unit.inexperienced',
+      ref: 'ASLRB A19.3',
+      layer: Layer.Base + 10,
+      apply(v, { unit }, env) {
+        const p = pieceOf(env, unit);
+        if (mmc(env, p)?.quality !== 'G') return v;
+        const loc = locOf(env.state, p);
+        return !loc || !personnelAt(env, loc, p.side).some((l) => defOf(env, l).kind === 'leader' && !isBroken(l));
+      },
+    });
+    // A4.62: Hazardous Movement holds while the unit is "so engaged": pushing a Gun only during the MPh (Q&A [K33] to
+    // A4.62, C10.3: "only during the applicable MPh? Yes."). The Starter Kit keeps it for the Player Turn (SK4 6.5).
+    r.suppress<'fire.unitDrm'>({
+      id: 'asl.hazardous.push-mph-only',
+      query: 'fire.unitDrm',
+      target: 'sk2.drm.hazardous',
+      ref: 'ASLRB A4.62, C10.3',
+      when: ({ unit }, env) => env.state.phase !== 'MPh' && pieceOf(env, unit).tags['manhandled'] === true,
     });
     r.suppress<'move.cost'>({ id: 'asl.move.not-sk-smoke-cost', query: 'move.cost', target: 'sk1.move.smoke-cost', ref: 'ASLRB B.2' });
     // Before the Crest Line doubling (Base + 50), so it doubles with the terrain.

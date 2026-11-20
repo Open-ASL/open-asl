@@ -27,6 +27,11 @@ declare module '@asl/engine' {
     'cc.defenseFp': { ctx: { unit: PieceId; attackers?: PieceId[] }; value: number };
     /** Why a unit's CC strength is not its printed FP, for the player to read (a Reduced Japanese unit's full CCV), or null. */
     'cc.fpNote': { ctx: { unit: PieceId }; value: string | null };
+    /**
+     * An attack on a vehicle is not an odds attack (SK3+): the attackers' Close Combat Value it must roll under, with what
+     * makes it up. Null for an attack on personnel.
+     */
+    'cc.vsVehicle': { ctx: { attackers: PieceId[]; targets: PieceId[] }; value: { ccv: number; notes: string[] } | null };
     /** DRM for one CC attack. */
     'cc.drm': { ctx: { hex: HexId; attackers: PieceId[]; targets: PieceId[]; side: SideId }; value: number };
     /**
@@ -793,6 +798,8 @@ export interface CcAttackPreview {
   illegal: string | null;
   /** Units whose CC strength is not their printed FP, and why (`cc.fpNote`). */
   fpNotes: { unit: PieceId; note: string }[];
+  /** An attack on a vehicle: the CCV a final DR must be under to eliminate it (equal Immobilizes), in place of odds. */
+  ccv?: { value: number; notes: string[] };
 }
 
 /** What one prospective CC attack would be: strengths, odds column, DRM and legality. Pure; for the interface. */
@@ -800,15 +807,17 @@ export function ccAttackPreview(env: QueryEnv, hex: HexId, side: SideId, attack:
   const ids = (xs: PieceId[]) => xs.filter((id) => env.state.pieces[id]);
   const attackers = ids(attack.attackers);
   const targets = ids(attack.targets);
-  const a = attackFp(env, attackers);
-  const d = defenseFp(env, targets, attackers);
-  const odds = attackers.length && targets.length ? ccOdds(env, a, d) : null;
+  const vsVehicle = attackers.length && targets.length ? env.query('cc.vsVehicle', { attackers, targets }, null) : null;
+  const a = vsVehicle ? vsVehicle.ccv : attackFp(env, attackers);
+  const d = vsVehicle ? 0 : defenseFp(env, targets, attackers);
+  const odds = attackers.length && targets.length && !vsVehicle ? ccOdds(env, a, d) : null;
   const res = attackers.length && targets.length ? env.explain('cc.drm', { hex, attackers, targets, side }, 0) : null;
   return {
     attackFp: a,
     defenseFp: d,
     odds,
-    kill: odds ? env.query('cc.kill', { hex, side, attackers, targets, odds }, statics(env).tables.ccKill(odds)) : 0,
+    ...(vsVehicle ? { ccv: { value: vsVehicle.ccv, notes: vsVehicle.notes } } : {}),
+    kill: vsVehicle ? vsVehicle.ccv - 1 : odds ? env.query('cc.kill', { hex, side, attackers, targets, odds }, statics(env).tables.ccKill(odds)) : 0,
     drm: res?.value ?? 0,
     drmNotes: res ? [...drmNotes(res), ...targetDrmNotes(env, hex, side, attackers, targets)] : [],
     illegal: declarationIllegal(env, side, hex, [attack]),

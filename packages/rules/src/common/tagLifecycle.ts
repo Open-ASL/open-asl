@@ -41,6 +41,9 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   lastHex: 'playerTurn',
   /** Full ASL: the entrenchment an eliminated unit stood beneath, for the weapons it drops (ASLRB B27.13). */
   lastEnt: 'playerTurn',
+  lastWire: 'playerTurn',
+  /** Full ASL: Wall Advantage claimed, with the Location it was claimed in (ASLRB B9.32; lost on leaving it, B9.41). */
+  wa: 'lasting',
   secretSw: 'lasting',
   prepared: 'lasting',
   // Scenario setup and entry

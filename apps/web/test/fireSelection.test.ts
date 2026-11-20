@@ -3,7 +3,7 @@ import type { Action, Engine, GameState, Piece, PieceId } from '@asl/engine';
 import { ALL_SCENARIOS, DEMO_VEHICLES_SCENARIO, newGame, newSk1Game } from '@asl/content';
 import { defOf } from '@asl/rules';
 import { act, makeEngine } from '../../../packages/rules/test/fixtures';
-import { aimsAt, fireLeaders, fireSelectable } from '../src/game/fireSelection';
+import { aimsAt, beyondRange, fireLeaders, fireSelectable, swCarriers, withinRange } from '../src/game/fireSelection';
 
 /** The click selection the game screen makes on `side`'s stack in `hex` (GameScreen selectableAt, fire phases). */
 const selection = (engine: Engine, state: GameState, side: string, hex: string): PieceId[] => {
@@ -56,6 +56,30 @@ describe('fire selection (what a click on an own stack picks up)', () => {
     expect(t2.state.pieces['aMMG']!.tags['fire']).toBe('prep');
   });
 
+  it('the leader is offered again for the ROF shot of a MG whose half-squad fired only the MG (SK1 4.0, ASLRB A7.53)', () => {
+    // A HS fires its MMG directed: the MG keeps ROF; the HS, its own FP forfeit, is still ticked with the MG it carries.
+    const { engine, state } = makeEngine({
+      pieces: [
+        { id: 'h1', def: 'am.348h', side: 'am', hex: 'yP5' },
+        { id: 'hMMG', def: 'am.MMG', side: 'am', heldBy: 'h1' },
+        { id: 'aL', def: 'am.L91', side: 'am', hex: 'yP5' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yN5' },
+      ],
+      terrain: opts.terrain,
+      dice: [2, 1, 6, 6, 3, 4, 6, 6],
+      startPhase: 'PFPh',
+    }) as { engine: Engine; state: GameState };
+    const t = act(engine, state, { type: 'fire', decl: { units: [], sw: ['hMMG'], target: 'yN5', directors: ['aL'] } });
+    expect(t.state.pieces['hMMG']!.tags['fire']).toBeUndefined();
+    expect(t.state.pieces['h1']!.tags['ownFpForfeit']).toBe(true);
+    const own = selection(engine, t.state, 'am', 'yP5');
+    expect(own).toEqual(['h1', 'hMMG']);
+    expect(swCarriers(engine.env(t.state), own)).toEqual(['h1']);
+    expect(fireLeaders(engine.env(t.state), [t.state.pieces['aL']!], own, own).map((l) => l.id)).toEqual(['aL']);
+    const t2 = act(engine, t.state, { type: 'fire', decl: { units: [], sw: ['hMMG'], target: 'yN5', directors: ['aL'] } });
+    expect(t2.state.pieces['hMMG']!.tags['fire']).toBe('prep');
+  });
+
   it('a marked leader is not offered for a shot that is not a kept-ROF weapon firing alone', () => {
     const { engine, state } = makeEngine({
       pieces: [...pieces, { id: 'aL', def: 'am.L91', side: 'am', hex: 'yP5' }],
@@ -81,6 +105,59 @@ describe('fire selection (what a click on an own stack picks up)', () => {
     const { engine, state } = makeEngine({ ...opts, dice: [1, 2, 6, 6, 6, 6], startPhase: 'PFPh' }) as { engine: Engine; state: GameState };
     const t = act(engine, state, { type: 'fire', decl: { units: ['a1'], sw: [], target: 'yN5' } });
     expect(selection(engine, t.state, 'am', 'yP5')).toEqual(['aMMG']);
+  });
+
+  it('a squad beyond its range of the target is left out, and the MG it holds fires alone (SK1 3.2, 4.0)', () => {
+    // A 4-4-7 (range 4, Long Range 8) with a MMG (range 10) 10 hexes from the target.
+    const { engine, state } = makeEngine({
+      pieces: [
+        { id: 'a1', def: 'am.447', side: 'am', hex: 'yF5' },
+        { id: 'aMMG', def: 'am.MMG', side: 'am', heldBy: 'a1' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yP5' },
+      ],
+      dice: [3, 4, 6, 6],
+      startPhase: 'PFPh',
+    }) as { engine: Engine; state: GameState };
+    const env = engine.env(state);
+    expect(selection(engine, state, 'am', 'yF5')).toEqual(['a1', 'aMMG']);
+    const whole = { units: ['a1'], sw: ['aMMG'], target: 'yP5' };
+    expect(beyondRange(env, whole)).toEqual(['a1']);
+    expect(env.query('fire.illegal', { decl: whole, mode: 'prep', side: 'am' }, null)).toMatch(/out of range/);
+    const alone = { units: [], sw: ['aMMG'], target: 'yP5' };
+    expect(env.query('fire.illegal', { decl: alone, mode: 'prep', side: 'am' }, null)).toBeNull();
+    const t = act(engine, state, { type: 'fire', decl: alone });
+    expect(t.state.pieces['aMMG']!.tags['fire']).toBe('prep');
+    // Within its Long Range the squad stays in the group.
+    expect(beyondRange(env, { units: ['a1'], target: 'yN5' })).toEqual([]);
+  });
+
+  it('in the AFPh, squads beyond range that carried a MMG leave their LMG to fire alone (SK1 3.2, 3.5, 4.0)', () => {
+    // Two 4-4-7 (Long Range 8) that moved, 9 hexes from the target: one with a MMG, which may not fire in the AFPh
+    // after moving, the other with a captured LMG (range 8, Long Range 16).
+    const { engine, state } = makeEngine({
+      pieces: [
+        { id: 'a1', def: 'am.447', side: 'am', hex: 'yF5', tags: { moved: true } },
+        { id: 'aMMG', def: 'am.MMG', side: 'am', heldBy: 'a1', tags: { moved: true } },
+        { id: 'a2', def: 'am.447', side: 'am', hex: 'yF5', tags: { moved: true } },
+        { id: 'aLMG', def: 'ge.LMG', side: 'am', heldBy: 'a2' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yO5' },
+      ],
+      dice: [3, 4, 6, 6],
+      startPhase: 'AFPh',
+    }) as { engine: Engine; state: GameState };
+    const env = engine.env(state);
+    const illegal = (decl: { units: string[]; sw: string[]; target: string }) => env.query('fire.illegal', { decl, mode: 'advancing', side: 'am' }, null);
+    expect(selection(engine, state, 'am', 'yF5')).toEqual(['a1', 'aMMG', 'a2', 'aLMG']);
+    // Neither the MMG nor the squads leave alone a group that may fire; both together do.
+    expect(illegal({ units: ['a1', 'a2'], sw: ['aMMG', 'aLMG'], target: 'yO5' })).toMatch(/moved cannot fire in the AFPh/);
+    const noMmg = { units: ['a1', 'a2'], sw: ['aLMG'], target: 'yO5' };
+    expect(illegal(noMmg)).toMatch(/out of range/);
+    expect(illegal({ units: [], sw: ['aMMG', 'aLMG'], target: 'yO5' })).toMatch(/moved cannot fire in the AFPh/);
+    const lmg = withinRange(env, noMmg);
+    expect(lmg).toEqual({ units: [], sw: ['aLMG'], target: 'yO5' });
+    expect(illegal(lmg)).toBeNull();
+    const t = act(engine, state, { type: 'fire', decl: lmg });
+    expect(t.state.pieces['aLMG']!.tags['fire']).toBeTruthy();
   });
 
   it('a Para squad that fired its own FP still offers its FT', () => {

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
-import { entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched } from '@asl/rules';
+import { entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, roadblockObstacles } from '@asl/rules';
 import { AMMO_NAME, acquisitionsAt, ammoOut, defOf, fireAt, fireMarker, fireNumbers, fortCounters, fortKindName, gunIdent, isWeaponDef, locationsOf, moveState, parseLabor, rubbleAt, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, terrainOf, windOf, type Statics, type VehicleDef } from '@asl/rules';
 import { counterImage, cxMarker, markerImage } from '../game/assets';
 import { fortMarker } from '../panels/FortTray';
@@ -65,6 +65,8 @@ function statusOf(env: QueryEnv, p: Piece): { label: string; marker?: string }[]
   if (fire === 'final') out.push({ label: 'Final Fire', marker: 'Final' });
   if (t['wounds']) out.push({ label: 'wounded', marker: 'Wound' });
   if (t['ti']) out.push({ label: 'TI: no fire, movement or advance this Player Turn; CC +1/-1 (ASLRB A4.8)', marker: 'TI' });
+  // Full ASL: Wall Advantage over the wall hexsides (a roadblock) of its hex (ASLRB B9.32, B9.31).
+  if (typeof t['wa'] === 'string') out.push({ label: 'Wall Advantage: the wall TEM vs fire across its hexside, no in-hex TEM; denies it to the enemy across (ASLRB B9.31, B9.321)' });
   const labor = parseLabor(t['labor']);
   if (labor) out.push({ label: `Labor ${labor.drm} on the next attempt at ${labor.task.replace(/^flame:/, 'the Flame in ').replace(/^entrench:/, 'entrenching in ').replace(/^[a-z]/, '')} (ASLRB B24.8)`, marker: labor.drm <= -2 ? 'Labor2' : 'Labor1' });
   // Full ASL: beneath the foxhole or trench of the hex, or on top of it (ASLRB B27.1, B27.13).
@@ -226,6 +228,17 @@ function fireLines(env: QueryEnv, hex: HexId): string[] {
 
 /** The fortification counters in a hex this viewer may see (full ASL A12.33, B26–B30), as the peek lists them. */
 function fortLines(env: QueryEnv, hex: HexId): { marker: string; label: string; hidden: boolean }[] {
+  // A roadblock is a stone wall on its hexside (ASLRB B29.2–B29.4): the card of either hex, and of a hex its extension
+  // runs into, says so.
+  const obstacles = roadblockObstacles(env);
+  const wallOf = (id: string) => obstacles.find((o) => o.id === id);
+  const wallText = (id: string) => {
+    const o = wallOf(id);
+    return o ? ` · a stone wall across ${o.a.replace(/^[a-z]/, '')}–${o.b.replace(/^[a-z]/, '')}: Half-Level LOS obstacle, +2 TEM in either hex (Wall Advantage), Infantry +1 MF to cross, no vehicles${o.extension.length ? `; extends into ${o.extension.map((e) => e.hex.replace(/^[a-z]/, '')).join(', ')}` : ''} (ASLRB B29.2–B29.4)` : '';
+  };
+  const across = fortCounters(env)
+    .filter((c) => c.kind === 'roadblock' && c.hex !== hex && (wallOf(c.id)?.b === hex || wallOf(c.id)?.extension.some((e) => e.hex === hex)))
+    .map((c) => ({ marker: fortMarker(c), label: `${fortKindName(c)}${wallText(c.id)}`, hidden: !!c.hidden && !c.revealed }));
   return fortCounters(env)
     .filter((c) => c.hex === hex)
     .map((c) => {
@@ -234,10 +247,12 @@ function fortLines(env: QueryEnv, hex: HexId): { marker: string; label: string; 
         c.kind === 'foxhole' ? ` · room for ${c.capacity ?? 1} squad${(c.capacity ?? 1) === 1 ? '' : 's'} and four SMC (ASLRB B27.12)`
         : c.kind === 'trench' || c.kind === 'ditch' ? ' · room for three squads (ASLRB B27.51)'
         : c.kind === 'pillbox' ? ` · ${c.pillbox?.capacity ?? 1} squad${(c.pillbox?.capacity ?? 1) === 1 ? '' : 's'}, +${c.pillbox?.ca} in its arc, +${c.pillbox?.nca} outside (ASLRB B30.11)`
+        : c.kind === 'roadblock' ? wallText(c.id)
         : c.kind === 'mines' && !c.mines?.ap && !c.mines?.at && !c.mines?.dummy ? ' · strength unknown' : '';
       const status = c.hidden && !c.revealed ? (c.kind === 'mines' ? ' · recorded (ASLRB B28.1)' : ' · hidden (ASLRB A12.33)') : c.revealed ? ' · revealed' : '';
       return { marker: fortMarker(c), label: `${what}${extra}${status}`, hidden: !!c.hidden && !c.revealed };
-    });
+    })
+    .concat(across);
 }
 
 /** Markers on the hex itself (Smoke, CC, Melee, Residual FP, Acquired Target counters). */

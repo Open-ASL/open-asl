@@ -182,13 +182,14 @@ export function pixelTracers(
   const WOOD_BUILDING = new Set([50, 51, 203]);
   const locate = (x: number, y: number): { pb: PlacedBoard; i: number } | null => {
     // The board whose rectangle holds the point. A board may sit half a board along (S25: "0.5,0"), so this is not
-    // the board at floor(x / width); a point off every board's edge (the far edge hexes) falls back to that lookup.
-    const bx = Math.min(Math.floor(x / width), Math.max(...placements.map((p) => p.x)));
-    const by = Math.floor(y / height);
+    // the board at floor(x / width). A point on the map's far edge (the centre dots of its edge half hexes, and a
+    // thread run along them) lies just outside every rectangle: it belongs to the nearest board, whose edge pixels it
+    // reads, wherever the other boards sit.
+    const gap = (p: PlacedBoard) =>
+      Math.hypot(Math.max(p.x * width - x, 0, x - (p.x + 1) * width), Math.max(p.y * height - y, 0, y - (p.y + 1) * height));
     const pb =
       placements.find((p) => x >= p.x * width && x < (p.x + 1) * width && y >= p.y * height && y < (p.y + 1) * height) ??
-      placements.find((p) => p.x === bx && p.y === by) ??
-      placements.find((p) => p.x === bx - 1 && p.y === by);
+      placements.reduce<PlacedBoard | null>((best, p) => (!best || gap(p) < gap(best) ? p : best), null);
     if (!pb) return null;
     let lx = Math.min(pb.raster.w - 1, Math.max(0, Math.round(x - pb.x * width)));
     let ly = Math.min(pb.raster.h - 1, Math.max(0, Math.round(y - pb.y * height)));

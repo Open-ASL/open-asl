@@ -233,7 +233,7 @@ describe('Bypass movement (ASLRB A4.3, A4.31)', () => {
     expect(engine.legalActions(rubbled, 'ge').some((a) => a['bypass'] && a['to'] === 'uR3')).toBe(false);
   });
 
-  it('cannot bypass a hex containing Wire, nor along a hexside of a hex containing Wire; hidden Wire is passed (A4.3, B26.44, A12.33)', () => {
+  it('cannot bypass a hex containing Wire, nor along a hexside of a hex containing Wire (A4.3, B26.44)', () => {
     const { engine, state } = game([squad(), far]);
     const s = start(engine, state);
     const wire = (hex: string, hidden: boolean) => ({ ...s, ext: { ...s.ext, 'asl.fortifications': { counters: [{ id: 'ru.fort1', side: 'ru', kind: 'wire', hex, hidden }] } } });
@@ -246,7 +246,30 @@ describe('Bypass movement (ASLRB A4.3, A4.31)', () => {
     const offered = engine.legalActions(next, 'ge').filter((a) => a['bypass'] && a['to'] === 'uR3').map((a) => (a['bypass'] as string[]).join('-'));
     expect(offered).toContain('uR4');
     expect(offered.some((v) => v.includes('uS4'))).toBe(false);
-    expect(check(engine, wire('uS4', true), { type: 'move.step', to: 'uR3', bypass: ['uR4', 'uS4'] })).toBeNull();
+  });
+
+  it('hidden Wire bars Bypass too: legality cannot see it, the attempt reveals it and is refused with nothing spent (B26.44; Q&A [K33] to A12.33)', () => {
+    const { engine, state } = game([squad(), far]);
+    const s = start(engine, state);
+    const wire = (hex: string) => ({ ...s, ext: { ...s.ext, 'asl.fortifications': { counters: [{ id: 'ru.fort1', side: 'ru', kind: 'wire', hex, hidden: true }] } } });
+    for (const [hex, via] of [['uS4', ['uR4', 'uS4']], ['uR3', ['uR4']]] as const) {
+      const h = wire(hex);
+      // The mover's view holds no counter, so nothing is refused up front ...
+      expect(check(engine, h, { type: 'move.step', to: 'uR3', bypass: via })).toBeNull();
+      // ... the attempt finds the Wire: revealed, no Bypass, no MF spent, the stack still in its hex and moving.
+      const r = act(engine, h, { type: 'move.step', to: 'uR3', bypass: via });
+      expect(r.events.find((e) => e.type === 'asl.bypass.wireRefused')?.payload).toMatchObject({ hex: 'uR3', wire: [hex] });
+      const c = (r.state.ext['asl.fortifications'] as { counters: { revealed?: boolean }[] }).counters[0]!;
+      expect(c.revealed).toBe(true);
+      const m = ms(engine, r.state);
+      expect(m.bypass).toBeUndefined();
+      expect(m.hex).toBe('uQ4');
+      expect(m.spent['g'] ?? 0).toBe(0);
+      expect(engine.currentDecision(r.state)!.owner).toBe('ge');
+      // Now known: refused up front, and the stack may still move on normally.
+      expect(check(engine, r.state, { type: 'move.step', to: 'uR3', bypass: via })).toMatch(/Wire/);
+      expect(check(engine, r.state, { type: 'move.step', to: 'uP4' })).toBeNull();
+    }
   });
 
   it('only in the MPh: no Bypass is offered to an advance (A4.7), which enters the obstacle itself, nor to a rout (A10.5)', () => {
@@ -267,6 +290,12 @@ describe('Bypass movement (ASLRB A4.3, A4.31)', () => {
   it('cannot bypass an obstacle holding a Known enemy unit (A4.3)', () => {
     const { engine, state } = game([squad(), { id: 'r', def: 'ru.447', side: 'ru', hex: 'uR3' }]);
     expect(check(engine, start(engine, state), { type: 'move.step', to: 'uR3', bypass: ['uR4'] })).toMatch(/Known enemy/);
+  });
+
+  it('a Known enemy unit only on a level above does not bar the Bypass (A4.3; Q&A [K33])', () => {
+    const terrain: Record<string, HexTerrainSpec> = { uR3: { terrain: 'building-wood', building: { upper: 1, stairwell: 'inherent' }, obstacleHeight: 1.5 } };
+    const { engine, state } = game([squad(), { id: 'r', def: 'ru.447', side: 'ru', hex: 'uR3', level: 1 }, far], { terrain });
+    expect(check(engine, start(engine, state), { type: 'move.step', to: 'uR3', bypass: ['uR4'] })).toBeNull();
   });
 });
 

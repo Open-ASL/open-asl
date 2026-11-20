@@ -16,6 +16,7 @@ import {
   moveState,
   piecesModule,
   redactState,
+  shownUnfortified,
   statics,
   turnModule,
   type FireAttackCtx,
@@ -197,6 +198,12 @@ describe('B23.922: no entry while an enemy squad holds the Location', () => {
     expect(s.pieces['g']!.loc).toEqual({ kind: 'hex', hex: 'uJ4' });
   });
 
+  it('a squad still marked with Wall Advantage does not bar the entry (B23.922; official Q&A [An95w; An96])', () => {
+    const wa = game([german, russian({ tags: { wa: 'uK4' } })], { startPhase: 'APh' });
+    const s = act(wa.engine, designate(wa.engine, wa.state, ['uK4']), advance).state;
+    expect(s.pieces['g']!.loc).toEqual({ kind: 'hex', hex: 'uK4' });
+  });
+
   it('through a Breach of that hexside the advance goes in; through another hexside it is still refused', () => {
     const { engine, state } = game([german, russian(), { id: 'g2', def: 'ge.467', side: 'ge', hex: 'uK3' }], { startPhase: 'APh', open: true });
     let s = designate(engine, state, ['uK4']);
@@ -318,22 +325,26 @@ describe('B23.9221: Breach by a DC', () => {
   ];
   const breachOf = (t: { events: { type: string; payload: unknown }[] }) => t.events.find((e) => e.type === 'asl.breach.attempt')?.payload as { breached: boolean; malfunctioned: boolean; drm: number; result: string | null } | undefined;
 
-  it('is offered to the DC holder against a known fortified ADJACENT Location, not up the stairs, not against an unrevealed one', () => {
+  it('is offered to the DC holder against an ADJACENT Location that may be fortified, known or not; not up the stairs; not against one that cannot be (B23.9221; Q&A [K33])', () => {
     const { engine, state } = game(pieces(), { startPhase: 'MPh', open: true });
     let s = designate(engine, state, ['uK4', 'uK4:1']);
     s = act(engine, s, { type: 'move.start', units: ['g', 'l'] }).state;
-    // One entry per known fortified ADJACENT Location (J4 touches K4 and K5; only K4 is fortified), for the DC only.
+    // One entry per ADJACENT Location that may be fortified (J4 touches K4 and K5; both Locations of the count are
+    // shown, in K4, so K5 cannot be), for the DC only.
     const offered = engine.legalActions(s, 'ge').filter((a) => a.type === 'move.breach');
     expect(offered.map((a) => `${a['dc']}>${a['target']}`)).toEqual(['dc>uK4']);
     const check = (target: string) => engine.validate(s, { side: 'ge', decisionId: engine.currentDecision(s)!.id, type: 'move.breach', dc: 'dc', target } as Action);
     expect(check('uK4:1')).toMatch(/ADJACENT/);
-    expect(check('uK5')).toMatch(/known to be fortified/);
-    // A secret one: not until the Germans have seen it.
+    expect(check('uK5')).toMatch(/not fortified, as far as your side can tell.*B23.9221/);
+    // A secret designation: every ADJACENT Location that might be fortified is offered alike, fortified or not.
     const secret = game(pieces(), { startPhase: 'MPh' });
     let u = designate(secret.engine, secret.state, ['uK4']);
     u = act(secret.engine, u, { type: 'move.start', units: ['g'] }).state;
-    expect(secret.engine.legalActions(u, 'ge').some((a) => a.type === 'move.breach')).toBe(false);
-    expect(secret.engine.validate(u, { side: 'ge', decisionId: secret.engine.currentDecision(u)!.id, type: 'move.breach', dc: 'dc', target: 'uK4' } as Action)).toMatch(/known to be fortified/);
+    expect(secret.engine.legalActions(u, 'ge').filter((a) => a.type === 'move.breach').map((a) => a['target'])).toEqual(['uK4', 'uK5']);
+    for (const target of ['uK4', 'uK5']) expect(secret.engine.validate(u, { side: 'ge', decisionId: secret.engine.currentDecision(u)!.id, type: 'move.breach', dc: 'dc', target } as Action)).toBeNull();
+    // The same on the German's own (redacted) view, which is what the client validates on.
+    const view = redactState(secret.engine, u, 'ge');
+    expect(secret.engine.legalActions(view, 'ge').filter((a) => a.type === 'move.breach').map((a) => a['target'])).toEqual(['uK4', 'uK5']);
     // A pinned placer may not.
     const pinned = game(pieces().map((p) => (p.id === 'g' ? { ...p, tags: { pinned: true } } : p)), { startPhase: 'MPh', open: true });
     let v = designate(pinned.engine, pinned.state, ['uK4']);
@@ -437,6 +448,108 @@ describe('B23.9221: Breach by a DC', () => {
     s = act(engine, s, { type: 'move.placeDc', dc: 'dc', target: 'uK4' }).state;
     expect(moveState(engine.env(s))!.spent['g']).toBe(2);
     expect(moveState(engine.env(s))!.dcPending?.breach).toBeUndefined();
+  });
+});
+
+describe('B23.9221 with B23.911: a DC Breach attempt against a Location not known to be fortified (Q&A [K33] to A23.3, B23.711, B23.9221)', () => {
+  // g (4-6-7, DC) in J4 tries to Breach K4, where r holds; the designation is secret: K4 in one game, K5 in the other.
+  // The German must not be able to tell the two games apart until the Breach DR decides.
+  const run = (fortify: string[], dice: number[], cx = false) => {
+    const pieces: PieceSpec[] = [
+      { id: 'g', def: 'ge.467', side: 'ge', hex: 'uJ4' },
+      { id: 'dc', def: 'ge.DC', side: 'ge', heldBy: 'g' },
+      { id: 'r', def: 'ru.447', side: 'ru', hex: 'uK4' },
+    ];
+    const { engine, state } = game(pieces, { startPhase: 'MPh', dice });
+    let s = designate(engine, state, fortify);
+    const before = s;
+    // Double Time makes the placer CX (+1 to the DC's attack, A23.3).
+    s = act(engine, s, { type: 'move.start', units: ['g'], ...(cx ? { doubleTime: true } : {}) }).state;
+    const decl = act(engine, s, { type: 'move.breach', dc: 'dc', target: 'uK4' });
+    s = decl.state;
+    while (engine.currentDecision(s)?.kind === 'firstFire') s = act(engine, s, { type: 'defPass' }).state;
+    if (engine.legalActions(s, 'ge').some((a) => a.type === 'move.end')) s = act(engine, s, { type: 'move.end' }).state;
+    while (engine.currentDecision(s)?.kind === 'firstFire') s = act(engine, s, { type: 'defPass' }).state;
+    // On to the AFPh, keeping the German's stream of everything since the designation.
+    const ge: unknown[] = [];
+    const steps: { from: GameState; t: ReturnType<typeof act> }[] = [];
+    for (let i = 0; i < 20 && s.phase !== 'AFPh'; i++) {
+      const d = engine.currentDecision(s)!;
+      const t = act(engine, s, engine.legalActions(s, d.owner).find((x) => x.type === 'defPass' || x.type === 'move.end' || x.type === 'endPhase')!);
+      steps.push({ from: s, t });
+      s = t.state;
+    }
+    for (const { from, t } of steps) ge.push(...engine.redactTransition('ge', (x) => redactState(engine, x, 'ge'), from, t.events as never));
+    const events = steps.flatMap(({ t }) => t.events);
+    return { engine, before, s, decl, events, ge, attempt: events.find((e) => e.type === 'asl.breach.attempt')?.payload as Record<string, unknown> | undefined };
+  };
+  const strip = (stream: unknown[]) => stream.map((e) => ({ ...(e as Record<string, unknown>), seq: undefined }));
+
+  it('is declared like any Breach attempt and shows nothing: the declaration reveals no fortification', () => {
+    const forted = run(['uK4'], [6, 6]);
+    expect(forted.decl.events.find((e) => e.type === 'asl.breach.declared')?.payload).toMatchObject({ loc: 'uK4', toward: 'uJ4' });
+    expect(forted.decl.events.some((e) => e.type === 'sk1.fortified.revealed')).toBe(false);
+    expect(fortifiedKnownTo(forted.engine.env(forted.decl.state), 'uK4', 'ge')).toBe(false);
+  });
+
+  it('a DR short of a Breach shows nothing: the German is shown the same in both games, the hexside at the Fortified TEM', () => {
+    // CX: Breach DR 9 +3 TEM +1 Fortified +1 CX = 14, a PTC on the DC's 30 column (no Breach); the Area Fire (15 FP) at 13
+    // or 14 does nothing. Then an Original 10, the X# of a non-elite squad's DC: a malfunction.
+    for (const [dice, cx] of [[[4, 5], true], [[5, 5], false]] as const) {
+      const forted = run(['uK4'], [...dice], cx);
+      const plain = run(['uK5'], [...dice], cx);
+      expect(forted.attempt).toMatchObject({ breached: false });
+      expect(plain.attempt).toMatchObject({ breached: false });
+      expect(plain.attempt!['unfortified']).toBeUndefined();
+      expect(strip(forted.ge)).toEqual(strip(plain.ge));
+      if (!cx) expect(forted.attempt).toMatchObject({ malfunctioned: true });
+      else {
+        expect(forted.attempt).toMatchObject({ drm: 5, result: 'PTC' });
+        const hexside = forted.events.find((e) => e.type === 'sk1.fire.attack')!.payload as { explain: { id: string; label?: string }[] };
+        expect(hexside.explain.map((n) => n.id)).toContain('asl.breach.fortifiedTem');
+        expect(hexside.explain.map((n) => n.id)).not.toContain('ssr.fortified.dc');
+      }
+      expect(fortifiedKnownTo(forted.engine.env(forted.s), 'uK4', 'ge')).toBe(false);
+      expect(breaches(forted.engine.env(forted.s))).toEqual([]);
+      expect(shownUnfortified(plain.engine.env(plain.s))).toEqual([]);
+    }
+  });
+
+  it('a DR that Breaches a Fortified Location places the Breach and shows the Location; the same DR against an unfortified one resolves as Area Fire only and shows it is not fortified', () => {
+    // Breach DR 9 (4+5): +3 TEM +1 Fortified = 13, a NMC on the 30 column.
+    const forted = run(['uK4'], [4, 5]);
+    expect(forted.attempt).toMatchObject({ breached: true, result: 'NMC', drm: 4 });
+    expect(forted.attempt!['unfortified']).toBeUndefined();
+    const env = forted.engine.env(forted.s);
+    expect(fortifiedKnownTo(env, 'uK4', 'ge')).toBe(true);
+    expect(breaches(env)).toEqual([{ loc: 'uK4', toward: 'uJ4', by: 'dc' }]);
+    expect(redactState(forted.engine, forted.s, 'ge').ext['asl.breach']).toEqual([{ loc: 'uK4', toward: 'uJ4', by: 'dc' }]);
+    const plain = run(['uK5'], [4, 5]);
+    expect(plain.attempt).toMatchObject({ breached: false, result: 'NMC', unfortified: true });
+    const penv = plain.engine.env(plain.s);
+    expect(breaches(penv)).toEqual([]);
+    expect(shownUnfortified(penv)).toEqual(['uK4']);
+    expect(redactState(plain.engine, plain.s, 'ge').ext['asl.breach.unfortified']).toEqual(['uK4']);
+    // The units take Area Fire with the Location's own TEM (+3), nothing of a fortification.
+    const area = plain.events.filter((e) => e.type === 'sk1.fire.attack')[1]!.payload as { fp: number; drm: number };
+    expect(area).toMatchObject({ fp: 15, drm: 3 });
+    // K4 is no longer offered; K5 still is (it may be fortified, as far as the German knows).
+    expect(fortifiedPossibleTo(penv, 'uK4', 'ge')).toBe(false);
+    expect(fortifiedPossibleTo(penv, 'uK5', 'ge')).toBe(true);
+    expect(fortifiedKnownTo(penv, 'uK5', 'ge')).toBe(false);
+  });
+
+  it('across turns: the DC and its tags are gone at the next Player Turn, the Breach (or the unfortified record) stays, and the placer moves on normally', () => {
+    for (const fortify of [['uK4'], ['uK5']]) {
+      const r = run(fortify, [4, 5, ...Array(80).fill(4)]);
+      const s2 = playOn(r.engine, r.s, r.s.turn, 'ge', 'MPh');
+      const env = r.engine.env(s2);
+      expect(Object.values(s2.pieces).some((p) => p.tags['dcBreach'] !== undefined || p.tags['dcPlaced'] !== undefined)).toBe(false);
+      expect(s2.pieces['dc']!.loc.kind).toBe('eliminated');
+      if (fortify[0] === 'uK4') expect(breaches(env)).toEqual([{ loc: 'uK4', toward: 'uJ4', by: 'dc' }]);
+      else expect(shownUnfortified(env)).toEqual(['uK4']);
+      expect(r.engine.legalActions(s2, 'ge').some((a) => a.type === 'move.start' && (a['units'] as string[]).includes('g'))).toBe(true);
+    }
   });
 });
 

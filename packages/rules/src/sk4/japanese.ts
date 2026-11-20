@@ -20,8 +20,8 @@ import type { HiddenUnitsParams } from '../sk2/hiddenUnits';
  * and loses it for good on an original DR ≥ the printed B# (8.1.8.2); the Japanese take no PAATC and turn a LLMC
  * into a LLTC while unbroken (8.1.8.3); a CC a Japanese Infantry unit attacks in, or ambushes in, is Hand-to-Hand
  * (8.1.8.4); up to 10% of the on-board OB may set up HIP (8.1.8.5). The Banzai Charge (8.1.8.6–8) is `banzai.ts`.
- * Readings: a Reduced-Strength squad's Full-Strength CCV applies in every CC (the sentence sits in the Hand-to-Hand
- * paragraph but names no condition; full ASL G1.42 is general); the +1 morale needs only a Japanese leader present
+ * Readings: a Reduced-Strength squad's Full-Strength CCV is the CC Value of CC with an AFV (SK4 3.8), not its CC FP vs
+ * Infantry; the +1 morale needs only a Japanese leader present
  * (the rule names no state; a wounded leader still counts).
  */
 
@@ -348,41 +348,9 @@ export const japaneseModule: RuleModule = {
       },
       apply: (v) => v - 1,
     });
-    // A Reduced-Strength squad keeps its Full-Strength CCV.
-    const fullCcv = (env: QueryEnv, unit: PieceId): number | null => {
-      const m = mmc(env, pieceOf(env, unit));
-      const full = m?.fullOf ? statics(env).counters[m.fullOf] : undefined;
-      return m && m.nationality === 'ja' && full && isMmcDef(full) ? full.fp : null;
-    };
-    r.contribute({
-      id: 'sk4.ja.reduced-ccv-attack',
-      query: 'cc.attackFp',
-      ref: 'SK4 8.1.8.4',
-      layer: 1,
-      when: ({ unit }, env) => fullCcv(env, unit) !== null,
-      apply: (v, { unit }, env) => {
-        const m = mmc(env, pieceOf(env, unit))!;
-        return v - m.fp + fullCcv(env, unit)!;
-      },
-    });
-    r.contribute({
-      id: 'sk4.ja.reduced-ccv-note',
-      query: 'cc.fpNote',
-      ref: 'SK4 8.1.8.4',
-      when: ({ unit }, env) => fullCcv(env, unit) !== null,
-      apply: (v) => v ?? 'counts its full-strength CCV (SK4 8.1.8.4)',
-    });
-    r.contribute({
-      id: 'sk4.ja.reduced-ccv-defense',
-      query: 'cc.defenseFp',
-      ref: 'SK4 8.1.8.4',
-      layer: 1,
-      when: ({ unit }, env) => fullCcv(env, unit) !== null,
-      apply: (v, { unit }, env) => {
-        const m = mmc(env, pieceOf(env, unit))!;
-        return v - m.fp + fullCcv(env, unit)!;
-      },
-    });
+    // "A Reduced-Strength Japanese unit retains its Full-Strength CCV" (8.1.8.4): the Close Combat Value of CC with an AFV
+    // (squad 5, crew 4, HS 3; SK4 3.8), which a Reduced squad already has as a squad. Against Infantry it fights with its
+    // own FP, as every unit does (SK1 3.8).
 
     // ---------------------------------------------------------------- 8.1.8.5 HIP for 10% of the on-board OB
     r.contribute({

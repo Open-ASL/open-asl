@@ -463,8 +463,11 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
       if (d.kind !== 'sw' || !d.fixed || state.pieces[pc.loc.by]?.tags['vca'] === undefined) return null;
       return { vehicle: pc.loc.by, type: d.type };
     };
+    // One outcome can come as two events (a failed check's "ELIMINATED", then the piece's elimination; "REDUCED", then its
+    // replacement): a unit shows each word once per beat (one roll and its results).
     const unitText = (unit: PieceId, text: string, color: number, big = false, sound?: SfxName) => {
       if (hiddenFrom(unit)) return;
+      if (beat.fx.some((f) => f.kind === 'text' && f.piece === unit && f.text === text)) return;
       fx.push({ id: nextId.current++, kind: 'text', piece: unit, ...(hexOfPiece(state, unit) ? { hex: hexOfPiece(state, unit)! } : {}), text, color, delay, big });
       if (sound) snd(sound, delay);
       delay += 420;

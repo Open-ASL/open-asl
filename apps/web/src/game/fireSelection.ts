@@ -1,5 +1,5 @@
 import type { HexId, Piece, PieceId, QueryEnv, SideId } from '@asl/engine';
-import { UNKNOWN_DEF_ID, defOf, enemyVehicleAt, fireMarker, isGoodOrder, isRofShot, ordnanceOf, personnelInHex, swHeldBy, unitsInHex, vehicle } from '@asl/rules';
+import { UNKNOWN_DEF_ID, defOf, enemyVehicleAt, fireMarker, hexOf, hexOfLoc, isGoodOrder, isRofShot, mmc, ordnanceOf, personnelInHex, statics, swHeldBy, unitsInHex, vehicle } from '@asl/rules';
 
 /**
  * What a click on an own stack picks up in a fire phase, so the stack is ready to shoot as
@@ -30,6 +30,37 @@ export function fireSelectable(env: QueryEnv, here: Piece[], opts: { firstFire: 
 }
 
 /**
+ * The units among `ids` that only carry a ticked weapon: a half-squad or crew that has fired a SW this phase has
+ * forfeited its own FP (SK1 4.0), so ticked with that weapon it adds no FP; the weapon fires alone.
+ */
+export function swCarriers(env: QueryEnv, ids: Iterable<PieceId>): PieceId[] {
+  const all = [...ids];
+  return all.filter((id) => env.state.pieces[id]?.tags['ownFpForfeit'] === true && all.some((w) => { const l = env.state.pieces[w]?.loc; return l?.kind === 'held' && l.by === id; }));
+}
+
+/**
+ * The units in a fire declaration that cannot reach its target: beyond twice their printed range, the limit of Long
+ * Range Fire (SK1 3.2). They take no part in the attack, but the SW they hold may still fire at it on its own range
+ * (SK1 4.0: a squad fires one SW at no cost to its own FP), so a stack picked up whole fires those weapons alone.
+ */
+export function beyondRange(env: QueryEnv, decl: { units: PieceId[]; target: HexId }): PieceId[] {
+  const map = statics(env).map;
+  const target = hexOfLoc(decl.target);
+  return decl.units.filter((id) => {
+    const p = env.state.pieces[id];
+    const at = p ? hexOf(env.state, p) : null;
+    const m = p ? mmc(env, p) : null;
+    return !!at && !!m && map.distance(at, target) > m.range * 2;
+  });
+}
+
+/** The declaration without its units beyond range (`beyondRange`): what the stack's weapons may still fire at the target. */
+export function withinRange<D extends { units: PieceId[]; target: HexId }>(env: QueryEnv, decl: D): D {
+  const far = beyondRange(env, decl);
+  return far.length ? { ...decl, units: decl.units.filter((u) => !far.includes(u)) } : decl;
+}
+
+/**
  * The leaders in the hex a "Fire" entry offers to direct `units` (the fire selection there): those in the selection
  * or selectable themselves, and for weapons firing again alone on the ROF they kept, any leader there. He may direct
  * a MG "as many times as the MG can fire, even if he also directed other units as part of a FG in the MG's previous
@@ -38,7 +69,8 @@ export function fireSelectable(env: QueryEnv, here: Piece[], opts: { firstFire: 
  */
 export function fireLeaders(env: QueryEnv, leaders: Piece[], units: PieceId[], own: PieceId[]): Piece[] {
   const sws = units.filter((id) => env.state.pieces[id] && defOf(env, env.state.pieces[id]!).kind === 'sw');
-  const rofShot = sws.length === units.length && isRofShot(env, { units: [], sw: sws });
+  const carriers = swCarriers(env, units);
+  const rofShot = sws.length > 0 && sws.length === units.filter((id) => !carriers.includes(id)).length && isRofShot(env, { units: [], sw: sws });
   return leaders.filter((l) => rofShot || units.includes(l.id) || own.includes(l.id));
 }
 

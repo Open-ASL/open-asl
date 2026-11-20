@@ -19,6 +19,7 @@ import { T2 } from '../sk2/status';
 import { OP, simpleShots, type OrdnanceFireFn, type OrdnanceShot } from '../sk2/ordnance';
 import { T3, crewCanAct, inMotion, isBogged, isCe, isImmobile, isMobile, isWreck, tcaOf, vcaOf, vehicle } from './status';
 import { applyVehicleEffect } from './vehicleStatus';
+import { installRecall } from './recall';
 
 /*
  * Vehicle movement (SK4 3.3.2, 7.6, 1.1.1 MP costs). A vehicle rides in the SK1 move state
@@ -39,6 +40,12 @@ declare module '@asl/engine' {
     'vehicle.motionMp': { ctx: { vehicle: PieceId }; value: number };
     /** MP for `vehicle` to enter `hex` by its terrain, off a road and outside a building (an SSR may change it, S28 wetland). */
     'vehicle.terrainMp': { ctx: { vehicle: PieceId; hex: HexId }; value: number };
+    /** Why the moving vehicle may not stop, Delay or end its move while it could go on (a Recalled AFV, SK4 7.10), or null. */
+    'vehicle.mustMoveOn': { ctx: { ms: MoveState }; value: string | null };
+    /** Full ASL: MP a vehicle pays to enter `hex` on top of its COT, by road or not (ASLRB B26.43: Wire); 0 in the Starter Kit. */
+    'vehicle.extraMp': { ctx: { vehicle: PieceId; hex: HexId }; value: number };
+    /** Whether entering `hex` (`turn`: changing VCA in it) calls for a Bog Check; the Starter Kit's woods, buildings and rubble (full ASL adds Wire, B26.43, D8.21). */
+    'vehicle.bogIn': { ctx: { vehicle: PieceId; hex: HexId; turn: boolean }; value: boolean };
   }
 }
 
@@ -116,6 +123,7 @@ export function vehicleEntryCost(env: QueryEnv, p: Piece, from: HexId | null, to
   else cost = Infinity;
   if (!alongRoad && !building) cost = env.query('vehicle.terrainMp', { vehicle: p.id, hex: to }, cost);
   if (!Number.isFinite(cost)) return cost;
+  if (map.hex(to)) cost += env.query('vehicle.extraMp', { vehicle: p.id, hex: to }, 0);
   // From offboard too: an offboard hex is at level 0 (ASLRB A2.51).
   if (from && (map.hex(from) || map.offboardHex(from)) && levelOf(env, to) > levelOf(env, from)) cost += opts.viaRoad && roadRate ? 2 : 4;
   const others = vehiclesInHex(env, to).filter((v) => v.id !== p.id).length;
@@ -178,7 +186,7 @@ function cheapestStep(env: QueryEnv, ms: MoveState & { vehicle: VehicleMoveState
   const cands = ms.hex ? map.neighbors(ms.hex) : moveInternals.offboardTargets(env, ms);
   let best: number | null = null;
   for (const to of cands) {
-    if (vehicleStepIllegal(env, ms, to)) continue;
+    if (env.query('vehicle.stepIllegal', { ms, to }, null)) continue;
     const c = vehicleStepCost(env, ms, to);
     if (best === null || c < best) best = c;
   }
@@ -291,7 +299,7 @@ const exposed = (ctx: Ctx) => moveInternals.afterMfExpenditure(ctx);
 
 export const vehicleMoveModule: RuleModule = {
   id: 'sk3.vehicleMove',
-  ref: 'SK4 1.1.1, 3.3.2, 7.6, 7.7, 7.10; SK3 Russian Vehicle Note M',
+  ref: 'SK4 1.1.1, 3.3.2, 7.6, 7.7, 7.10; SK3 Russian Vehicle Note M; ASLRB D5.341',
   summary: 'Vehicle movement: start/stop/Delay MP, VCA and TCA changes, MP costs, Bog, Mechanical Reliability, Motion, CE/BU.',
   requires: ['sk1.movement', 'sk3.vehicles', 'sk2.elevation'],
   install(r) {
@@ -302,6 +310,8 @@ export const vehicleMoveModule: RuleModule = {
     r.event<{ vehicle: PieceId; ce: boolean; phase: string }>({ type: 'sk3.vehicle.ce', apply() {} });
 
     r.contribute({ id: 'sk3.vehicle.cannotStart.base', query: 'vehicle.cannotStart', layer: 0, apply: (v, { vehicle: id }, env) => v ?? vehicleCannotStart(env, id) });
+    // A Recalled AFV drives for its friendly board edge (SK4 7.10).
+    installRecall(r);
 
     // ---------------------------------------------------------------- one vehicle per hex at the end of the MPh
     // Vehicles may share a hex while moving (an extra MP per vehicle there), but "each side may have only
@@ -381,7 +391,7 @@ export const vehicleMoveModule: RuleModule = {
       // another Bounding First Fire shot (SK4 3.3.2.2), which the in-place spends count the same way.
       const cost = ms.mfHere;
       ctx.emit('sk1.move.state', { state: { ...ms, vehicle: { ...ms.vehicle, sinceTurret: ms.vehicle.sinceTurret + cost, turretTurned: false, sinceBff: (ms.vehicle.sinceBff ?? 0) + cost } } });
-      if (bogTerrain(ctx, ms.hex)) {
+      if (ctx.query('vehicle.bogIn', { vehicle: p.id, hex: ms.hex, turn: false }, bogTerrain(ctx, ms.hex))) {
         const d = vehicle(ctx, p)!;
         const halfMp = ms.mfHere < d.mp && ms.mfHere <= d.mp / 2 + 0.01 && !ms.vehicle.freeStop;
         if (bogCheck(ctx, p, ms.hex, halfMp, 'enter')) {
@@ -506,7 +516,7 @@ export const vehicleMoveModule: RuleModule = {
       decisionKinds: [PHASE_DECISION],
       legal: (env) => {
         const m = movingVehicle(env);
-        return m && m.ms.vehicle.started && !m.ms.vehicle.stopped && !m.ms.halted && (m.ms.vehicle.freeStop || remaining(m.ms) >= 1) ? [{ type: 'vmove.stop' }] : [];
+        return m && m.ms.vehicle.started && !m.ms.vehicle.stopped && !m.ms.halted && (m.ms.vehicle.freeStop || remaining(m.ms) >= 1) && !env.query('vehicle.mustMoveOn', { ms: m.ms }, null) ? [{ type: 'vmove.stop' }] : [];
       },
       validate(env) {
         const m = movingVehicle(env);
@@ -514,7 +524,7 @@ export const vehicleMoveModule: RuleModule = {
         if (!m.ms.vehicle.started || m.ms.vehicle.stopped) return 'The vehicle is already stopped';
         if (m.ms.halted) return 'The vehicle has already come to a halt';
         if (!m.ms.vehicle.freeStop && remaining(m.ms) < 1) return 'Stopping costs 1 MP';
-        return null;
+        return env.query('vehicle.mustMoveOn', { ms: m.ms }, null);
       },
       resolve(ctx) {
         const m = movingVehicle(ctx)!;
@@ -532,7 +542,7 @@ export const vehicleMoveModule: RuleModule = {
       decisionKinds: [PHASE_DECISION],
       legal: (env) => {
         const m = movingVehicle(env);
-        return m && m.ms.vehicle.stopped && !m.ms.halted && remaining(m.ms) >= 1 ? [{ type: 'vmove.delay', mp: 1 }] : [];
+        return m && m.ms.vehicle.stopped && !m.ms.halted && remaining(m.ms) >= 1 && !env.query('vehicle.mustMoveOn', { ms: m.ms }, null) ? [{ type: 'vmove.delay', mp: 1 }] : [];
       },
       validate(env, a) {
         const m = movingVehicle(env);
@@ -541,7 +551,7 @@ export const vehicleMoveModule: RuleModule = {
         if (m.ms.halted) return 'The vehicle has come to a halt';
         const mp = a.mp ?? 1;
         if (!(mp > 0) || mp > remaining(m.ms)) return `Delay 1 to ${remaining(m.ms)} MP`;
-        return null;
+        return env.query('vehicle.mustMoveOn', { ms: m.ms }, null);
       },
       resolve(ctx, a) {
         const m = movingVehicle(ctx)!;
@@ -573,7 +583,8 @@ export const vehicleMoveModule: RuleModule = {
         const from = vcaOf(m.p);
         const close = closeTerrain(ctx, m.ms.hex);
         // In woods or a building each hexspine risks Bog, and the turn stops where the vehicle bogs (SK4 7.6, D8.2).
-        const turn = close && m.ms.hex ? turnRiskingBog(ctx, m.p, m.ms.hex, a.vca) : { vca: a.vca, tried: spineChange(from, a.vca), bogged: false };
+        const bogRisk = !!m.ms.hex && ctx.query('vehicle.bogIn', { vehicle: m.p.id, hex: m.ms.hex, turn: true }, close);
+        const turn = bogRisk && m.ms.hex ? turnRiskingBog(ctx, m.p, m.ms.hex, a.vca) : { vca: a.vca, tried: spineChange(from, a.vca), bogged: false };
         const cost = turn.tried * (close ? 2 : 1);
         const d = vehicle(ctx, m.p)!;
         const delta = ((turn.vca - from) % 6 + 6) % 6;
@@ -904,7 +915,7 @@ export const vehicleMoveModule: RuleModule = {
         const p = pieceOf(ctx, a.vehicle);
         const hex = hexOf(ctx.state, p)!;
         const from = vcaOf(p);
-        const turn = closeTerrain(ctx, hex) ? turnRiskingBog(ctx, p, hex, a.vca) : { vca: a.vca, tried: spineChange(from, a.vca), bogged: false };
+        const turn = ctx.query('vehicle.bogIn', { vehicle: p.id, hex, turn: true }, closeTerrain(ctx, hex)) ? turnRiskingBog(ctx, p, hex, a.vca) : { vca: a.vca, tried: spineChange(from, a.vca), bogged: false };
         const d = vehicle(ctx, p)!;
         const delta = ((turn.vca - from) % 6 + 6) % 6;
         // The turret turns with the hull, as on a hull turn in the MPh.
@@ -1064,6 +1075,8 @@ function endIllegal(env: QueryEnv, ms: MoveState & { vehicle: VehicleMoveState }
     const cheapest = cheapestStep(env, ms);
     if (cheapest !== null && cheapest <= left) return `A moving vehicle spends all its MP, stops (1 MP) or ends in Motion only when it cannot enter another hex (${left} MP left)`;
   }
+  const onward = env.query('vehicle.mustMoveOn', { ms }, null);
+  if (onward) return onward;
   // One vehicle per side per hex at the end of the MPh (SK4 3.3.2).
   if (ms.hex && vehiclesInHex(env, ms.hex, p.side, true).some((v) => v.id !== p.id)) return 'Only one vehicle per side may end the MPh in a hex: move on';
   return null;

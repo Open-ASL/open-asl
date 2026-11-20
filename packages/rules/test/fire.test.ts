@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Ctx, RuleModule } from '@asl/engine';
 import { FP, type FireDeclaration, type FireMode, type ResolveFireFn } from '../src';
-import { residualFpLeft } from '../src/sk1/fire';
+import { couldInflictNmc, residualFpLeft } from '../src/sk1/fire';
 import { act, makeEngine } from './fixtures';
 
 /** Test-only action: resolve a fire declaration in a given mode. */
@@ -111,6 +111,11 @@ describe('Desperation Morale from being attacked (SK1 3.2.1)', () => {
     expect(t.events.find((e) => e.type === 'sk1.fire.attack')!.payload).toMatchObject({ column: 1 });
     expect(t.state.pieces['g1']!.tags['dm']).toBeUndefined();
     expect(t.events.some((e) => e.type === 'sk1.fire.dm')).toBe(false);
+    // The same test, which the computer opponent asks before firing for DM: no NMC within reach once a 2 cowers, one
+    // when a leader directs the shot (no cower).
+    const env = makeEngine({ pieces: [] }).engine.env(t.state);
+    expect(couldInflictNmc(env, 1.5, 3, 1)).toBe(false);
+    expect(couldInflictNmc(env, 1.5, 3, 0)).toBe(true);
   });
 
   it('an attack whose snake eyes would cower off the IFT still causes DM when a 3 can reach a NMC', () => {

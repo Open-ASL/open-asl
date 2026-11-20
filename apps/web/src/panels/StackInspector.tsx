@@ -39,6 +39,7 @@ const STATUS: [string, string][] = [
   ['hazardous', 'Hazardous Movement'],
   // Full ASL: Temporarily Immobilized for the Player Turn (ASLRB A4.8).
   ['ti', 'TI'],
+  ['wa', 'Wall Advantage'],
   ['manhandled', 'Manhandled'],
   // SK3 vehicles.
   ['ce', 'CE'],

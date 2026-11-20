@@ -11,6 +11,9 @@ import { updateControl, type ControlState } from '../sk1/scenario';
 import { blazeAt, blazeLocations, flamesAt, placeBlaze, removeFlames } from './fire';
 import { hexsideForDr } from './wind';
 import { vehicle } from '../sk3/status';
+import { MOVE_ENTER, type MoveEnterFn } from '../sk1/movement';
+import { moveLoc, moveState } from '../sk1/moveState';
+import { isGroundLoc } from '../common/location';
 
 /*
  * Rubble in full ASL (ASLRB B24.1–B24.6, B24.11, B24.12, B24.121, B25.66).
@@ -33,16 +36,54 @@ import { vehicle } from '../sk3/status';
  * - **Collapse** (B25.66): on an Original Wind Change DR of 12 a building Location holding a Blaze (Random Selection,
  *   every tie) collapses into burning rubble, and all levels above it.
  *
- * Fortifications under falling rubble are removed by `asl.fortifications` and `asl.entrenchments` (B24.121). Vehicles and TB in
- * the way of falling rubble (B24.121), rubble clearance (B24.7, B24.71) and printed rubble (B24.55) wait for their rules. The Starter Kit has no rubble creation: nothing here runs there.
+ * - **Trail Breaks** (B24.71, B13.4212): a rubble Clearance Task (`asl/clearance.ts`) that succeeds puts a TB across two
+ *   hexsides of a non-building hex's fallen rubble; Infantry entering through a TB hexside pay the pre-rubble cost (the
+ *   road rate along a road), may decline it, and when they use it take -1 to Defensive First Fire on that expenditure; a TB
+ *   changes no LOS or TEM; once every hexside is crossed the rubble and the TB go. Falling rubble removes the TB of the hex
+ *   it falls into (B24.121), and a road under fallen rubble gives no road rate (B24.121).
+ *
+ * Fortifications under falling rubble are removed by `asl.fortifications` and `asl.entrenchments` (B24.121). Vehicles in the
+ * way of falling rubble (B24.121), vehicles on a TB (B13.421, B13.4211, the One-Lane rule B6.431) and printed rubble (B24.55)
+ * wait for their rules. The Starter Kit has no rubble creation: nothing here runs there.
  */
 
 export const RUBBLE_EXT = 'asl.rubble';
+const moveLocOf = (env: QueryEnv): LocId | null => {
+  const ms = moveState(env);
+  return ms ? moveLoc(ms) : null;
+};
 
 export interface RubbleRecord {
   /** The lowest rubbled level: every level from it up is rubble (0: the whole hex). */
   from: number;
   kind: 'stone' | 'wood';
+}
+
+/** Trail Breaks through rubble hexes (B24.71): each counter crosses two hexsides of its hex (`sideToward` numbers). */
+export const TB_EXT = 'asl.tb';
+export const trailBreaks = (env: QueryEnv): Record<HexId, [number, number][]> => (env.state.ext[TB_EXT] as Record<HexId, [number, number][]> | undefined) ?? {};
+export const trailBreaksAt = (env: QueryEnv, hex: HexId): [number, number][] => trailBreaks(env)[hex] ?? [];
+/**
+ * A hex whose fallen rubble may be cleared (B24.71): ground rubble in "any non-building hex (i.e., one not containing a
+ * building depiction—even if completely rubbled)", with a hexside not yet crossed by a TB.
+ */
+export function rubbleClearable(env: QueryEnv, hex: HexId): boolean {
+  const h = statics(env).map.hex(hex);
+  if (!h || h.buildingId || h.terrain.startsWith('building') || h.terrain.startsWith('rubble')) return false;
+  if (rubbleAt(env, hex)?.from !== 0) return false;
+  return new Set(trailBreaksAt(env, hex).flat()).size < 6;
+}
+/** The TB of `hex` whose hexside `from` crosses, if any (B24.71 "through the TB hexside"). */
+export function tbThrough(env: QueryEnv, from: HexId | null, hex: HexId): [number, number] | null {
+  if (!from || rubbleAt(env, hex)?.from !== 0) return null;
+  const k = sideToward(statics(env).map, hex, from);
+  return k === null ? null : (trailBreaksAt(env, hex).find((t) => t.includes(k)) ?? null);
+}
+/** What entering `hex` would cost without its rubble (B24.71 "its pre-rubble status cost"): the printed terrain, or the road rate along a road. */
+function preRubbleMf(env: QueryEnv, hex: HexId, viaRoad: boolean): number {
+  const h = statics(env).map.hex(hex)!;
+  if (viaRoad && (h.features.some((f) => f === 'road' || f.startsWith('road:')) || h.features.some((f) => f === 'woods-road' || f.startsWith('woods-road:')))) return 1;
+  return statics(env).terrain[h.terrain]?.mf ?? 1;
 }
 
 export const rubbleState = (env: QueryEnv): Record<HexId, RubbleRecord> => (env.state.ext[RUBBLE_EXT] as Record<HexId, RubbleRecord> | undefined) ?? {};
@@ -135,6 +176,8 @@ function rubbleFallsInto(ctx: Ctx, hex: HexId, kind: 'stone' | 'wood', burning: 
   const units = personnelInHex(ctx, hex).map((p) => p.id).sort();
   const weapons = unpossessedWeaponsInHex(ctx, hex).map((p) => p.id).sort();
   const existing = rubbleAt(ctx, hex);
+  // Falling rubble eliminates any TB in the hex it falls into (B24.121).
+  if (trailBreaksAt(ctx, hex).length) ctx.emit('asl.tb', { hex, tbs: [] });
   if (units.length || weapons.length) ctx.emit('asl.rubble.eliminated', { hex, loc: hex, units, weapons, falling: true });
   for (const u of units) if (ctx.state.pieces[u]?.loc.kind === 'hex') eliminate(ctx, u, 'crushed by falling rubble (ASLRB B24.121)');
   for (const w of weapons) if (ctx.state.pieces[w]?.loc.kind === 'hex') ctx.emit('piece.eliminated', { id: w, reason: 'buried by falling rubble' });
@@ -233,7 +276,7 @@ export const aslRubbleModule: RuleModule = {
   id: 'asl.rubble',
   ref: 'ASLRB B24.1–B24.6, B24.11, B24.12, B24.121, B25.66',
   summary: 'Rubble: buildings collapsed by HE, by a burning building on a Wind Change DR of 12, and by falling rubble; rubble terrain.',
-  requires: ['asl.fire', 'asl.wind', 'sk1.terrain', 'sk1.fire'],
+  requires: ['asl.fire', 'asl.wind', 'sk1.terrain', 'sk1.fire', 'sk1.movement'],
   install(r) {
     r.event<{ hex: HexId; from: number; kind: 'stone' | 'wood'; by: string; burning: boolean }>({
       type: 'asl.rubble',
@@ -253,6 +296,23 @@ export const aslRubbleModule: RuleModule = {
       },
     });
     r.event<{ hex: HexId; dr: number; drm: number; rubbled: boolean }>({ type: 'asl.rubble.whole', apply() {} });
+    // The Trail Breaks of a hex, replaced whole; with `cleared` the hex's rubble goes too (B24.71: every hexside crossed).
+    r.event<{ hex: HexId; tbs: [number, number][]; cleared?: true }>({
+      type: 'asl.tb',
+      apply(d, p) {
+        const tb = { ...((d.ext[TB_EXT] as Record<HexId, [number, number][]> | undefined) ?? {}) };
+        if (p.tbs.length) tb[p.hex] = p.tbs;
+        else delete tb[p.hex];
+        if (Object.keys(tb).length) d.ext[TB_EXT] = tb;
+        else delete d.ext[TB_EXT];
+        if (p.cleared) {
+          const st = { ...((d.ext[RUBBLE_EXT] as Record<HexId, RubbleRecord> | undefined) ?? {}) };
+          delete st[p.hex];
+          if (Object.keys(st).length) d.ext[RUBBLE_EXT] = st;
+          else delete d.ext[RUBBLE_EXT];
+        }
+      },
+    });
     r.event<{ hex: HexId; dr: [number, number]; drm: number; falls: boolean; hexside: number; to?: HexId }>({ type: 'asl.rubble.falling', apply() {} });
     r.event<{ hex: HexId; loc: LocId; units: PieceId[]; weapons: PieceId[]; falling?: boolean }>({ type: 'asl.rubble.eliminated', apply() {} });
     r.event<{ candidates: LocId[]; chosen: LocId[] }>({ type: 'asl.rubble.collapse', apply() {} });
@@ -289,6 +349,61 @@ export const aslRubbleModule: RuleModule = {
         return !connecting;
       },
       apply: (_v, { to }, env) => terrainOf(env, locId(to, rubbleAt(env, to)!.from)).mf,
+    });
+    // B24.121: "The movement costs and TEM of rubble replace whatever terrain was previously present": a road under fallen
+    // rubble gives no road rate.
+    r.contribute({
+      id: 'asl.rubble.no-road',
+      query: 'move.cost',
+      layer: 1,
+      ref: 'ASLRB B24.121',
+      when: ({ to, viaRoad, loc }, env) => viaRoad && !loc && rubbleAt(env, to)?.from === 0,
+      apply: (_v, { to }, env) => terrainOf(env, to).mf,
+    });
+    // B24.71: "A TB counter reduces movement costs into that hex through the TB hexside to its pre-rubble status cost" (no
+    // effect on LOS or TEM, B13.4212). A unit may decline it (B13.4212, `noTb`) to avoid the -1 Defensive First Fire DRM.
+    // Infantry here; vehicles in rubble wait for Chapter D.
+    r.contribute({
+      id: 'asl.tb.cost',
+      query: 'move.cost',
+      layer: 2,
+      ref: 'ASLRB B24.71',
+      label: 'Trail Break: the pre-rubble cost (B24.71)',
+      when: ({ unit, from, to, loc, noTb }, env) => !noTb && !loc && defOf(env, pieceOf(env, unit)).kind !== 'vehicle' && !!tbThrough(env, from, to),
+      apply: (v, { to, viaRoad }, env) => Math.min(v, preRubbleMf(env, to, viaRoad)),
+    });
+    // B13.4212: the step offers its decline where a TB would lower the cost.
+    r.contribute({
+      id: 'asl.tb.decline',
+      query: 'move.stepVariants',
+      ref: 'ASLRB B13.4212',
+      apply(v, { ms, to }, env) {
+        if (ms.vehicle || !ms.hex || !isGroundLoc(to) || !tbThrough(env, ms.hex, hexOfLoc(to))) return v;
+        return [...v, { type: 'move.step' as const, to, noTb: true as const }];
+      },
+    });
+    // B13.4212: "whenever Infantry/Cavalry specifically use a TB to enter a hex at a reduced MF cost (Rubble 24.71) ... it is
+    // subject to a special -1 Defensive First Fire DRM ... in addition to any applicable FFMO/FFNAM DRM."
+    r.procedure<MoveEnterFn>(MOVE_ENTER, (next) => (ctx, ms, to, cost, woods, extra) => {
+      const via = !ms.vehicle && ms.hex && isGroundLoc(to) && !extra?.noTb ? tbThrough(ctx, ms.hex, hexOfLoc(to)) : null;
+      const used = !!via && ctx.query('move.stepCost', { ms, to, ...(woods ? { woods: true } : {}), noTb: true }, 1) > ctx.query('move.stepCost', { ms, to, ...(woods ? { woods: true } : {}) }, 1);
+      next?.(ctx, ms, to, cost, woods, used ? { ...extra, tb: true } : extra);
+    });
+    r.contribute({
+      id: 'asl.tb.dff',
+      query: 'fire.drm',
+      ref: 'ASLRB B13.4212',
+      label: '-1 Trail Break (restricted movement)',
+      when: ({ attack }, env) => !!attack.moving && !attack.moving.vehicle && !!moveState(env)?.tb && attack.target === moveLocOf(env) && !(attack.ordnance?.targetType === 'ITT'),
+      apply: (v) => v - 1,
+    });
+    r.contribute({
+      id: 'asl.tb.dff.th',
+      query: 'ordnance.thDrm',
+      ref: 'ASLRB B13.4212',
+      label: '-1 Trail Break (restricted movement)',
+      when: (sc, env) => !!sc.movingInfo && !sc.movingInfo.vehicle && !!moveState(env)?.tb && sc.target === moveLocOf(env) && sc.shot.targetType === 'ITT',
+      apply: (v) => v - 1,
     });
     // B24.4: "Vehicles may not enter a rubble Location unless they are fully-tracked" (half their MP and a Bog Check +3
     // are the vehicle movement rules', `sk3/vehicleMove.ts`).

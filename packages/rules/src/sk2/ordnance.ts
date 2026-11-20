@@ -171,6 +171,10 @@ declare module '@asl/engine' {
     'ordnance.acquires': { ctx: ShotCtx; value: boolean };
     /** Whether a special rule lets this leader modify this Gun's To Hit DR as if it were a SW (S23 SSR 2); never by default (ASL A7.531). */
     'ordnance.leaderDirects': { ctx: { weapon: PieceId; leader: PieceId }; value: boolean };
+    /** Why an Infantry Target Type shot at a Location with no Known enemy unit is illegal; null when it has another target there (ASLRB B29.5: a roadblock). */
+    'ordnance.noUnitTarget': { ctx: { shot: OrdnanceShot; mode: FireMode; side: SideId }; value: string | null };
+    /** What else the shot attacks, for the shot composer and log (ASLRB B29.5: the roadblock and the To Hit DR it needs). */
+    'ordnance.alsoAttacks': { ctx: ShotCtx; value: string[] };
     /** Why a vehicle's Main Armament may not fire this shot, or null (SK3; replaces the Gun's manning checks). */
     'ordnance.maIllegal': { ctx: { shot: OrdnanceShot; mode: FireMode; side: SideId; moving?: PieceId[] }; value: string | null };
   }
@@ -522,7 +526,11 @@ function ordnanceIllegal(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, side
   if (why) return why;
   if (!toHitNumber(env, sc)) return sc.shot.targetType === 'ATT' ? 'This Gun cannot use the Area Target Type at that range' : sc.shot.targetType === 'VTT' ? 'The Vehicle Target Type has no To Hit number at that range' : 'Out of range';
   // ITT needs a Known Enemy Unit; the ATT may fire at any hex (SK4 6.11), hidden Guns included (+2, 6.4).
-  if (!moving && shot.targetType === 'ITT' && knownEnemyAt(env, shot.target, side).length === 0) return 'No target there';
+  if (!moving && shot.targetType === 'ITT' && knownEnemyAt(env, shot.target, side).length === 0) {
+    // No Known enemy unit there: another target may be (full ASL: a roadblock, ASLRB B29.5).
+    const why = env.query('ordnance.noUnitTarget', { shot, mode, side }, 'No target there');
+    if (why) return why;
+  }
   if (g.tags[T2.intensive]) return 'The Gun has used Intensive Fire this Player Turn';
   if (shot.intensive) {
     if (def.light) return 'A SW cannot use Intensive Fire';

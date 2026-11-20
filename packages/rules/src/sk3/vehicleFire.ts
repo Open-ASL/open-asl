@@ -173,6 +173,17 @@ export const vehicleFireModule: RuleModule = {
     // The end-of-phase turn without MP (SK4 3.3.2) lives here so the module list, and so the ruleset hash, stays as it was.
     installVehicleFacing(r);
     r.event<{ vehicle: PieceId; column: number; dr: [number, number]; drm: number; location: 'hull' | 'turret'; result: IftResult; effect: 'kill' | 'shock' | 'immobilized' | 'none' }>({ type: 'sk3.areaHit', apply() {} });
+    // IFT fire does nothing to a Buttoned Up AFV (SK4 3.2.3, 7.7) unless its Open-Topped crew is fired on from its own hex (7.13).
+    r.contribute({
+      id: 'sk3.fire.immune.bu',
+      query: 'fire.immune',
+      ref: 'SK4 3.2.3, 7.7',
+      apply: (v, { attack, unit }, env) => {
+        const p = env.state.pieces[unit];
+        const d = p && vehicle(env, p);
+        return v || (!!d && !d.unarmored && !isCe(p) && otExposedParts(env, attack, unit).length === 0);
+      },
+    });
 
     // ---------------------------------------------------------------- the Main Armament
     r.contribute({ id: 'sk3.ordnance.maIllegal.base', query: 'ordnance.maIllegal', layer: 0, apply: (v, { shot, mode }, env) => v ?? maIllegal(env, shot, mode) });

@@ -161,6 +161,25 @@ describe('Rout Phase', () => {
     expect(state.pieces['a1']!.loc.kind).toBe('eliminated');
   });
 
+  it('a shelter no farther from any one Known Enemy Unit than the start may be ignored, though nearer another (SK1 3.6, ASLRB A10.51 EX)', () => {
+    // L3 is next to the 4-6-7 in M4 and as far from the one in N6 as the K4 building is. K4 is farther from M4 than L3,
+    // but no farther from N6: it may be ignored for the buildings in J3 and K2, 3 MF away.
+    const { engine, state } = makeEngine({
+      startPhase: 'RtPh',
+      terrain: { yK4: { terrain: 'building-stone' }, yJ3: { terrain: 'building-stone' }, yK2: { terrain: 'building-stone' } },
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yL3', tags: { broken: true, dm: true } },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yM4' },
+        { id: 'g2', def: 'ge.467', side: 'ge', hex: 'yN6' },
+      ],
+    });
+    const d = (a: string, b: string) => testMap().distance(a, b);
+    expect([d('yL3', 'yN6'), d('yK4', 'yN6')]).toEqual([d('yL3', 'yN6'), d('yL3', 'yN6')]);
+    expect(d('yK4', 'yM4')).toBeGreaterThan(d('yL3', 'yM4'));
+    // Toward K4, or toward J3 and K2 through K3 or L2 (each leads only there).
+    expect(stepTargets(engine, state, 'am', 'a1').sort()).toEqual(['yK3', 'yK4', 'yL2']);
+  });
+
   it('a rout may not enter a hex it would overstack, so a full shelter is ignored (SK1 3.6)', () => {
     const { engine, state } = makeEngine({
       startPhase: 'RtPh',

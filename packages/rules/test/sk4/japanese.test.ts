@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Ctx, GameState, RuleModule } from '@asl/engine';
-import { FP, P as MP, attemptRally, ccAttackPreview, hiddenUnitsModule, hthActive, japaneseModule, sk2CoreModules, sk3CoreModules, type CheckGroupFn, type FireDeclaration, type FireMode, type ResolveFireFn, type SetupAction, type UnitFn } from '../../src';
+import { FP, P as MP, attemptRally, attackCcv, ccAttackPreview, hiddenUnitsModule, hthActive, japaneseModule, sk2CoreModules, sk3CoreModules, type CheckGroupFn, type FireDeclaration, type FireMode, type ResolveFireFn, type SetupAction, type UnitFn } from '../../src';
 import { act, makeEngine, type PieceSpec } from '../fixtures';
 
 /**
@@ -259,10 +259,12 @@ describe('Miscellaneous (SK4 8.1.8)', () => {
     const env = engine.env(s);
     expect(hthActive(env, 'yK5')).toBe(true);
     const pv = ccAttackPreview(env, 'yK5', 'ja', { attackers: ['a', 'r'], targets: ['m'] });
-    // A Reduced-Strength squad keeps its Full-Strength CCV: 4 + 4 = 8 vs 7: 1:1. The preview says why it counts 4.
-    expect(pv.attackFp).toBe(8);
-    expect(pv.fpNotes).toEqual([{ unit: 'r', note: 'counts its full-strength CCV (SK4 8.1.8.4)' }]);
+    // Against Infantry the Reduced-Strength 3-4-7 fights with its own FP: 4 + 3 = 7 vs 7, 1:1. Its Full-Strength CCV is
+    // the CC Value of CC with an AFV (SK4 3.8), which as a squad it has: 5.
+    expect(pv.attackFp).toBe(7);
+    expect(pv.fpNotes).toEqual([]);
     expect(pv.odds).toBe('1:1');
+    expect(attackCcv(env, ['r']).ccv).toBe(5);
     expect(pv.kill).toBe(7);
     expect(pv.drm).toBe(-1);
     // The Marines' own attack (7 vs 4: 3:2) uses the HtH chart too, without the Japanese -1.

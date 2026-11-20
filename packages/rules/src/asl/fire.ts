@@ -9,7 +9,7 @@ import { P as MP, eliminate, type FlushFn, type RandomSelectFn, type UnitFn } fr
 import { ROUT_START_SIDE, interdicted, interdictionCheck, type RoutStartSideFn } from '../sk1/rout';
 import { moveInternals, moveState, type MoveState } from '../sk1/movement';
 import { updateControl, type ControlState } from '../sk1/scenario';
-import { T, fireMarker, hasDm, inMelee, isBroken, isGoodOrder, isPinned, mmc, pieceOf, setTags, smc } from '../sk1/status';
+import { T, isCx, fireMarker, hasDm, inMelee, isBroken, isGoodOrder, isPinned, mmc, pieceOf, setTags, smc } from '../sk1/status';
 import { isWoodsRoad, smoke58Counters, smoke58Markers, smokeGrenades, terrainOf, type LosTrace } from '../sk1/terrain';
 import { heightOf } from '../sk2/elevation';
 import { T2 } from '../sk2/status';
@@ -29,7 +29,7 @@ import { downwind, ecDrm, gustDir, noWindHex, windAt, windDirectionDrm, windOf }
  *   -1 for a HS/crew, -1 in a Fortified Building Location (B23.94). Every unit of the attempt and its director is marked
  *   Prep Fire whatever the outcome; all attempts in the Location are predesignated in one action.
  * - **Attack Fires** (B25.12, B25.13): a FT's Original K or KIA, a HE/HEAT or DC Original KIA (not a Collateral Attack,
- *   not one that made rubble, B24.6) rolls for a Flame: DR + EC DRM (a FT's always; HE's not in a building) ≥ Kindle #.
+ *   not one that made rubble, B24.6) rolls for a Flame: DR + EC DRM (a FT's not in a building but in rubble, per the official Q&A to B25.12; HE's not in a building) ≥ Kindle #.
  * - **Flame → Blaze** (B25.15, B25.151): at the end of every AFPh after the Player Turn it appeared, a non-Hampered Flame
  *   makes a DR + EC DRM (not in a building) -1 Fortified: ≥ the Spread # a Blaze, a Final DR ≤ 2 out. Wind: no effect.
  * - **Spreading** (B25.6–B25.651): every Player Turn after its first, at the end of each AFPh, a Blaze may spread to each
@@ -48,9 +48,10 @@ import { downwind, ecDrm, gustDir, noWindHex, windAt, windDirectionDrm, windOf }
  * - **Clearance** (B25.7, B24.72, B24.7, B24.721, B24.8): unpinned Good Order Infantry (an MMC among them) that have
  *   not moved or fired may fight a Flame in their Location in their own MPh or the DFPh: one DR for all, with Labor,
  *   the directing leader's modifier, -1 for a squad, -1 per further HS/crew and -2 per further squad, the EC DRM: a Final
- *   DR ≤ 2 puts it out, 3–6 Hampers it for the Player Turn. The units are TI (no fire, movement or advance; CC +1/-1)
- *   and Hazardous Movement for the Player Turn; a failure earns a Labor counter (-1, then -2) for the task. A Blaze cannot
- *   be put out.
+ *   DR ≤ 2 puts it out, 3–6 Hampers it for the Player Turn. The units are TI (no fire, movement or advance; CC +1/-1);
+ *   their Hazardous Movement lasts only while engaged, which ends with the DR made at once, so no attack ever meets it (Q&A
+ *   [K33] to B24.7: no MF spent, no First Fire before the DR, no fire in the DFPh); a failure earns a Labor counter (-1,
+ *   then -2) for the task. A Blaze cannot be put out.
  * - **Control** (A26.16–A26.162, `'control.adjust'`): a side forfeits every Location/hex/building holding a Fire it
  *   Kindled (spread included) to its opponent while the Fire lasts; an area the Blazes make unenterable goes to the
  *   opponent of the kindler, or, accidental, to the side Controlling most of the hexes round it; a building unenterable
@@ -187,8 +188,11 @@ export const FIRE_PROC = {
 } as const;
 export interface TryFlameOpts {
   source: 'ft' | 'he' | 'dc' | 'wp';
-  /** The EC DRM applies even in a building (a FT's Flame, B25.12). */
-  ecAlways?: boolean;
+  /**
+   * A FT's Flame (B25.12): the EC DRM applies in rubble too, but not in a building (official Q&A to B25.12 [Gen25.1; An89;
+   * An95w; An96]: "Does the EC DRM modify the DR ... in a building hex? In a Rubble hex? A. No. Yes.").
+   */
+  ecInRubble?: boolean;
   /** DRM of the source's own (WP: -1 unless Very Dry, -2 in a building, A24.32). */
   drm?: number;
 }
@@ -197,7 +201,7 @@ export type TryFlameFn = (ctx: Ctx, loc: LocId, opts: TryFlameOpts) => boolean;
 function tryFlameBase(ctx: Ctx, loc: LocId, opts: TryFlameOpts): boolean {
   const n = fireNumbers(ctx, loc);
   if (!n || blazeAt(ctx, loc)) return false;
-  const ec = opts.ecAlways ? ecDrm(ctx) : ecDrm(ctx, loc);
+  const ec = opts.ecInRubble && !inBuilding(ctx, loc) ? ecDrm(ctx) : ecDrm(ctx, loc);
   const fort = isFortified(ctx, loc) ? -1 : 0;
   const drm = ec + fort + (opts.drm ?? 0);
   const roll = ctx.roll(`Flame DR in ${loc}`);
@@ -650,7 +654,7 @@ export const aslFireModule: RuleModule = {
     r.procedure<AttackResolvedFn>(FP.attackResolved, (next) => (ctx, info: AttackResolvedInfo) => {
       next?.(ctx, info);
       if (info.malfunctioned || info.rubbled || info.collateral || !burnable(ctx, info.target)) return;
-      if (info.by === 'ft' && (info.originalResult === 'K' || info.originalResult === 'KIA')) ctx.proc<TryFlameFn>(FIRE_PROC.tryFlame)(ctx, info.target, { source: 'ft', ecAlways: true });
+      if (info.by === 'ft' && (info.originalResult === 'K' || info.originalResult === 'KIA')) ctx.proc<TryFlameFn>(FIRE_PROC.tryFlame)(ctx, info.target, { source: 'ft', ecInRubble: true });
       else if ((info.by === 'he' || info.by === 'dc') && info.originalResult === 'KIA') ctx.proc<TryFlameFn>(FIRE_PROC.tryFlame)(ctx, info.target, { source: info.by });
     });
 
@@ -1007,10 +1011,12 @@ export const aslFireModule: RuleModule = {
         const roll = ctx.roll(`Flame Clearance DR in ${a.loc}`);
         const final = roll.total + drm;
         const outcome = final <= 2 ? 'extinguished' : final <= 6 ? 'hampered' : 'failed';
-        // TI and Hazardous Movement for the Player Turn (B24.72, B24.7).
+        // TI for the Player Turn (B24.72, B24.7). Flame clearance is Hazardous Movement (A4.62) only while the units are
+        // engaged in it, and that ends with this DR (B24.7): it spends no MF, so the DEFENDER has no First Fire at it in the
+        // MPh, nor any fire at it in the DFPh (Q&A [K33] to B24.7 & E1.21: "Correct. No. No. No.").
         for (const id of all) {
           const done = flamesFought(pieceOf(ctx, id), a.loc);
-          setTags(ctx, id, { ti: true, [T2.hazardous]: true, flameClear: `${a.loc}|${[...done, a.flame].join(',')}` });
+          setTags(ctx, id, { ti: true, flameClear: `${a.loc}|${[...done, a.flame].join(',')}` });
         }
         let nextLabor: number | undefined;
         if (outcome === 'failed') {
@@ -1023,39 +1029,6 @@ export const aslFireModule: RuleModule = {
           updateControl(ctx);
         } else if (outcome === 'hampered') ctx.emit('asl.fire.hampered', { loc: a.loc, id: a.flame, hampered: true });
         ctx.popDecision();
-        if (ctx.state.phase === 'MPh') {
-          // In the MPh the attempt is Hazardous Movement (B24.72, A4.62): the DEFENDER may First Fire at the units then, as at
-          // a stack that has spent MF there (-2, no FFNAM or FFMO). They are held as stopped where they stand, so they are
-          // neither moved nor marked by it, and may fight the next Flame (B24.72).
-          const lvl = levelOfLoc(a.loc);
-          const allowance = Object.fromEntries(all.map((u) => [u, 0]));
-          const clearing: MoveState = {
-            units: [],
-            stopped: all,
-            started: all,
-            hex: hexOfLoc(a.loc),
-            ...(lvl ? { level: lvl } : {}),
-            allowance,
-            spent: allowance,
-            doubleTime: false,
-            assault: false,
-            hexesEntered: 0,
-            roadOnly: false,
-            viaRoad: false,
-            mfHere: 1,
-            firedHere: {},
-            residualDrmHere: null,
-            smokeTried: false,
-            leaderBonus: [],
-            halted: true,
-            hazardous: true,
-            from: null,
-            trail: [],
-          };
-          ctx.emit('sk1.move.state', { state: clearing });
-          moveInternals.offerFirstFire(ctx);
-          return;
-        }
         askPhaseOwner(ctx, side);
       },
     });
@@ -1131,11 +1104,15 @@ export function extinguishIllegal(env: QueryEnv, a: { loc: LocId; flame: number;
   return null;
 }
 
-/** The Clearance DRM for a Flame (B24.7, B24.8): Labor, the directing leader, the MMC at work, the EC DRM. */
-export function clearanceDrm(env: QueryEnv, loc: LocId, units: PieceId[], director?: PieceId): { drm: number; explain: string[]; labor: number } {
+/**
+ * The Clearance DRM of a Task (B24.7, B24.8, A4.51): Labor for that Task, the directing leader, the MMC at work, +1 when a
+ * participant is CX ("any labor task ... DR they make or direct"), and the EC DRM for a Flame only (B24.7 †). `task` is the
+ * Labor key (a Flame's `flame:<loc>` by default); `ec` false for every other Task.
+ */
+export function clearanceDrm(env: QueryEnv, loc: LocId, units: PieceId[], director?: PieceId, opts: { task?: string; ec?: boolean } = {}): { drm: number; explain: string[]; labor: number } {
   const explain: string[] = [];
   let drm = 0;
-  const task = `flame:${loc}`;
+  const task = opts.task ?? `flame:${loc}`;
   const labor = Math.min(0, ...units.map((u) => {
     const l = parseLabor(env.state.pieces[u]?.tags['labor']);
     return l?.task === task ? l.drm : 0;
@@ -1161,7 +1138,11 @@ export function clearanceDrm(env: QueryEnv, loc: LocId, units: PieceId[], direct
     drm -= small - 1;
     explain.push(`-${small - 1} ${small - 1} further HS/crew`);
   }
-  const ec = ecDrm(env);
+  if ([...units, ...(director ? [director] : [])].some((u) => isCx(pieceOf(env, u)))) {
+    drm += 1;
+    explain.push('+1 CX');
+  }
+  const ec = opts.ec === false ? 0 : ecDrm(env);
   if (ec) {
     drm += ec;
     explain.push(`EC ${ec > 0 ? '+' : ''}${ec}`);

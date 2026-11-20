@@ -46,9 +46,9 @@ declare module '@asl/engine' {
      * The MF/MP a step of the moving stack into Location `to` costs (`declared`: extra MP a vehicle announces, SK4
      * 3.3.2). `to` is a hex id at ground level; full ASL steps may name an upper building level ('uK4:1').
      */
-    'move.stepCost': { ctx: { ms: MoveState; to: LocId; declared?: number; woods?: boolean; bypass?: HexId[]; beneath?: boolean }; value: number };
+    'move.stepCost': { ctx: { ms: MoveState; to: LocId; declared?: number; woods?: boolean; bypass?: HexId[]; beneath?: boolean; noTb?: boolean }; value: number };
     /** Full ASL: further `move.step` forms into `to` (a step that goes straight beneath an entrenchment, ASLRB B27.4); none in the Starter Kit. */
-    'move.stepVariants': { ctx: { ms: MoveState; to: LocId }; value: { type: 'move.step'; to: LocId; beneath: true }[] };
+    'move.stepVariants': { ctx: { ms: MoveState; to: LocId }; value: { type: 'move.step'; to: LocId; beneath?: true; noTb?: true }[] };
     /** Fields a rules module adds to a stack's state as it starts moving (full ASL: its entrenchment position); `{}` in the Starter Kit. */
     'move.startState': { ctx: { units: PieceId[] }; value: Partial<MoveState> };
     /** Full ASL: why a unit may not Recover a weapon (ASLRB B27.13: not across a foxhole's rim); null in the Starter Kit. */
@@ -70,6 +70,10 @@ declare module '@asl/engine' {
      * rules answer (they own where and when a side may exit); with none, a stack never leaves the map.
      */
     'move.exitIllegal': { ctx: { ms: MoveState; to: HexId }; value: string | null };
+    /** Why the moving stack may not end its move now (a Recalled AFV that can still head for its edge, SK4 7.10), or null. */
+    'move.endIllegal': { ctx: { ms: MoveState }; value: string | null };
+    /** Full ASL: why `placer` may not Place a DC (ASLRB B26.45: not from on top of Wire); null in the Starter Kit. */
+    'dc.placeIllegal': { ctx: { placer: PieceId; target: LocId }; value: string | null };
     /** Smoke Exponent of a unit (0 when it has none); SSRs may raise it. */
     'unit.smoke': { ctx: { unit: PieceId }; value: number };
     /**
@@ -139,6 +143,16 @@ export interface MoveState {
   ent?: true;
   /** Full ASL: the stack's latest expenditure took it from beneath one trench to a connecting one (ASLRB B27.54: no FFNAM/FFMO, Snap Shot or Interdiction). */
   trenchMove?: true;
+  /** Full ASL: the stack's latest expenditure entered its hex through a Trail Break at the reduced cost (ASLRB B13.4212: -1 to Defensive First Fire). */
+  tb?: true;
+  /** Full ASL: the step being made declines a Trail Break's reduced cost (ASLRB B13.4212); never kept in the state. */
+  noTb?: true;
+  /**
+   * Full ASL: units of the stack whose Wire Exit dr used all their MF while Assault Moving (ASLRB B26.4, A4.61): no longer
+   * using Assault Movement, so subject to FFNAM in that Location while the rest go on Assault Moving. Never set in the
+   * Starter Kit; a step to a new Location leaves them behind with `stopped`.
+   */
+  assaultVoided?: PieceId[];
   /** While still offboard: the virtual offboard hex the stack is in. */
   off?: HexId | null;
   allowance: Record<PieceId, number>;
@@ -305,7 +319,7 @@ export type MoveAction =
    * `bypass` (full ASL): in Bypass of the obstacle hex `to` along the hexsides it shares with these hexes, in order
    * (ASLRB A2.2 "R3-R4": `to` first); `to` the hex already bypassed goes further round it.
    */
-  | (Action & { type: 'move.step'; to: LocId; declared?: number; woods?: boolean; bypass?: HexId[]; beneath?: true })
+  | (Action & { type: 'move.step'; to: LocId; declared?: number; woods?: boolean; bypass?: HexId[]; beneath?: true; noTb?: true })
   | (Action & { type: 'move.stopUnits'; units: PieceId[] })
   | (Action & { type: 'move.end' })
   /** Takes back the choice of the stack now moving, while it has spent no MF (see `cancelRefusal`). */
@@ -346,17 +360,24 @@ const bonusLeader = (env: QueryEnv, leader: PieceId, unit: PieceId) => isLeader(
 export const ppCarried = (env: QueryEnv, unit: PieceId) =>
   swHeldBy(env.state, unit).reduce((a, s) => a + ppOf(env, s), 0);
 
-/** Effective IPC including a leader's +1 lent to one MMC in a combined stack (SK1 4.0). */
-function ipcFor(env: QueryEnv, unit: PieceId, stack: PieceId[]): number {
-  const base = env.query('unit.ipc', { unit }, 0);
+/** A unit's IPC for this move: CX already, or becoming CX by Double Time, takes one off (SK1 3.3). */
+const moveIpc = (env: QueryEnv, unit: PieceId, doubleTime: boolean) => Math.max(0, env.query('unit.ipc', { unit }, 0) - (doubleTime && !isCx(pieceOf(env, unit)) ? 1 : 0));
+
+/**
+ * Effective IPC including the IPC a leader lends one MMC in a combined stack: "one Good Order SMC may add its IPC to
+ * that of one Good Order MMC" (SK1 4.0). What he lends is his own IPC for the move: none while CX (by Double Time
+ * too, SK1 3.3) or wounded.
+ */
+function ipcFor(env: QueryEnv, unit: PieceId, stack: PieceId[], doubleTime: boolean): number {
+  const base = moveIpc(env, unit, doubleTime);
   if (isLeader(env, unit)) return base;
-  // The MMC carrying the most excess PP borrows one leader's IPC.
-  const lenders = stack.filter((id) => isLeader(env, id) && isGoodOrder(env, pieceOf(env, id)) && ppCarried(env, id) === 0);
-  if (lenders.length === 0) return base;
+  // The MMC carrying the most excess PP borrows the best lender's IPC.
+  const lent = Math.max(0, ...stack.filter((id) => isLeader(env, id) && isGoodOrder(env, pieceOf(env, id)) && ppCarried(env, id) === 0).map((id) => moveIpc(env, id, doubleTime)));
+  if (lent === 0) return base;
   const mmcs = stack
     .filter((id) => mmc(env, pieceOf(env, id)))
-    .sort((a, b) => ppCarried(env, b) - env.query('unit.ipc', { unit: b }, 0) - (ppCarried(env, a) - env.query('unit.ipc', { unit: a }, 0)) || (a < b ? -1 : 1));
-  return mmcs[0] === unit ? base + 1 : base;
+    .sort((a, b) => ppCarried(env, b) - moveIpc(env, b, doubleTime) - (ppCarried(env, a) - moveIpc(env, a, doubleTime)) || (a < b ? -1 : 1));
+  return mmcs[0] === unit ? base + lent : base;
 }
 
 export const movementModule: RuleModule = {
@@ -390,7 +411,7 @@ export const movementModule: RuleModule = {
     r.procedure<MoveEnterFn>(MOVE_ENTER, () => (ctx, ms, to, cost, woods, extra) => enterHex(ctx, ms, to, cost, woods, extra));
     r.procedure<MoveEnteredFn>(MOVE_ENTERED, () => () => {});
     r.procedure<MoveFinishFn>(MOVE_FINISH, () => (ctx) => finishStackBase(ctx));
-    r.contribute({ id: 'sk1.move.stepCost.base', query: 'move.stepCost', layer: 0, apply: (_v, { ms, to, woods }, env) => stepCost(env, ms, to, woods) });
+    r.contribute({ id: 'sk1.move.stepCost.base', query: 'move.stepCost', layer: 0, apply: (_v, { ms, to, woods, noTb }, env) => stepCost(env, ms, to, woods, !!noTb) });
 
     // ---------------------------------------------------------------- Smoke Exponent
     r.contribute({
@@ -448,8 +469,7 @@ export const movementModule: RuleModule = {
       ref: 'SK1 4.0',
       label: '-1 MF per PP over IPC',
       apply(v, { unit, stack, doubleTime }, env) {
-        const ipc = ipcFor(env, unit, stack) - (doubleTime && !isCx(pieceOf(env, unit)) ? 1 : 0);
-        return v - Math.max(0, ppCarried(env, unit) - ipc);
+        return v - Math.max(0, ppCarried(env, unit) - ipcFor(env, unit, stack, doubleTime));
       },
     });
 
@@ -512,7 +532,9 @@ export const movementModule: RuleModule = {
           if (fireMarker(p) || p.tags[T.firedSw]) return `${id} fired in the PFPh`;
           // No Double Time while wounded or CX, nor in the MPh that took the CX counter off (SK1 3.3: the
           // counter "does not affect that unit during that MPh other than prohibiting its use of Double Time").
-          if (doubleTime && (wounds(p) > 0 || isCx(p) || p.tags['cxPrev'] !== undefined)) return `${id} cannot Double Time`;
+          if (doubleTime && wounds(p) > 0) return `${id} cannot Double Time: it is wounded (SK1 3.3)`;
+          if (doubleTime && isCx(p)) return `${id} cannot Double Time: it is already CX (SK1 3.3)`;
+          if (doubleTime && p.tags['cxPrev'] !== undefined) return `${id} cannot Double Time: it was CX when this MPh began, which bars Double Time this MPh (SK1 3.3)`;
           if (smc(env, p) && ppCarried(env, id) > 2) return `${id}: a SMC may never carry more than 2 PP`;
         }
         if (doubleTime && assault) return 'Assault Movement and Double Time are exclusive';
@@ -666,7 +688,7 @@ export const movementModule: RuleModule = {
             ...(stepRefusal(env, ms, to) ? [] : [{ type: 'move.step', to }]),
             ...(woodsRoadChoice(env, ms, to) && !stepRefusal(env, ms, to, undefined, true) ? [{ type: 'move.step', to, woods: true }] : []),
             // Full ASL: the step straight beneath the entrenchment of the hex (ASLRB B27.4), where a module offers it.
-            ...env.query('move.stepVariants', { ms, to }, []).filter((v) => !stepRefusal(env, ms, v.to, undefined, false, undefined, v.beneath)),
+            ...env.query('move.stepVariants', { ms, to }, []).filter((v) => !stepRefusal(env, ms, v.to, undefined, false, undefined, v.beneath, v.noTb)),
           ]),
           ...(ms.hex && !ms.vehicle ? env.query('move.bypassSteps', { ms }, []) : []),
         ];
@@ -674,11 +696,11 @@ export const movementModule: RuleModule = {
       validate(env, a) {
         const ms = moveState(env);
         if (!ms) return 'No stack is moving';
-        return stepRefusal(env, ms, a.to, a.declared, !!a.woods, a.bypass, a.beneath);
+        return stepRefusal(env, ms, a.to, a.declared, !!a.woods, a.bypass, a.beneath, a.noTb);
       },
       resolve(ctx, a) {
         const ms = moveState(ctx)!;
-        const cost = ctx.query('move.stepCost', { ms, to: a.to, ...(a.declared !== undefined ? { declared: a.declared } : {}), ...(a.woods ? { woods: true } : {}), ...(a.bypass ? { bypass: a.bypass } : {}), ...(a.beneath ? { beneath: true } : {}) }, 1);
+        const cost = ctx.query('move.stepCost', { ms, to: a.to, ...(a.declared !== undefined ? { declared: a.declared } : {}), ...(a.woods ? { woods: true } : {}), ...(a.bypass ? { bypass: a.bypass } : {}), ...(a.beneath ? { beneath: true } : {}), ...(a.noTb ? { noTb: true } : {}) }, 1);
         // Full ASL Bypass (`asl/bypass.ts`): into Bypass, further round, or into the obstacle of the hex bypassed.
         if (a.bypass || (ms.bypass && hexOfLoc(a.to) === ms.bypass.hex)) {
           ctx.proc<MoveBypassFn>(MOVE_BYPASS)(ctx, ms, a.to, a.bypass, cost);
@@ -702,7 +724,7 @@ export const movementModule: RuleModule = {
           reAskMover(ctx);
           return;
         }
-        ctx.proc<MoveEnterFn>(MOVE_ENTER)(ctx, ms, a.to, cost, !!a.woods, a.beneath ? { ent: true } : undefined);
+        ctx.proc<MoveEnterFn>(MOVE_ENTER)(ctx, ms, a.to, cost, !!a.woods, a.beneath || a.noTb ? { ...(a.beneath ? { ent: true as const } : {}), ...(a.noTb ? { noTb: true as const } : {}) } : undefined);
       },
     });
 
@@ -743,8 +765,8 @@ export const movementModule: RuleModule = {
     r.action<MoveAction & { type: 'move.end' }>({
       type: 'move.end',
       decisionKinds: [PHASE_DECISION],
-      legal: (env) => (moveState(env) && !mustLeaveBypass(env, moveState(env)!) ? [{ type: 'move.end' }] : []),
-      validate: (env) => (!moveState(env) ? 'No stack is moving' : mustLeaveBypass(env, moveState(env)!) ? BYPASS_NO_STOP : null),
+      legal: (env) => (moveState(env) && !mustLeaveBypass(env, moveState(env)!) && !env.query('move.endIllegal', { ms: moveState(env)! }, null) ? [{ type: 'move.end' }] : []),
+      validate: (env) => (!moveState(env) ? 'No stack is moving' : mustLeaveBypass(env, moveState(env)!) ? BYPASS_NO_STOP : env.query('move.endIllegal', { ms: moveState(env)! }, null)),
       resolve(ctx) {
         endStack(ctx);
       },
@@ -880,14 +902,18 @@ export const movementModule: RuleModule = {
       },
       resolve(ctx, a) {
         const holder = (pieceOf(ctx, a.sw).loc as { by: PieceId }).by;
+        // Full ASL: the weapon stays in its holder's position within the Location (beneath a foxhole, on or beneath Wire;
+        // ASLRB B27.13, B26.4). Never set in the Starter Kit.
+        const hp = pieceOf(ctx, holder).loc;
+        const pos = hp.kind === 'hex' && hp.pos ? { pos: hp.pos } : {};
         if (ctx.state.phase === 'APh' || !moveState(ctx)) {
-          ctx.emit('piece.moved', { id: a.sw, loc: locationAt(locOf(ctx.state, pieceOf(ctx, holder))!) });
+          ctx.emit('piece.moved', { id: a.sw, loc: { ...locationAt(locOf(ctx.state, pieceOf(ctx, holder))!), ...pos } });
           ctx.popDecision();
           askPhaseOwner(ctx, ctx.state.attacker);
           return;
         }
         const ms = moveState(ctx)!;
-        ctx.emit('piece.moved', { id: a.sw, loc: ms.hex ? locationAt(moveLoc(ms)!) : { kind: 'eliminated' } });
+        ctx.emit('piece.moved', { id: a.sw, loc: ms.hex ? { ...locationAt(moveLoc(ms)!), ...pos } : { kind: 'eliminated' } });
         // Dropping before expending MF means the SW wasn't portaged: recompute allowance.
         if ((ms.spent[holder] ?? 0) === 0) {
           ctx.emit('sk1.move.state', {
@@ -910,6 +936,8 @@ export const movementModule: RuleModule = {
         const cost = env.query('move.cost', { unit: dc.loc.by, from: ms.hex, to: hexOfLoc(a.target), viaRoad: false, ...(isGroundLoc(a.target) ? {} : { loc: a.target }) }, 0);
         if (remaining(env, ms, dc.loc.by) < cost) return 'Not enough MF to place the DC';
         if (ms.dcPending) return 'A DC placement is already in progress';
+        const placeWhy = env.query('dc.placeIllegal', { placer: dc.loc.by, target: a.target }, null);
+        if (placeWhy) return placeWhy;
         const inPlace = inPlaceIllegal(env, ms, cost);
         if (inPlace) return inPlace;
         if (a.vehicle) {
@@ -1208,7 +1236,7 @@ export function woodsRoadChoice(env: QueryEnv, ms: MoveState, to: LocId): boolea
   return !ms.vehicle && isGroundLoc(to) && !statics(env).map.offboardHex(to) && (isWoodsRoad(env, to) || isOrchardRoad(env, to)) && roadSideTo(env, ms, to);
 }
 
-function stepCost(env: QueryEnv, ms: MoveState, to: LocId, woods = false) {
+function stepCost(env: QueryEnv, ms: MoveState, to: LocId, woods = false, noTb = false) {
   const map = statics(env).map;
   const toHex = hexOfLoc(to);
   // Off the map from an exit hex: the offboard hex's cost, at the road rate along a road leaving the map (SK4 3.x).
@@ -1225,7 +1253,7 @@ function stepCost(env: QueryEnv, ms: MoveState, to: LocId, woods = false) {
   const roadSide = roadSideTo(env, ms, to) && !woods;
   const loc = isGroundLoc(to) ? {} : { loc: to };
   const off = ms.hex ? undefined : offboardFrom(env, ms, toHex);
-  return Math.max(...ms.units.map((u) => env.query('move.cost', { unit: u, from: ms.hex, to: toHex, viaRoad: roadSide, ...loc, ...(off ? { off } : {}) }, 1)));
+  return Math.max(...ms.units.map((u) => env.query('move.cost', { unit: u, from: ms.hex, to: toHex, viaRoad: roadSide, ...loc, ...(off ? { off } : {}), ...(noTb ? { noTb: true } : {}) }, 1)));
 }
 
 /**
@@ -1247,16 +1275,16 @@ const BYPASS_NO_STOP = 'Infantry may not end its move in Bypass (ASLRB A4.32): e
 const mustLeaveBypass = (env: QueryEnv, ms: MoveState) => !!ms.bypass && ms.units.length > 0 && !ms.halted && env.query('move.bypassMustLeave', { ms }, true);
 
 /** Why a `move.step` is refused: the Bypass rules first where they apply (full ASL), then the ordinary ones. */
-function stepRefusal(env: QueryEnv, ms: MoveState, to: LocId, declared?: number, woods = false, bypass?: HexId[], beneath?: true): string | null {
+function stepRefusal(env: QueryEnv, ms: MoveState, to: LocId, declared?: number, woods = false, bypass?: HexId[], beneath?: true, noTb?: true): string | null {
   if (bypass || ms.bypass) {
     const why = env.query('move.bypassIllegal', { ms, to, ...(bypass ? { bypass } : {}) }, bypass ? 'There is no Bypass in the Starter Kit rules' : null);
     if (why) return why;
     if (bypass || (ms.bypass && hexOfLoc(to) === ms.bypass.hex)) return null;
   }
-  return stepIllegal(env, ms, to, false, declared, woods, beneath);
+  return stepIllegal(env, ms, to, false, declared, woods, beneath, noTb);
 }
 
-function stepIllegal(env: QueryEnv, ms: MoveState, to: LocId, pushing = false, declared?: number, woods = false, beneath?: true): string | null {
+function stepIllegal(env: QueryEnv, ms: MoveState, to: LocId, pushing = false, declared?: number, woods = false, beneath?: true, noTb?: true): string | null {
   const map = statics(env).map;
   const toHex = hexOfLoc(to);
   const offTo = map.offboardHex(toHex);
@@ -1289,7 +1317,7 @@ function stepIllegal(env: QueryEnv, ms: MoveState, to: LocId, pushing = false, d
   const extra = env.query('move.stepIllegal', { ms, to, ...(beneath ? { beneath: true } : {}) }, null);
   if (extra) return extra;
   // The step's cost with every module's addition (full ASL: the extra MF of a step straight beneath an entrenchment).
-  const cost = env.query('move.stepCost', { ms, to, ...(woods ? { woods: true } : {}), ...(beneath ? { beneath: true } : {}) }, stepCost(env, ms, to, woods));
+  const cost = env.query('move.stepCost', { ms, to, ...(woods ? { woods: true } : {}), ...(beneath ? { beneath: true } : {}), ...(noTb ? { noTb: true } : {}) }, stepCost(env, ms, to, woods, !!noTb));
   // Road bonus is only usable if this step keeps the move on road hexsides (taking the woods of a Woods-Road
   // hex claims its protective benefits and gives up the bonus, SK1 3.3), and never for a step into Smoke:
   // the bonus is forfeited by a unit that "has to pay the extra movement costs for entering Smoke" (SK1 1.1.1).
@@ -1369,8 +1397,9 @@ function smokeCost(ms: MoveState, throws: SmokeThrow[]): number {
 
 export function spendInPlace(ctx: Ctx, ms: MoveState, cost: number, patch: Partial<MoveState>) {
   // A new expenditure: the trench-to-trench mark of the last one (full ASL, ASLRB B27.54) is over.
-  const { trenchMove: _trench, ...base } = ms;
+  const { trenchMove: _trench, tb: _tb, ...base } = ms;
   void _trench;
+  void _tb;
   ctx.emit('sk1.move.state', {
     state: {
       ...base,
@@ -1505,7 +1534,7 @@ function enterHex(ctx: Ctx, ms: MoveState, toLoc: LocId, cost: number, woods = f
   // A new Location: its MF and First Fire counts start afresh (ASLRB A8.12). `level` only above ground, never 0.
   // Units stopped in the old one stay behind: their MPh ends as the others move on (SK1 3.3.1).
   // A Bypass (full ASL) ends with its hex: the stack is out of it, or (`extra`) in Bypass of the next.
-  const { level: _was, sub: _in, stopped: _left, bypass: _round, stoppedBypass: _strand, ent: _ent, trenchMove: _trench, ...rest } = ms;
+  const { level: _was, sub: _in, stopped: _left, bypass: _round, stoppedBypass: _strand, ent: _ent, trenchMove: _trench, tb: _tb, noTb: _noTb, assaultVoided: _voided, ...rest } = ms;
   // Full ASL: units broken, pinned or stranded in Bypass stay in the open part of that hex until the end of their MPh
   // (ASLRB A4.32, A4.33), still targets there. The Starter Kit never sets `stoppedBypass`.
   const leftBypass = leftInBypassAfter(ctx, ms);
@@ -1527,6 +1556,8 @@ function enterHex(ctx: Ctx, ms: MoveState, toLoc: LocId, cost: number, woods = f
     ...(sub ? { sub } : {}),
     ...extra,
   };
+  // A step's request (decline a Trail Break) is never kept in the state.
+  delete next.noTb;
   ctx.emit('sk1.move.state', { state: next });
   ctx.proc<MoveEnteredFn>(MOVE_ENTERED)(ctx, next);
   afterMfExpenditure(ctx);
@@ -1756,6 +1787,9 @@ function residualAttack(ctx: Ctx) {
     hindrance: smokeDrm(ctx, ms.hex),
     residual: true,
   };
+  // Nothing to attack: no DR is made when every unit entering is one no IFT result can affect (a Buttoned Up AFV, SK4
+  // 3.2.3, 7.7). Later MF spent here (going CE, say) is judged again.
+  if (attack.targets.every((unit) => ctx.query('fire.immune', { attack, unit }, false))) return;
   const fullDrm = ctx.explain('fire.drm', { attack }, 0);
   // Once per location, unless later MF expenditure makes the DRM worse for the mover.
   if (ms.residualDrmHere !== null && fullDrm.value >= ms.residualDrmHere) return;

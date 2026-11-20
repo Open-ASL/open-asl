@@ -240,6 +240,21 @@ describe('Keeping ROF or leaving Residual FP (SK1 3.3.1)', () => {
     expect(shownFireMarker(st.pieces['g1']!)).toBeUndefined();
   });
 
+  it('a squad whose MMG alone fired and cowered is marked Final Fire with it: no own FP left for the DFPh (SK1 3.2.1)', () => {
+    const { engine, s } = intoK3([3, 3]);
+    let st = act(engine, s, { type: 'defFire', decl: { units: [], sw: ['gMMG'], target: 'zK3' } }).state;
+    expect(fireMarker(st.pieces['gMMG']!)).toBe('final');
+    expect(fireMarker(st.pieces['g1']!)).toBe('final');
+    expect(shownFireMarker(st.pieces['g1']!)).toBe('final');
+    st = act(engine, st, { type: 'endPhase' }).state;
+    expect(st.phase).toBe('DFPh');
+    expect(fireMarker(st.pieces['g1']!)).toBe('final');
+    // Both come off when the DFPh ends: next Player Turn the squad fires again.
+    st = act(engine, st, { type: 'endPhase' }).state;
+    expect(fireMarker(st.pieces['g1']!)).toBeUndefined();
+    expect(fireMarker(st.pieces['gMMG']!)).toBeUndefined();
+  });
+
   it('firing the MMG again uses the ROF: the earlier choice lapses', () => {
     // r1 into zJ3 (2 MF: the MMG may fire twice there). Shot 1 DR 5+2 keeps ROF; shot 2 DR 4+5 loses it.
     const { engine, state } = setup([5, 2, 4, 5]);

@@ -33,6 +33,28 @@ describe('Movement Phase', () => {
     expect(dt.pieces['r1']!.tags['cx']).toBe(true);
   });
 
+  it('a leader lends the squad his own IPC: one plain (SK1 4.0 example), none when Double Time makes him CX too (SK1 3.3)', () => {
+    const { engine, state } = makeEngine({
+      board: 'z',
+      terrain,
+      scenario: RU_VS_GE,
+      startPhase: 'MPh',
+      pieces: [
+        { id: 'r1', def: 'ru.447', side: 'ru', hex: 'zF5' },
+        { id: 'rMMG', def: 'ru.MMG', side: 'ru', heldBy: 'r1' },
+        { id: 'l1', def: 'ru.L91', side: 'ru', hex: 'zF5' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'zK5' },
+      ],
+    });
+    // 6 MF with the leader; the MMG's 5 PP against 3 + 1 IPC: 5 MF, as in the example.
+    const plain = act(engine, state, { type: 'move.start', units: ['r1', 'l1'] }).state;
+    expect(moveState({ state: plain } as never)!.allowance['r1']).toBe(5);
+    // Double Time: 8 MF, but both are CX: the squad's IPC is 2 and the leader's 0, so 3 PP over: 5 MF.
+    const dt = act(engine, state, { type: 'move.start', units: ['r1', 'l1'], doubleTime: true }).state;
+    expect(moveState({ state: dt } as never)!.allowance['r1']).toBe(5);
+    expect(moveState({ state: dt } as never)!.allowance['l1']).toBe(8);
+  });
+
   it('a CX counter comes off at the start of the next MPh, which still forbids Double Time (SK1 3.3)', () => {
     // The Russian squad went CX last turn: its Prep Fire Phase now, the MPh next.
     const { engine, state } = makeEngine({
@@ -49,7 +71,7 @@ describe('Movement Phase', () => {
     expect(mph.phase).toBe('MPh');
     expect(mph.pieces['r1']!.tags['cx']).toBeUndefined();
     const d = engine.currentDecision(mph)!;
-    expect(engine.validate(mph, { type: 'move.start', units: ['r1'], doubleTime: true, side: 'ru', decisionId: d.id } as never)).toMatch(/cannot Double Time/);
+    expect(engine.validate(mph, { type: 'move.start', units: ['r1'], doubleTime: true, side: 'ru', decisionId: d.id } as never)).toMatch(/cannot Double Time: it was CX when this MPh began/);
     expect(engine.validate(mph, { type: 'move.start', units: ['r1'], side: 'ru', decisionId: d.id } as never)).toBeNull();
     // Once this MPh is over the unit is free to Double Time again.
     const after = act(engine, mph, { type: 'endPhase' }).state;

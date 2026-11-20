@@ -342,6 +342,32 @@ describe('Into and out of a foxhole during the MPh (B27.1 EX, B27.4, B27.42, A8.
     expect(legal(open.engine, open.s, 'move.step').map((a) => a['to'])).toContain('uN5');
   });
 
+  it('a hidden A-T Ditch or trench bars vehicles too: the attempt reveals it and is refused with nothing spent (B27.55, B27.56; Q&A [K33] to A12.33)', () => {
+    const tank = (): PieceSpec => ({ id: 't34', def: 'ru.T34M43', side: 'ru', hex: 'uN6', tags: { vca: 0, ca: 0 } });
+    // The tank is already moving when the German counter turns out to be there (as on entry from off the map, where no
+    // LOS found it first): its side's view holds nothing, so no refusal up front.
+    const { engine, state } = game([tank(), ...far], { first: 'ru', phase: 'MPh' });
+    const moving = pass(engine, act(engine, state, { type: 'vmove.start', vehicle: 't34' }).state, 'ge');
+    const s = place(engine, moving, 'ge', [{ kind: 'ditch', hex: 'uN5', hidden: true }]);
+    expect(check(engine, s, { type: 'move.step', to: 'uN5' })).toBeNull();
+    const spent = (x: GameState) => moveState(engine.env(x))!.spent['t34'];
+    const r = act(engine, s, { type: 'move.step', to: 'uN5' });
+    expect(r.events.find((e) => e.type === 'asl.ent.vehicleRefused')?.payload).toMatchObject({ vehicle: 't34', hex: 'uN5', kind: 'ditch' });
+    expect(fortCounters(engine.env(r.state))[0]!.revealed).toBe(true);
+    expect(loc(r.state, 't34').hex).toBe('uN6');
+    expect(spent(r.state)).toBe(spent(s));
+    expect(check(engine, r.state, { type: 'move.step', to: 'uN5' })).toMatch(/A-T Ditch/);
+    // A trench: only a fully-tracked vehicle may enter, at the COT, with a Bog DR (B27.55), hidden or not.
+    const t = place(engine, moving, 'ge', [trench('uN5', true)]);
+    expect(act(engine, t, { type: 'move.step', to: 'uN5' }).events.some((e) => e.type === 'asl.ent.vehicleRefused')).toBe(false);
+    expect(engine.env(t).query('vehicle.bogIn', { vehicle: 't34', hex: 'uN5', turn: false }, false)).toBe(true);
+    expect(engine.env(t).query('vehicle.bogIn', { vehicle: 't34', hex: 'uN5', turn: true }, false)).toBe(true);
+    // A truck knows its own side's hidden trench and is refused up front.
+    const tr = game([{ id: 'tk', def: 'ge.truck', side: 'ge', hex: 'uN6', tags: { vca: 0 } }, ...far], { first: 'ge', phase: 'MPh' });
+    const own = place(tr.engine, act(tr.engine, tr.state, { type: 'vmove.start', vehicle: 'tk' }).state, 'ge', [trench('uN5', true)]);
+    expect(check(tr.engine, own, { type: 'move.step', to: 'uN5' })).toMatch(/Wheeled vehicles and halftracks may not enter a trench hex/);
+  });
+
   it('a FT attack or a Snap Shot claims no TEM, so neither reveals a hidden foxhole as a TEM claim (A12.33, B27.3 EXC, A8.15)', () => {
     // A German FT next door burns the Russian beneath the hidden foxhole: no TEM against a FT. The flamer's own LOS
     // reveals it (A12.33), but not as a TEM claim.

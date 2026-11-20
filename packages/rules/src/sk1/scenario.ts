@@ -1280,10 +1280,10 @@ export const scenarioModule: RuleModule = {
         }
       },
     });
-    // A side with no units left has lost, whatever the scenario's VC say: the game ends at once, as
-    // nothing is left to play for (a blanket rule of this game, 2026-11-01). Checked when the next
-    // decision is asked, so the attack that did it, and anything it brings (a crew surviving its
-    // tank, Leader Loss), is over first.
+    // A side with no units left ends the game at once where every victory condition is then settled, and the VC decide
+    // it as they stand. A condition the other side could still meet by playing on (an exit, Control) keeps the game going
+    // to its end: wiping out the enemy wins only where the VC say so. Checked when the next decision is asked, so the
+    // attack that did it, and anything it brings (a crew surviving its tank, Leader Loss), is over first.
     r.on({
       id: 'sk1.vc.annihilation',
       event: 'decision.pushed',
@@ -1293,8 +1293,8 @@ export const scenarioModule: RuleModule = {
         const sides = sc.sides.map((s) => s.side);
         // Only a side the card gives a force to can be wiped out.
         const gone = sides.filter((side) => sc.forces.some((f) => f.side === side) && !hasUnitsLeft(ctx, side));
-        if (gone.length !== 1) return;
-        ctx.endGame({ winner: sides.find((s) => s !== gone[0]) ?? null, reason: 'annihilation' });
+        if (gone.length !== 1 || !sc.victory.every((vc) => settledWithout(vc, gone[0]!))) return;
+        ctx.endGame({ winner: evaluateVictory(ctx), reason: 'annihilation' });
       },
     });
     // A side with nothing left in play (its units all exited or eliminated, none to come) can no longer change

@@ -71,19 +71,20 @@ describe('game log', () => {
     expect(line.detail).toMatch(/Area Fire FP: ½ Area Fire \(concealed target\)/);
   });
 
-  it('says why a strength is not the printed FP: a Reduced Japanese unit counts its full-strength CCV (SK4 8.1.8.4)', () => {
+  it('says why a CC strength is not the printed FP, where a rule changes it (`cc.fpNote`)', () => {
+    // A rule that changes a unit's CC strength names itself in the log; none in the Starter Kit does, so a test one.
+    const doubled: RuleModule = { id: 'test.cc-note', install: (r) => r.contribute({ id: 'test.cc-note', query: 'cc.fpNote', apply: (v, { unit }) => v ?? (unit === 'r' ? 'doubled (test rule)' : null) }) };
     const { engine, state } = makeEngine({
       scenario: { firstSide: 'ja', sides: [{ side: 'am', name: 'American', nationality: 'am', elr: 5 }, { side: 'ja', name: 'Japanese', nationality: 'ja', elr: 3 }] },
-      extra: [japaneseModule],
+      extra: [japaneseModule, doubled],
       pieces: [
         { id: 'r', def: 'ja.347r', side: 'ja', hex: 'yO5' },
         { id: 'm', def: 'am.768', side: 'am', hex: 'yO5' },
       ],
     });
-    // The Reduced 3-4-7 attacks with the 4-4-7's 4: 4 vs 7, 1:2.
-    const ev = { seq: 1, type: 'sk1.cc.attack', payload: { hex: 'yO5', side: 'ja', attack: { attackers: ['r'], targets: ['m'] }, odds: '1:2', drm: -1, dr: 7, kill: 6, result: 'no effect', fp: { attack: [['r', 4]], defense: [['m', 7]] } } };
+    const ev = { seq: 1, type: 'sk1.cc.attack', payload: { hex: 'yO5', side: 'ja', attack: { attackers: ['r'], targets: ['m'] }, odds: '1:1', drm: -1, dr: 7, kill: 6, result: 'no effect', fp: { attack: [['r', 6]], defense: [['m', 7]] } } };
     const line = describeEvents(engine.env(state), [ev] as never)[0]!.text;
-    expect(line).toMatch(/3.?-4-7 4 \[counts its full-strength CCV \(SK4 8\.1\.8\.4\)\] vs .*7 → 1:2/);
+    expect(line).toMatch(/3.?-4-7 6 \[doubled \(test rule\)\] vs .*7 → 1:1/);
   });
 
   it('says how much Residual FP an attack left and why (ASLRB A8.26: one column less per point of DRM from outside the hex)', () => {
@@ -550,6 +551,13 @@ describe('fortification counters in the log (full ASL A12.33, B28.45, B28.47)', 
     expect(text('ge')).toBe('');
     expect(text('ru')).toMatch(/Breach: the P3\/Q3 hexside is open \(a HE KIA\)/);
     expect(text('ru').match(/Breach/g)).toHaveLength(1);
+  });
+  it('a DC Breach attempt reads alike short of a Breach; a Breach DR against a Location that is not fortified says so (B23.9221)', () => {
+    const { env } = placed();
+    const base = { dc: 'x', loc: 'uP3', toward: 'uQ3', dr: [5, 5], drm: 4, result: 'PTC', breached: false, malfunctioned: false };
+    const line = (payload: Record<string, unknown>) => describeEvents(env, [{ type: 'asl.breach.attempt', payload, seq: 9004 }] as never, 'ge').map((l) => l.text).join('\n');
+    expect(line(base)).toMatch(/Breach attempt on the P3\/Q3 hexside: DR .* \+4 — PTC: the wall holds/);
+    expect(line({ ...base, dr: [3, 3], result: 'NMC', unfortified: true })).toMatch(/no Breach: P3 is not a Fortified Building Location, and the DC attacks only as Area Fire \(ASLRB B23.9221\)/);
   });
   it('a move beneath a hidden foxhole is told to its owner only (A12.33)', () => {
     const { env } = placed();

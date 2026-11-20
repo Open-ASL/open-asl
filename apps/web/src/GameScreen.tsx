@@ -3515,6 +3515,28 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         if (woods) items.push(...woods);
         const v = state.pieces[ms.units[0]!]!;
         const vd = vehicleDef(env, v)!;
+        if (legal.some((a) => a.type === 'move.step' && a['to'] === hex && !a['bypass'])) {
+          const minimum = env.query('move.stepCost', { ms, to: hex }, 0);
+          const left = mfLeft(v.id);
+          const costs: number[] = [];
+          for (let mp = minimum + 0.5; mp < left; mp += 0.5) {
+            if (session.check({ type: 'move.step', to: hex, declared: mp }) === null) costs.push(mp);
+          }
+          const enter = (mp: number, label = `${mp} MP`) => action(label, () => run({ type: 'move.step', to: hex, declared: mp }, true), {
+            hint: `Spend ${mp} MP entering ${hexLabel(hex)} (${left - mp} MP left)`,
+          });
+          const entries: WheelItem[] = [];
+          if (!woods && left > minimum && session.check({ type: 'move.step', to: hex, declared: left }) === null)
+            entries.push(enter(left, `All ${left} MP`));
+          if (costs.length <= 6) entries.push(...costs.map((mp) => enter(mp)));
+          else for (let index = 0; index < costs.length; index += 6) {
+            const range = costs.slice(index, index + 6);
+            entries.push(range.length === 1 ? enter(range[0]!) : group(`${range[0]}–${range.at(-1)} MP`, range.map((mp) => enter(mp))));
+          }
+          if (entries.length) items.push(group('Enter for more MP…', entries, {
+            icon: '➜', hint: `Minimum ${minimum} MP. Spend more on this hex entry without stopping to Delay (SK3 3.3.2).`,
+          }));
+        }
         const at = ms.hex ?? ms.off ?? hex;
         if (!ms.vehicle.stopped) {
           const err = plain(session.check({ type: 'vmove.stop' }));

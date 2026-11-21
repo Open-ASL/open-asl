@@ -49,6 +49,18 @@ describe('vehicle movement (SK4 3.3.2)', () => {
     expect(s.pieces['t34']!.tags[T3.movingTarget]).toBe(true);
   });
 
+  it('can spend all remaining MP entering open ground and end in Motion without stopping', () => {
+    const { engine, state } = game([t34('yM5')]);
+    let s = play(engine, state, { type: 'vmove.start', vehicle: 't34' });
+    s = play(engine, s, { type: 'move.step', to: 'yM4', declared: 15 });
+    const ms = moveState(engine.env(s))!;
+    expect(ms.spent['t34']).toBe(16);
+    expect(ms.vehicle?.stopped).toBe(false);
+    expect(s.pieces['t34']!.loc).toEqual({ kind: 'hex', hex: 'yM4' });
+    s = play(engine, s, { type: 'vmove.end' });
+    expect(s.pieces['t34']!.tags[T3.motion]).toBe(true);
+  });
+
   it('turning the hull costs 1 MP per hexspine and turns the turret with it; the turret turns free after an MP expenditure', () => {
     const { engine, state } = game([t34('yM5', { ca: 1 })]);
     let s = play(engine, state, { type: 'vmove.start', vehicle: 't34' });

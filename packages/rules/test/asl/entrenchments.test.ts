@@ -237,6 +237,21 @@ describe('Entrenching (B27.11, B27.12, A25.21, B24.8, A4.8)', () => {
 });
 
 describe('Into and out of a foxhole during the MPh (B27.1 EX, B27.4, B27.42, A8.12, A8.2, A12.33, B27.56)', () => {
+  it('a stack with units beneath its foxhole and units on top is offered as two stacks, never one the rules refuse (B27.4, A4.12)', () => {
+    const { engine, state } = game([ge('in', 'uN5'), ge('out', 'uN5'), ...far], { phase: 'MPh' });
+    let s = place(engine, state, 'ge', [fox('uN5')]);
+    s = tele(engine, s, 'in', 'uN5', 'foxhole');
+    const starts = legal(engine, s, 'move.start');
+    for (const a of starts) expect(engine.validate(s, a), JSON.stringify(a)).toBeNull();
+    expect(starts.filter((a) => (a['units'] as string[]).some((u) => u === 'in' || u === 'out')).map((a) => a['units'])).toEqual([['in'], ['out']]);
+    // Two units beneath it are one stack together.
+    const both = game([ge('a', 'uN5'), ge('b', 'uN5'), ...far], { phase: 'MPh' });
+    let t = place(both.engine, both.state, 'ge', [fox('uN5', 2)]);
+    t = tele(both.engine, t, 'a', 'uN5', 'foxhole');
+    t = tele(both.engine, t, 'b', 'uN5', 'foxhole');
+    expect(legal(both.engine, t, 'move.start').map((a) => a['units'])).toEqual(expect.arrayContaining([['a', 'b']]));
+  });
+
   it('the B27.1 example: one MF to enter the hex, one more to go beneath, one to come out, each a Defensive First Fire target of its own; a stack beneath may not step out directly', () => {
     const { engine, state } = game([ge('g', 'uM5'), ru('r', 'uN8'), ...far], { phase: 'MPh' });
     let s = place(engine, state, 'ge', [fox('uN5', 1)]);

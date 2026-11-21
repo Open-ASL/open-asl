@@ -262,6 +262,10 @@ export function pixelTracers(
         continue;
       }
       sinceHigher++;
+      // Inherent Terrain is at the level of its hex's centre dot throughout, hexsides included, whatever ground the thread
+      // crosses there (SK4 1.1.1, 8.2.1): Dense jungle on a hill blocks a LOS along its hexside at the hill's level, though
+      // the slope beside it is lower; Dense jungle below both ends is overlooked like the ground under it.
+      if (opts.inherentObstacle && owners.some((o) => opts.inherentObstacle!(o) && (o.elevation ?? 0) >= lo)) return { clear: false, crossed, blockedAt: { x, y } };
       if (hasElevation) {
         // SK4 1.1.1 / 3.2.1: hexes, units and terrain are at the level under them. Ground higher than
         // both hexes is a hill in the way; between levels, higher ground outside the higher hex is a
@@ -276,7 +280,6 @@ export function pixelTracers(
         hillRun = 0;
         if (e < lo) continue;
       }
-      if (opts.inherentObstacle && owners.some(opts.inherentObstacle)) return { clear: false, crossed, blockedAt: { x, y } };
       // Palm trees (PTO): an obstacle to a LOS between two levels, a Hindrance like any orchard on one level.
       if (fromLevel !== lo && opts.obstacleBetweenLevels && owners.some(opts.obstacleBetweenLevels)) return { clear: false, crossed, blockedAt: { x, y } };
       const code = terrainAt(x, y);

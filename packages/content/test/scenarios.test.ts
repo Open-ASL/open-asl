@@ -235,6 +235,78 @@ describe('catalogued scenarios', () => {
     expect((counts['RtPh:beneath'] ?? 0) + (counts['RtPh:hung'] ?? 0), JSON.stringify(counts)).toBeGreaterThan(0);
   }, 120_000);
 
+  it('asl-testbed-mines: weighted random play walks, advances and routs into minefields, clears them and uses their Trail Breaks, and every Player Turn boundary is clean', () => {
+    const scenario = scenarioById('asl-testbed-mines')!;
+    const counts: Record<string, number> = {};
+    const bump = (k: string, n = 1) => (counts[k] = (counts[k] ?? 0) + n);
+    // Head for the minefield hexes (the test bed's own placement: P10 recorded, N9 Known with a TB, N10 the Dummy) and
+    // take every minefield option offered, else play as usual.
+    const mineHexes = new Set<string>();
+    const weigh = weightedPicker((a, _legal, state, engine) => {
+      if (a.type === 'fort.place') return 400;
+      if (a.type === 'clearance.declare') return 60;
+      if (a.type === 'move.removeMines') return 60;
+      if (a.type === 'rout.endHere') return 10;
+      if (a.type === 'move.start' || a.type === 'vmove.start') return 20;
+      if (a.type === 'move.step') {
+        const to = String(a['to']);
+        if (mineHexes.has(to)) return a['mines'] ? 60 : 80;
+        if (to.includes(':')) return 1;
+        const env = engine.env(state);
+        const from = moveState(env)?.hex;
+        const map = statics(env).map;
+        const near = (h: string) => Math.min(99, ...[...mineHexes].map((w) => map.distance(h, w)));
+        return from && map.hex(to) && near(to) < near(from) ? 20 : 1;
+      }
+      if (a.type === 'advance' && mineHexes.has(String(a['to']))) return 30;
+      if (a.type === 'endPhase') return state.phase === 'MPh' ? 1 : 4;
+      return 1;
+    });
+    for (const seed of [31, 32, 33]) {
+      const check = turnBoundaryCheck(`asl-testbed-mines seed ${seed}`);
+      const { state, steps } = playRandom(scenario, `mines-${seed}`, {
+        rand: mulberry(seed),
+        maxSteps: 9000,
+        pick: (legal, st, engine, rand) => {
+          const a = weigh(legal, st, engine, rand);
+          const bad = engine.validate(st, a);
+          if (bad) throw new Error(`listed but refused: ${JSON.stringify(a)}: ${bad}`);
+          if (a.type !== 'fort.place') return a;
+          // Minefields where the Germans meet them: recorded ones in P10 and O10, Known ones in N9 and M10, a Dummy in N10.
+          const front = { hidden: ['uP10', 'uO10'], known: ['uN9', 'uM10'], dummy: ['uN10'] };
+          const counters = (a['counters'] as { kind: string; hex: string; mines?: { known?: true; dummy?: true } }[]).map((c) => {
+            if (c.kind !== 'mines') return c;
+            const list = c.mines?.dummy ? front.dummy : c.mines?.known ? front.known : front.hidden;
+            const hex = list.shift();
+            return hex ? { ...c, hex } : c;
+          });
+          const moved = { ...a, counters };
+          return engine.validate(st, moved as never) ? a : (moved as typeof a);
+        },
+        onStep: (st, events, a) => {
+          bump(a.type);
+          if (a.type === 'move.step' && a['mines']) bump(`step:${String(a['mines'])}`);
+          for (const c of (st.ext['asl.fortifications'] as { counters: { kind: string; hex: string }[] } | undefined)?.counters ?? []) if (c.kind === 'mines') mineHexes.add(c.hex);
+          for (const ev of events) {
+            if (ev.type === 'asl.mines.attack') bump(`attack:${(ev.payload as { by: string }).by}:${(ev.payload as { way: string }).way}`);
+            if (ev.type === 'asl.mines.vehicle') bump(`vehicle:${(ev.payload as { kind: string }).kind}`);
+            if (ev.type === 'asl.clearance.dr' && (ev.payload as { task: { kind: string } }).task.kind === 'mines') bump('task:mines');
+            if (ev.type === 'asl.boobyTrap') bump('boobyTrap');
+          }
+          check(st, events);
+          // A partial TB lies only in a minefield hex, and its units are all there (B24.74).
+          const partial = (st.ext['asl.mines.partial'] as Record<string, { units?: string[] }[]> | undefined) ?? {};
+          for (const [hex, tbs] of Object.entries(partial))
+            for (const t of tbs) for (const u of t.units ?? []) expect((st.pieces[u]?.loc as { hex?: string } | undefined)?.hex, `${u} on a partial TB of ${hex} it has left`).toBe(hex);
+          // Nothing of a step's minefield attacks outlives its phase.
+          if (st.phase !== 'MPh') expect(st.ext['asl.mines.last'], 'asl.mines.last left after the MPh').toBeUndefined();
+        },
+      });
+      expect(state.result, `seed ${seed} reached no result in ${steps} steps`).not.toBeNull();
+    }
+    expect(Object.keys(counts).filter((k) => k.startsWith('attack:')).length, JSON.stringify(counts)).toBeGreaterThan(0);
+  }, 180_000);
+
   it('asl-testbed: weighted random play crosses the roadblock, claims and loses Wall Advantage, and every Player Turn boundary is clean', () => {
     const scenario = scenarioById('asl-testbed')!;
     const counts: Record<string, number> = {};

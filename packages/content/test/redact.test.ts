@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deepEqual, type GameState, type LoggedEvent } from '@asl/engine';
-import { breaches, fortCounters, fortifiedKnownTo, fortifiedState, hiddenFrom, redactState, scatterState, shownCounter, type Breach, type FortRecord, type FortifiedState, type ScatterState } from '@asl/rules';
-import { ASL_TESTBED_SCENARIO, FixtureBuilder, PLAYABLE_SCENARIOS, TESTBED_FORTIFIED, mulberry, newGame, newSk1Game, testbedBreachApproach } from '../src';
+import { beltHexes, breaches, fortCounters, fortifiedKnownTo, fortifiedState, hiddenFrom, redactState, scatterState, shownCounter, type Breach, type FortRecord, type FortifiedState, type ScatterState } from '@asl/rules';
+import { ASL_TESTBED_MINES_SCENARIO, ASL_TESTBED_SCENARIO, FixtureBuilder, fixtureActions, PLAYABLE_SCENARIOS, TESTBED_FORTIFIED, mulberry, newGame, newSk1Game, testbedBreachApproach } from '../src';
 
 /** Strings the viewer must never receive: ids of pieces hidden from them, and the other side's unrevealed secrets. */
 function secretsFrom(engine: ReturnType<typeof newSk1Game>['engine'], state: GameState, viewer: string | null): string[] {
@@ -221,4 +221,88 @@ describe('a DC Breach attempt against a Location the attacker has not been shown
       expect((redactState(plain.engine, plain.s, viewer).ext['sk1.fortified'] as FortifiedState).locations ?? [], `${viewer}`).toEqual(viewer === 'ru' ? [...OTHER].sort() : []);
     }
   });
+});
+
+describe('minefields: what each seat and a spectator receive (B28.1, B28.41, B28.46, B28.47)', () => {
+  const VIEWERS = ['ge', 'ru', null] as const;
+  /** Load a fixture, then play `steps` (with dice forced before the first), recording every transition. */
+  function play(scenario: typeof ASL_TESTBED_SCENARIO, fixture: string, steps: (s: GameState) => Record<string, unknown>[], dice: number[]) {
+    const g = newGame(scenario, 'mines-redact');
+    const f = new FixtureBuilder(g.engine, g.state);
+    let s = g.state;
+    for (const a of fixtureActions(g.engine, g.state, fixture)) s = g.engine.submit(s, a).state;
+    void f;
+    const engine = g.engine;
+    const trans: { from: GameState; to: GameState; events: LoggedEvent[] }[] = [];
+    engine.forceDice(...dice);
+    for (const a of steps(s)) {
+      const d = engine.currentDecision(s)!;
+      const t = engine.submit(s, { ...a, side: d.owner, decisionId: d.id } as never);
+      trans.push({ from: s, to: t.state, events: t.events as LoggedEvent[] });
+      s = t.state;
+    }
+    for (const viewer of VIEWERS)
+      for (const t of trans) {
+        const redact = (x: GameState) => redactState(engine, x, viewer);
+        expect(deepEqual(engine.applyEvents(redact(t.from), engine.redactTransition(viewer, redact, t.from, t.events)), redact(t.to)), `${viewer} at seq ${t.to.seq}`).toBe(true);
+      }
+    const stream = (viewer: string | null) => trans.flatMap((t) => engine.redactTransition(viewer, (x) => redactState(engine, x, viewer), t.from, t.events));
+    return { engine, s, stream };
+  }
+  const p10 = (engine: ReturnType<typeof newGame>['engine'], s: GameState, viewer: string | null) => ((redactState(engine, s, viewer).ext['asl.fortifications'] as { counters: FortRecord[] }).counters.find((c) => c.hex === 'uP10') ?? null);
+  const walkIn = (s: GameState) => {
+    const squad = Object.values(s.pieces).find((p) => p.loc.kind === 'hex' && p.loc.hex === 'uQ10')!.id;
+    return [{ type: 'move.start', units: [squad] }, { type: 'move.step', to: 'uP10' }];
+  };
+
+  it('an attack with no effect: every viewer sees the minefield in P10, only the owner its strength', () => {
+    const { engine, s, stream } = play(ASL_TESTBED_SCENARIO, 'mines-walk', walkIn, [6, 6]);
+    expect(p10(engine, s, 'ru')?.mines).toMatchObject({ ap: 8, at: 1 });
+    for (const viewer of ['ge', null]) {
+      expect(p10(engine, s, viewer), `${viewer}`).toMatchObject({ hex: 'uP10', revealed: true });
+      expect(p10(engine, s, viewer)!.mines, `${viewer}`).toEqual({});
+      const att = stream(viewer).find((e) => e.type === 'asl.mines.attack')?.payload as Record<string, unknown>;
+      expect(att, `${viewer}`).toMatchObject({ hex: 'uP10', result: { kind: 'none' } });
+      expect(att['factors'], `${viewer}`).toBeUndefined();
+      expect(JSON.stringify(stream(viewer).filter((e) => e.type.startsWith('asl.'))), `${viewer}`).not.toMatch(/"ap":8|"at":1/);
+    }
+  });
+
+  it('an attack with an effect shows its A-P strength to every viewer (to verify it); the A-T factor stays the owner\'s', () => {
+    // DR 2+3 on the 8 column: a K/2 or so; the result has to be verified.
+    const { engine, s, stream } = play(ASL_TESTBED_SCENARIO, 'mines-walk', walkIn, [2, 3, 3, 3, 3, 3, 3, 3]);
+    for (const viewer of VIEWERS) {
+      expect(p10(engine, s, viewer)!.mines, `${viewer}`).toMatchObject({ ap: 8, strengthRevealed: true });
+      expect(stream(viewer).find((e) => e.type === 'asl.mines.attack')?.payload, `${viewer}`).toMatchObject({ factors: 8 });
+    }
+  });
+
+  it('before any attack the Germans and a spectator see nothing of the hidden minefield, the Known one and the Dummy alike as blank counters', () => {
+    const g = newGame(ASL_TESTBED_SCENARIO, 'mines-redact');
+    let s = g.state;
+    for (const a of fixtureActions(g.engine, g.state, 'mines-walk')) s = g.engine.submit(s, a).state;
+    for (const viewer of ['ge', null]) {
+      const cs = (redactState(g.engine, s, viewer).ext['asl.fortifications'] as { counters: FortRecord[] }).counters;
+      expect(cs.some((c) => c.hex === 'uP10'), `${viewer}`).toBe(false);
+      expect(cs.filter((c) => c.hex === 'uN9' || c.hex === 'uN10').map((c) => c.mines), `${viewer}`).toEqual([{ known: true }, { known: true }]);
+    }
+  });
+
+  it('a Known belt: the other seat and a spectator see its arrows and a blank Known counter in each hex, never what is recorded there', () => {
+    const g = newGame(ASL_TESTBED_MINES_SCENARIO, 'mines-redact');
+    const f = new FixtureBuilder(g.engine, g.state);
+    f.fortify(TESTBED_FORTIFIED);
+    const belt = { id: 'b1', from: 'uN9', to: 'uN10', grain: 'hex' as const };
+    const path = beltHexes(g.engine.env(f.state), belt)!;
+    expect(path).toEqual(['uN9', 'uN10']);
+    f.act({ type: 'fort.place', counters: [{ kind: 'mines', hex: 'uN9', hidden: false, mines: { known: true, ap: 12 }, belt: 'b1' }, { kind: 'mines', hex: 'uN10', hidden: false, mines: { known: true, dummy: true }, belt: 'b1' }], belts: [belt] });
+    for (const viewer of ['ge', null]) {
+      const st = redactState(g.engine, f.state, viewer).ext['asl.fortifications'] as { counters: FortRecord[]; belts?: unknown[] };
+      expect(st.belts, `${viewer}`).toEqual([{ ...belt, side: 'ru' }]);
+      expect(st.counters.map((c) => c.mines), `${viewer}`).toEqual([{ known: true }, { known: true }]);
+    }
+    const own = redactState(g.engine, f.state, 'ru').ext['asl.fortifications'] as { counters: FortRecord[] };
+    expect(own.counters.map((c) => c.mines)).toEqual([{ known: true, ap: 12 }, { known: true, dummy: true }]);
+  });
+
 });

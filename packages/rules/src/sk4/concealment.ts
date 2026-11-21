@@ -560,7 +560,8 @@ export const concealmentModule: RuleModule = {
       apply: (v) => v / 2,
     });
     r.procedure<ApplyResultFn>(FP.applyResult, (next) => (ctx, attack, column, baseFinal, out) => {
-      const concealed = attack.vsConcealed ? [] : concealedTargets(ctx, attack);
+      // A concealed unit is attacked by a minefield at full strength (full ASL, ASLRB B28.411).
+      const concealed = attack.vsConcealed || attack.mine ? [] : concealedTargets(ctx, attack);
       if (concealed.length === 0) return next?.(ctx, attack, column, baseFinal, out);
       const rest = attack.targets.filter((u) => !concealed.includes(u));
       if (rest.length) next?.(ctx, { ...attack, targets: rest }, column, baseFinal, out);

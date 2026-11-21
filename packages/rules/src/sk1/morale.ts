@@ -18,6 +18,7 @@ import {
   wounds,
 } from './status';
 import { adjacentToKnownEnemy } from './known';
+import { firstFireTargets, moveState } from './moveState';
 
 declare module '@asl/engine' {
   interface QueryCatalog {
@@ -97,6 +98,8 @@ interface LeaderLossEntry {
   side: string;
   leaderMorale: number;
   leaderDrm: number;
+  /** A leader lost to Defensive First Fire at a moving stack: only the units moving with him take the check. */
+  only?: PieceId[];
 }
 
 const LL_KEY = 'sk1.leaderLoss';
@@ -212,6 +215,7 @@ export const moraleModule: RuleModule = {
             side: p.side,
             leaderMorale: ctx.query('unit.morale', { unit }, l.morale),
             leaderDrm: ctx.query('unit.leadership', { unit }, l.leadership),
+            ...movingWith(ctx, unit),
           },
         });
       }
@@ -343,6 +347,7 @@ export const moraleModule: RuleModule = {
           const victims = personnelAt(ctx, e.hex, e.side)
             .filter((p) => {
               if (inCloseCombat(ctx, p.id)) return false;
+              if (e.only && !e.only.includes(p.id)) return false;
               const m = ctx.query('unit.morale', { unit: p.id }, 0);
               if (m >= e.leaderMorale) return false;
               return e.kind === 'LLMC' || isGoodOrder(ctx, p);
@@ -364,6 +369,17 @@ export const moraleModule: RuleModule = {
   },
 };
 
+/**
+ * A leader broken or eliminated while he is part of the stack now taking Defensive First Fire causes a LLTC/LLMC only in
+ * the units moving with him (ASLRB A10.2: not "other units in the same Location ... unless they were moving with him";
+ * SK1 3.2: such an attack "only affects units moving together").
+ */
+function movingWith(ctx: Ctx, unit: PieceId): { only?: PieceId[] } {
+  const ms = ctx.state.phase === 'MPh' ? moveState(ctx) : undefined;
+  const stack = ms ? firstFireTargets(ctx, ms) : [];
+  return stack.includes(unit) ? { only: stack } : {};
+}
+
 /** Leader Loss checks never apply to units in CC (SK1 3.2.1); in SK1 only CC eliminates units in the CCPh. */
 const inCloseCombat = (ctx: Ctx, _id: PieceId) => ctx.state.phase === 'CCPh';
 
@@ -381,6 +397,7 @@ export function eliminate(ctx: Ctx, unit: PieceId, reason: string) {
         side: p.side,
         leaderMorale: ctx.query('unit.morale', { unit }, l.morale),
         leaderDrm: ctx.query('unit.leadership', { unit }, l.leadership),
+        ...movingWith(ctx, unit),
       },
     });
   }

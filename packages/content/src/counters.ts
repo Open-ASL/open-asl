@@ -193,8 +193,8 @@ function counterIds(chart: Record<string, string[][]>, nations: string[], extra:
   ].filter((id, i, a) => a.indexOf(id) === i);
 }
 
-/** Counters in the SK1 counter mix (nationality chart + leaders + SW). */
-export const SK1_COUNTER_IDS: string[] = counterIds(SK1_NATIONALITY_CHART, ['ge', 'ru', 'am']);
+/** Counters in the SK1 counter mix (nationality chart + leaders + SW, and the American .50 cal HMG). */
+export const SK1_COUNTER_IDS: string[] = counterIds(SK1_NATIONALITY_CHART, ['ge', 'ru', 'am'], ['am.HMG50']);
 
 /**
  * The SK2 additions: British, Allied Minor and Italian infantry, then every crew, Gun, Light Mortar and Bazooka imported
@@ -270,8 +270,6 @@ export const SK3_COUNTER_IDS: string[] = [
   // Anti-Tank Rifles (SK4 4.4.4): Russian (S25), German (S27).
   'ru.ATR',
   'ge.ATR',
-  // The American .50 cal HMG (S34).
-  'am.HMG50',
   ...Object.values(COUNTERS)
     .filter((d) => d.kind === 'vehicle')
     .map((d) => d.id)

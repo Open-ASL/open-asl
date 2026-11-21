@@ -46,15 +46,15 @@ declare module '@asl/engine' {
      * The MF/MP a step of the moving stack into Location `to` costs (`declared`: extra MP a vehicle announces, SK4
      * 3.3.2). `to` is a hex id at ground level; full ASL steps may name an upper building level ('uK4:1').
      */
-    'move.stepCost': { ctx: { ms: MoveState; to: LocId; declared?: number; woods?: boolean; bypass?: HexId[]; beneath?: boolean; noTb?: boolean }; value: number };
+    'move.stepCost': { ctx: { ms: MoveState; to: LocId; declared?: number; woods?: boolean; bypass?: HexId[]; beneath?: boolean; noTb?: boolean; mines?: MineEntry }; value: number };
     /** Full ASL: further `move.step` forms into `to` (a step that goes straight beneath an entrenchment, ASLRB B27.4); none in the Starter Kit. */
-    'move.stepVariants': { ctx: { ms: MoveState; to: LocId }; value: { type: 'move.step'; to: LocId; beneath?: true; noTb?: true }[] };
+    'move.stepVariants': { ctx: { ms: MoveState; to: LocId }; value: { type: 'move.step'; to: LocId; beneath?: true; noTb?: true; mines?: MineEntry; hexsides?: [number, number] }[] };
     /** Fields a rules module adds to a stack's state as it starts moving (full ASL: its entrenchment position); `{}` in the Starter Kit. */
     'move.startState': { ctx: { units: PieceId[] }; value: Partial<MoveState> };
     /** Full ASL: why a unit may not Recover a weapon (ASLRB B27.13: not across a foxhole's rim); null in the Starter Kit. */
     'recover.illegal': { ctx: { unit: PieceId; sw: PieceId }; value: string | null };
     /** Why a moving stack may not step into Location `to` beyond the base rules, or null (PTO: a Gun manhandled into bamboo). */
-    'move.stepIllegal': { ctx: { ms: MoveState; to: LocId; beneath?: boolean }; value: string | null };
+    'move.stepIllegal': { ctx: { ms: MoveState; to: LocId; beneath?: boolean; mines?: MineEntry; hexsides?: [number, number] }; value: string | null };
     /**
      * Infantry stacking limit in a hex for a side: squad equivalents and SMC (SK4 2.0: three and four; PTO Dense jungle and
      * bamboo two squad equivalents, SK4 8.2.1).
@@ -147,6 +147,15 @@ export interface MoveState {
   tb?: true;
   /** Full ASL: the step being made declines a Trail Break's reduced cost (ASLRB B13.4212); never kept in the state. */
   noTb?: true;
+  /**
+   * Full ASL: how the stack's latest step entered a minefield hex (ASLRB B28.61, B24.74): along a Trail Break at twice the
+   * cost, or with all its MF to clear it (a partial TB across `mineSides[0]`, the TB's two hexsides chosen). Gone with the
+   * next step.
+   */
+  mineEntry?: MineEntry;
+  mineSides?: [number, number];
+  /** Full ASL: the minefield TB the stack entered its present hex along (ASLRB B28.61): it leaves free of attack only along it. Gone with the next step. */
+  mineTbIn?: [number, number];
   /**
    * Full ASL: units of the stack whose Wire Exit dr used all their MF while Assault Moving (ASLRB B26.4, A4.61): no longer
    * using Assault Movement, so subject to FFNAM in that Location while the rest go on Assault Moving. Never set in the
@@ -260,6 +269,8 @@ export interface VehicleMoveState {
 }
 
 export { firstFireTargets, moveLoc, moveState } from './moveState';
+/** Full ASL: a step into a minefield along its Trail Break (ASLRB B28.61) or with all MF to clear it (B24.74). */
+export type MineEntry = 'tb' | 'clear';
 
 export const FIRST_FIRE = 'firstFire';
 /**
@@ -319,7 +330,7 @@ export type MoveAction =
    * `bypass` (full ASL): in Bypass of the obstacle hex `to` along the hexsides it shares with these hexes, in order
    * (ASLRB A2.2 "R3-R4": `to` first); `to` the hex already bypassed goes further round it.
    */
-  | (Action & { type: 'move.step'; to: LocId; declared?: number; woods?: boolean; bypass?: HexId[]; beneath?: true; noTb?: true })
+  | (Action & { type: 'move.step'; to: LocId; declared?: number; woods?: boolean; bypass?: HexId[]; beneath?: true; noTb?: true; /** Full ASL: into a minefield along its TB, or to clear it (ASLRB B28.61, B24.74). */ mines?: MineEntry; hexsides?: [number, number] })
   | (Action & { type: 'move.stopUnits'; units: PieceId[] })
   | (Action & { type: 'move.end' })
   /** Takes back the choice of the stack now moving, while it has spent no MF (see `cancelRefusal`). */
@@ -598,7 +609,9 @@ export const movementModule: RuleModule = {
             manhandle = manhandleFor(p);
             if (!manhandle) continue;
           }
-          const k = p.loc.kind === 'hex' ? locKey(p.loc) : `off:${(p.loc.kind === 'offboard' && p.loc.hex) || p.id}`;
+          // Full ASL: units beneath an entrenchment and units on top of it are separate stacks (ASLRB B27.4, A4.12); the
+          // Starter Kit has no positions, so its stacks are as before.
+          const k = p.loc.kind === 'hex' ? `${locKey(p.loc)}${p.loc.pos?.ent ? '|beneath' : ''}` : `off:${(p.loc.kind === 'offboard' && p.loc.hex) || p.id}`;
           byHex.set(k, [...(byHex.get(k) ?? []), { p, manhandle }]);
         }
         for (const ps of byHex.values()) {
@@ -607,7 +620,10 @@ export const movementModule: RuleModule = {
             // The whole stack: pushing the one Gun among them (a stack cannot push two).
             const guns = [...new Set(ps.map((x) => x.manhandle).filter((g): g is PieceId => !!g))];
             const units = ps.map((x) => x.p.id);
-            if (guns.length === 0) out.push({ type: 'move.start', units });
+            // Only a stack the rules let start together (the list offers nothing that validation refuses).
+            if (guns.length === 0) {
+              if (!env.query('move.cannotStart', { units, doubleTime: false, assault: false }, null)) out.push({ type: 'move.start', units });
+            }
             else if (guns.length === 1 && !env.query('move.cannotStart', { units, doubleTime: false, assault: false, manhandle: guns[0]! }, null)) out.push({ type: 'move.start', units, manhandle: guns[0]! });
           }
         }
@@ -688,7 +704,7 @@ export const movementModule: RuleModule = {
             ...(stepRefusal(env, ms, to) ? [] : [{ type: 'move.step', to }]),
             ...(woodsRoadChoice(env, ms, to) && !stepRefusal(env, ms, to, undefined, true) ? [{ type: 'move.step', to, woods: true }] : []),
             // Full ASL: the step straight beneath the entrenchment of the hex (ASLRB B27.4), where a module offers it.
-            ...env.query('move.stepVariants', { ms, to }, []).filter((v) => !stepRefusal(env, ms, v.to, undefined, false, undefined, v.beneath, v.noTb)),
+            ...env.query('move.stepVariants', { ms, to }, []).filter((v) => !stepRefusal(env, ms, v.to, undefined, false, undefined, v.beneath, v.noTb, v.mines, v.hexsides)),
           ]),
           ...(ms.hex && !ms.vehicle ? env.query('move.bypassSteps', { ms }, []) : []),
         ];
@@ -696,11 +712,11 @@ export const movementModule: RuleModule = {
       validate(env, a) {
         const ms = moveState(env);
         if (!ms) return 'No stack is moving';
-        return stepRefusal(env, ms, a.to, a.declared, !!a.woods, a.bypass, a.beneath, a.noTb);
+        return stepRefusal(env, ms, a.to, a.declared, !!a.woods, a.bypass, a.beneath, a.noTb, a.mines, a.hexsides);
       },
       resolve(ctx, a) {
         const ms = moveState(ctx)!;
-        const cost = ctx.query('move.stepCost', { ms, to: a.to, ...(a.declared !== undefined ? { declared: a.declared } : {}), ...(a.woods ? { woods: true } : {}), ...(a.bypass ? { bypass: a.bypass } : {}), ...(a.beneath ? { beneath: true } : {}), ...(a.noTb ? { noTb: true } : {}) }, 1);
+        const cost = ctx.query('move.stepCost', { ms, to: a.to, ...(a.declared !== undefined ? { declared: a.declared } : {}), ...(a.woods ? { woods: true } : {}), ...(a.bypass ? { bypass: a.bypass } : {}), ...(a.beneath ? { beneath: true } : {}), ...(a.noTb ? { noTb: true } : {}), ...(a.mines ? { mines: a.mines } : {}) }, 1);
         // Full ASL Bypass (`asl/bypass.ts`): into Bypass, further round, or into the obstacle of the hex bypassed.
         if (a.bypass || (ms.bypass && hexOfLoc(a.to) === ms.bypass.hex)) {
           ctx.proc<MoveBypassFn>(MOVE_BYPASS)(ctx, ms, a.to, a.bypass, cost);
@@ -724,7 +740,7 @@ export const movementModule: RuleModule = {
           reAskMover(ctx);
           return;
         }
-        ctx.proc<MoveEnterFn>(MOVE_ENTER)(ctx, ms, a.to, cost, !!a.woods, a.beneath || a.noTb ? { ...(a.beneath ? { ent: true as const } : {}), ...(a.noTb ? { noTb: true as const } : {}) } : undefined);
+        ctx.proc<MoveEnterFn>(MOVE_ENTER)(ctx, ms, a.to, cost, !!a.woods, a.beneath || a.noTb || a.mines ? { ...(a.beneath ? { ent: true as const } : {}), ...(a.noTb ? { noTb: true as const } : {}), ...(a.mines ? { mineEntry: a.mines, ...(a.hexsides ? { mineSides: a.hexsides } : {}) } : {}) } : undefined);
       },
     });
 
@@ -1275,16 +1291,17 @@ const BYPASS_NO_STOP = 'Infantry may not end its move in Bypass (ASLRB A4.32): e
 const mustLeaveBypass = (env: QueryEnv, ms: MoveState) => !!ms.bypass && ms.units.length > 0 && !ms.halted && env.query('move.bypassMustLeave', { ms }, true);
 
 /** Why a `move.step` is refused: the Bypass rules first where they apply (full ASL), then the ordinary ones. */
-function stepRefusal(env: QueryEnv, ms: MoveState, to: LocId, declared?: number, woods = false, bypass?: HexId[], beneath?: true, noTb?: true): string | null {
+function stepRefusal(env: QueryEnv, ms: MoveState, to: LocId, declared?: number, woods = false, bypass?: HexId[], beneath?: true, noTb?: true, mines?: MineEntry, hexsides?: [number, number]): string | null {
   if (bypass || ms.bypass) {
     const why = env.query('move.bypassIllegal', { ms, to, ...(bypass ? { bypass } : {}) }, bypass ? 'There is no Bypass in the Starter Kit rules' : null);
     if (why) return why;
     if (bypass || (ms.bypass && hexOfLoc(to) === ms.bypass.hex)) return null;
   }
-  return stepIllegal(env, ms, to, false, declared, woods, beneath, noTb);
+  if ((mines || hexsides) && (ms.vehicle ? mines === 'clear' || !!hexsides : false)) return 'Only Infantry clear a minefield (ASLRB B24.74)';
+  return stepIllegal(env, ms, to, false, declared, woods, beneath, noTb, mines, hexsides);
 }
 
-function stepIllegal(env: QueryEnv, ms: MoveState, to: LocId, pushing = false, declared?: number, woods = false, beneath?: true, noTb?: true): string | null {
+function stepIllegal(env: QueryEnv, ms: MoveState, to: LocId, pushing = false, declared?: number, woods = false, beneath?: true, noTb?: true, mines?: MineEntry, hexsides?: [number, number]): string | null {
   const map = statics(env).map;
   const toHex = hexOfLoc(to);
   const offTo = map.offboardHex(toHex);
@@ -1306,7 +1323,7 @@ function stepIllegal(env: QueryEnv, ms: MoveState, to: LocId, pushing = false, d
   // A vehicle (SK3) has rules of its own: its Vehicle Covered Arc, MP costs, Bog, one vehicle per hex.
   if (woods && !woodsRoadChoice(env, ms, to)) return 'Only Infantry entering a Woods-Road (or Orchard-Road) hex along the road choose its woods (or orchard)';
   if (ms.vehicle && !isGroundLoc(to)) return parseLoc(to).sub === 'cave' ? 'A vehicle may not enter a Cave' : 'A vehicle may never occupy an upper building level (ASLRB B23.4)';
-  if (ms.vehicle) return env.query('vehicle.stepIllegal', { ms, to: toHex, ...(declared !== undefined ? { declared } : {}) }, null);
+  if (ms.vehicle) return env.query('vehicle.stepIllegal', { ms, to: toHex, ...(declared !== undefined ? { declared } : {}) }, null) ?? (mines ? env.query('move.stepIllegal', { ms, to, mines }, mines ? 'No minefield Trail Break in the Starter Kit' : null) : null);
   if (ms.dcPending) return 'Finish the DC placement first';
   if (ms.manhandle && !isGroundLoc(to)) return parseLoc(to).sub === 'cave' ? 'A Gun may not enter a Cave' : 'A Gun may not occupy an upper building level (ASLRB B23.423)';
   if (ms.manhandle && !pushing) return 'The stack is manhandling a Gun: push it (double MF, manhandling DR)';
@@ -1314,10 +1331,10 @@ function stepIllegal(env: QueryEnv, ms: MoveState, to: LocId, pushing = false, d
   // holding only a concealed enemy stack may be *attempted* (SK4 8.3.2: both "?" come off and the mover stops short).
   if (knownEnemyAt(env, to, env.state.attacker).length > 0) return isGroundLoc(to) && !ms.level ? 'Cannot enter an enemy-occupied hex in the MPh' : 'Cannot enter an enemy-occupied Location in the MPh (ASLRB A4.14)';
   if (ms.assault && ms.hexesEntered >= 1) return 'Assault Movement is limited to one hex';
-  const extra = env.query('move.stepIllegal', { ms, to, ...(beneath ? { beneath: true } : {}) }, null);
+  const extra = env.query('move.stepIllegal', { ms, to, ...(beneath ? { beneath: true } : {}), ...(mines ? { mines } : {}), ...(hexsides ? { hexsides } : {}) }, mines || hexsides ? 'No minefields in the Starter Kit' : null);
   if (extra) return extra;
   // The step's cost with every module's addition (full ASL: the extra MF of a step straight beneath an entrenchment).
-  const cost = env.query('move.stepCost', { ms, to, ...(woods ? { woods: true } : {}), ...(beneath ? { beneath: true } : {}), ...(noTb ? { noTb: true } : {}) }, stepCost(env, ms, to, woods, !!noTb));
+  const cost = env.query('move.stepCost', { ms, to, ...(woods ? { woods: true } : {}), ...(beneath ? { beneath: true } : {}), ...(noTb ? { noTb: true } : {}), ...(mines ? { mines } : {}) }, stepCost(env, ms, to, woods, !!noTb));
   // Road bonus is only usable if this step keeps the move on road hexsides (taking the woods of a Woods-Road
   // hex claims its protective benefits and gives up the bonus, SK1 3.3), and never for a step into Smoke:
   // the bonus is forfeited by a unit that "has to pay the extra movement costs for entering Smoke" (SK1 1.1.1).
@@ -1397,9 +1414,11 @@ function smokeCost(ms: MoveState, throws: SmokeThrow[]): number {
 
 export function spendInPlace(ctx: Ctx, ms: MoveState, cost: number, patch: Partial<MoveState>) {
   // A new expenditure: the trench-to-trench mark of the last one (full ASL, ASLRB B27.54) is over.
-  const { trenchMove: _trench, tb: _tb, ...base } = ms;
+  const { trenchMove: _trench, tb: _tb, mineEntry: _mineEntry, mineSides: _mineSides, ...base } = ms;
   void _trench;
   void _tb;
+  void _mineEntry;
+  void _mineSides;
   ctx.emit('sk1.move.state', {
     state: {
       ...base,
@@ -1534,7 +1553,7 @@ function enterHex(ctx: Ctx, ms: MoveState, toLoc: LocId, cost: number, woods = f
   // A new Location: its MF and First Fire counts start afresh (ASLRB A8.12). `level` only above ground, never 0.
   // Units stopped in the old one stay behind: their MPh ends as the others move on (SK1 3.3.1).
   // A Bypass (full ASL) ends with its hex: the stack is out of it, or (`extra`) in Bypass of the next.
-  const { level: _was, sub: _in, stopped: _left, bypass: _round, stoppedBypass: _strand, ent: _ent, trenchMove: _trench, tb: _tb, noTb: _noTb, assaultVoided: _voided, ...rest } = ms;
+  const { level: _was, sub: _in, stopped: _left, bypass: _round, stoppedBypass: _strand, ent: _ent, trenchMove: _trench, tb: _tb, noTb: _noTb, assaultVoided: _voided, mineEntry: _mineEntry, mineSides: _mineSides, mineTbIn: _mineTbIn, ...rest } = ms;
   // Full ASL: units broken, pinned or stranded in Bypass stay in the open part of that hex until the end of their MPh
   // (ASLRB A4.32, A4.33), still targets there. The Starter Kit never sets `stoppedBypass`.
   const leftBypass = leftInBypassAfter(ctx, ms);
@@ -1577,6 +1596,7 @@ export const moveInternals = {
   offboardTargets: (env: QueryEnv, ms: MoveState) => offboardTargets(env, ms),
   entryHexes: (env: QueryEnv, ms: MoveState) => entryHexes(env, ms),
   remaining: (ms: MoveState, unit: PieceId) => (ms.allowance[unit] ?? 0) - (ms.spent[unit] ?? 0),
+  pruneMovers: (ctx: Ctx) => pruneMovers(ctx),
 };
 
 /**

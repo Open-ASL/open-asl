@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Engine, GameState } from '@asl/engine';
-import { GE_VS_BR, act, makeEngine } from './fixtures';
+import { GE_VS_BR, RU_VS_GE, act, makeEngine } from './fixtures';
 
 /*
  * Flamethrowers (SK1 4.2, SK4 4.2): a FT may not combine with any other attack nor form a Fire Group, takes no
@@ -94,5 +94,49 @@ describe('a FT possessor\'s -1 splits the results of one attack (SK1 4.2, 3.2.1)
     // The 9-1 passed his PTC (DR 4): his -1 modifies the squad's check.
     expect(checks.find((c) => c.unit === 'g1')!.drm).toBe(-1);
     expect(t.state.pieces['gL']!.tags['pinned']).toBeUndefined();
+  });
+});
+
+describe('a Flamethrower is no Subsequent First Fire weapon (ASLRB A8.3, A8.31, A8.4)', () => {
+  // SK4 3.3.3 is silent; full ASL: "Only Small Arms [EXC: MOL], MG, and IFE can be used as Subsequent First Fire",
+  // and FPF is a Subsequent First Fire option. A FT marked First Fire may still fire in the DFPh at an adjacent hex.
+  /** A Russian squad in zI4 moving toward the German squad in zK5, whose FT carries `ftFire`. */
+  const game = (ftFire?: 'first' | 'final', phase: 'MPh' | 'DFPh' = 'MPh') =>
+    makeEngine({
+      board: 'z',
+      scenario: RU_VS_GE,
+      startPhase: phase,
+      dice: [4, 3, 4, 3, 4, 3],
+      pieces: [
+        { id: 'r1', def: 'ru.447', side: 'ru', hex: phase === 'MPh' ? 'zI4' : 'zK4' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'zK5' },
+        { id: 'ft', def: 'ge.FT', side: 'ge', heldBy: 'g1', tags: ftFire ? { fire: ftFire } : {} },
+      ],
+    });
+  const ftShots = (engine: Engine, s: GameState) => engine.legalActions(s, 'ge').filter((a) => a.type === 'defFire' && (a['decl'] as { sw: string[] }).sw.includes('ft'));
+
+  it('a FT that First Fired may not fire again in the MPh, as SFF or FPF, nor is it offered', () => {
+    for (const marker of ['first', 'final'] as const) {
+      const { engine, state } = game(marker);
+      let s = act(engine, state, { type: 'move.start', units: ['r1'] }).state;
+      s = act(engine, s, { type: 'move.step', to: 'zJ4' }).state;
+      expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', owner: 'ge' });
+      expect(ftShots(engine, s), marker).toEqual([]);
+      expect(() => act(engine, s, { type: 'defFire', decl: { units: [], sw: ['ft'], target: 'zJ4' } }), marker).toThrow(/Subsequent First Fire/);
+    }
+  });
+
+  it('an unmarked FT First Fires at a moving unit and is marked First Fire', () => {
+    const { engine, state } = game();
+    let s = act(engine, state, { type: 'move.start', units: ['r1'] }).state;
+    s = act(engine, s, { type: 'move.step', to: 'zJ4' }).state;
+    s = act(engine, s, { type: 'defFire', decl: { units: [], sw: ['ft'], target: 'zJ4' } }).state;
+    expect(s.pieces['ft']!.tags['fire']).toBe('first');
+  });
+
+  it('a FT marked First Fire may Final Fire in the DFPh at an adjacent hex', () => {
+    const { engine, state } = game('first', 'DFPh');
+    const why = engine.env(state).query('fire.illegal', { decl: { units: [], sw: ['ft'], target: 'zK4' } as never, mode: 'final', side: 'ge' }, null);
+    expect(why).toBeNull();
   });
 });

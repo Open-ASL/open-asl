@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
-import { entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, roadblockObstacles } from '@asl/rules';
+import { entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, lastMineAttacks, roadblockObstacles } from '@asl/rules';
 import { AMMO_NAME, acquisitionsAt, ammoOut, defOf, fireAt, fireMarker, fireNumbers, fortCounters, fortKindName, gunIdent, isWeaponDef, locationsOf, moveState, parseLabor, rubbleAt, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, terrainOf, windOf, type Statics, type VehicleDef } from '@asl/rules';
 import { counterImage, cxMarker, markerImage } from '../game/assets';
 import { fortMarker } from '../panels/FortTray';
@@ -339,6 +339,8 @@ export function StackPeek({ env, hex, at, bounds, placements, rotation, interact
     }
     if (p.loc.kind === 'hex' && p.loc.pos?.ent) st.unshift({ label: `in the ${p.loc.pos.ent === 'ditch' ? 'A-T Ditch' : p.loc.pos.ent}` });
     if (p.loc.kind === 'hex' && p.loc.pos?.wire) st.unshift({ label: p.loc.pos.wire === 'on' ? 'on top of the Wire' : 'beneath the Wire' });
+    // Full ASL: the minefield attacks this unit of the moving stack has just come through (ASLRB B28.41).
+    for (const m of lastMineAttacks(env).filter((x) => x.units.includes(p.id))) st.unshift({ label: `survived a minefield attack ${m.way === 'exit' ? 'leaving' : 'entering'} ${m.hex.replace(/^[a-z]/, '')}` });
     const can = !!interactive && interactive.selectable(p);
     const sel = !!interactive && interactive.selected.has(p.id);
     const sheet = p.id === big && d.kind === 'vehicle' ? vehicleSheet(env, p, d) : null;

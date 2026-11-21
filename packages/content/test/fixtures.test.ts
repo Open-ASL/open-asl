@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ASL_TESTBED_SCENARIO, BPV, COUNTERS, DEV_FIXTURES, SK1_COUNTER_IDS, SK2_COUNTER_IDS, SK3_COUNTER_IDS, TESTBED_FORTIFIED, TESTBED_HILL_HEXES, TESTBED_VC_BUILDINGS, buildingAt, fixtureActions, fixturesFor, newGame, scenarioById, staticsFor } from '../src';
 import type { Action } from '@asl/engine';
-import { breachIllegal, fortifiableBuildings, fortifiableLocations, fortifiedKnownTo, fortifiedState, fortifyIllegal, moveState, ordnanceWeaponIllegal } from '@asl/rules';
+import { breachIllegal, fortificationView, mineTbThrough, trailBreaksAt, fortifiableBuildings, fortifiableLocations, fortifiedKnownTo, fortifiedState, fortifyIllegal, moveState, ordnanceWeaponIllegal } from '@asl/rules';
 
 /** A fresh test bed game with a fixture's actions applied, as the dev UI does. */
 function load(id: string) {
@@ -94,8 +94,9 @@ describe('BPV (A./G. National Capabilities Chart)', () => {
 
 describe('Dev fixtures', () => {
   it('lists the test bed fixtures', () => {
-    expect(fixturesFor('asl-testbed').map((f) => f.id)).toEqual(['kindling', 'start', 'melee', 'building-assault', 'two-story-house', 'los-heights', 'orchard-road', 'bypass', 'fortified-breach', 'breach-unknown', 'fortified-hidden', 'fort-setup', 'fort-owner', 'fort-placed', 'entrench', 'foxhole-fight', 'trench-move', 'foxhole-hidden', 'snap-shot']);
+    expect(fixturesFor('asl-testbed').map((f) => f.id)).toEqual(['kindling', 'start', 'melee', 'building-assault', 'two-story-house', 'los-heights', 'orchard-road', 'bypass', 'fortified-breach', 'breach-unknown', 'fortified-hidden', 'fort-setup', 'fort-owner', 'fort-placed', 'entrench', 'foxhole-fight', 'trench-move', 'foxhole-hidden', 'snap-shot', 'mines-walk', 'mines-leave', 'mines-own', 'mines-advance', 'mines-clear', 'mines-hip']);
     expect(fixturesFor('asl-testbed-fire').map((f) => f.id)).toEqual(['blaze-spread', 'flame-clearance']);
+    expect(fixturesFor('asl-testbed-mines').map((f) => f.id)).toEqual(['mines-tb', 'mines-armor', 'mines-belt', 'booby-traps', 'mines-rout']);
     expect(DEV_FIXTURES.every((f) => f.title && f.description)).toBe(true);
   });
 
@@ -289,5 +290,108 @@ describe('dev fixtures on other scenarios', () => {
     // The PaK 40 crew that did not move may.
     const pak = Object.values(state.pieces).find((p) => p.defId === 'ge.AT75L')!;
     expect(ordnanceWeaponIllegal(engine.env(state), pak.id, 'advancing', 'ge')).toBeNull();
+  });
+});
+
+describe('minefield fixtures (B28, B24.74)', () => {
+  const NINE = ['ge.L92', 'ge.838', 'ge.548'];
+  const loadOn = (id: string) => {
+    const fx = DEV_FIXTURES.find((f) => f.id === id)!;
+    const g = newGame(scenarioById(fx.scenarioId)!, 'fixture-test');
+    let state = g.state;
+    for (const a of fixtureActions(g.engine, g.state, id)) state = g.engine.submit(state, a).state;
+    return { engine: g.engine, state, env: g.engine.env(state) };
+  };
+  const at = (state: ReturnType<typeof loadOn>['state'], hex: string) => Object.values(state.pieces).filter((p) => p.loc.kind === 'hex' && p.loc.hex === hex).map((p) => p.defId).sort();
+
+  it('mines-walk: German Turn 2 MPh, the 4-6-7 beside P10 and the 9-2 stack in P8; P10 still unseen by the Germans', () => {
+    const { state, env } = loadOn('mines-walk');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['MPh', 2, 'ge']);
+    expect(at(state, 'uQ10')).toContain('ge.467');
+    expect(at(state, 'uP8')).toEqual(expect.arrayContaining(['ge.L92', 'ge.838', 'ge.548']));
+    expect(fortificationView(env, 'ge').some((c) => c.hex === 'uP10')).toBe(false);
+  });
+
+  it('mines-leave: Russian Turn 1 MPh with a 4-4-7 set up in its own Known minefield N9; moving out draws the exit attack', () => {
+    const { engine, state } = loadOn('mines-leave');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['MPh', 1, 'ru']);
+    const squad = Object.values(state.pieces).find((p) => p.loc.kind === 'hex' && p.loc.hex === 'uN9')!.id;
+    let s = engine.submit(state, { type: 'move.start', units: [squad], side: 'ru', decisionId: engine.currentDecision(state)!.id } as never).state;
+    const r = engine.submit(s, { type: 'move.step', to: 'uM10', side: 'ru', decisionId: engine.currentDecision(s)!.id } as never);
+    expect(r.events.find((e) => e.type === 'asl.mines.attack')?.payload).toMatchObject({ hex: 'uN9', way: 'exit' });
+    s = r.state;
+  });
+
+  it('mines-own: Russian Turn 1 MPh with a 4-4-7 in O10 beside its own hidden minefield', () => {
+    const { state } = loadOn('mines-own');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['MPh', 1, 'ru']);
+    expect(at(state, 'uO10')).toContain('ru.447');
+  });
+
+  it('mines-advance and mines-tb: the 9-2 stack in O9 beside N9; on the minefield test bed N9 has its Trail Break', () => {
+    const adv = loadOn('mines-advance');
+    expect([adv.state.phase, adv.state.turn]).toEqual(['APh', 2]);
+    expect(at(adv.state, 'uO9')).toEqual(expect.arrayContaining(['ge.L92']));
+    const tb = loadOn('mines-tb');
+    expect(tb.state.phase).toBe('MPh');
+    expect(trailBreaksAt(tb.env, 'uN9')).toEqual([[2, 5]]);
+    expect(mineTbThrough(tb.env, 'uN9', 'uO9')).toEqual([2, 5]);
+  });
+
+  it('mines-clear: the 4-4-7 in N9 may declare Clearance without MF; the one in M10 may enter to clear', () => {
+    const { engine, state } = loadOn('mines-clear');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['MPh', 1, 'ru']);
+    expect(engine.legalActions(state, 'ru').filter((a) => a.type === 'clearance.declare' && a['kind'] === 'mines')).toHaveLength(1);
+    const squad = Object.values(state.pieces).find((p) => p.loc.kind === 'hex' && p.loc.hex === 'uM10')!.id;
+    const s = engine.submit(state, { type: 'move.start', units: [squad], side: 'ru', decisionId: engine.currentDecision(state)!.id } as never).state;
+    expect(engine.legalActions(s, 'ru').some((a) => a.type === 'move.step' && a['to'] === 'uN9' && a['mines'] === 'clear')).toBe(true);
+  });
+
+  it('mines-armor: the PzKpfw IVF2 and PSW 234/1 at the east edge, open A-T mines on the paved road at P8 for both to see', () => {
+    const { state, env } = loadOn('mines-armor');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['MPh', 1, 'ge']);
+    expect(at(state, 'uS10')).toContain('ge.pzivf2');
+    expect(fortificationView(env, 'ge').find((c) => c.hex === 'uP8')?.mines?.at).toBe(2);
+  });
+
+  it('mines-rout: German Turn 1 RtPh, the two Russian 4-4-7s broken in P10 and O10; some rout end lies only through the Known minefield', () => {
+    const { engine, state, env } = loadOn('mines-rout');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['RtPh', 1, 'ge']);
+    const broken = Object.values(state.pieces).filter((p) => p.side === 'ru' && p.tags['broken'] === true && p.loc.kind === 'hex').map((p) => (p.loc as { hex: string }).hex).sort();
+    expect(broken).toEqual(['uO10', 'uP10']);
+    expect(engine.currentDecision(state)?.owner).toBe('ru');
+    const squad = Object.values(state.pieces).find((p) => p.loc.kind === 'hex' && p.loc.hex === 'uP10')!.id;
+    // From P10 the move out is an exit attack in its own minefield.
+    const out = engine.legalActions(state, 'ru').find((a) => a.type === 'rout.step' && a['unit'] === squad)!;
+    const r = engine.submit(state, out);
+    expect(r.events.find((e) => e.type === 'asl.mines.attack')?.payload).toMatchObject({ hex: 'uP10', way: 'exit', by: 'rout' });
+    void env;
+  });
+
+  it('mines-hip: German Turn 2 MPh, the 9-2 stack in O9, the recorded minefield in O10 and the 5-2-7 hidden in N10', () => {
+    const { engine, state, env } = loadOn('mines-hip');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['MPh', 2, 'ge']);
+    expect(at(state, 'uO9')).toEqual(expect.arrayContaining(['ge.L92', 'ge.838', 'ge.548']));
+    const hid = Object.values(state.pieces).find((p) => p.defId === 'ru.527')!;
+    expect([hid.loc.kind === 'hex' && hid.loc.hex, hid.tags['hip']]).toEqual(['uN10', true]);
+    expect(fortificationView(env, 'ge').some((c) => c.hex === 'uO10')).toBe(false);
+    // Played on with fixed dice: into O10 (entry attack), then N10: exit attack, the bounce, the re-entry attack.
+    const units = NINE.map((d) => Object.values(state.pieces).find((p) => p.defId === d)!.id);
+    engine.forceDice(6, 6, 6, 6, 6, 6, 6, 6, 6, 6);
+    let s = engine.submit(state, { type: 'move.start', units, side: 'ge', decisionId: engine.currentDecision(state)!.id } as never).state;
+    const step = (to: string) => {
+      const r = engine.submit(s, { type: 'move.step', to, side: 'ge', decisionId: engine.currentDecision(s)!.id } as never);
+      s = r.state;
+      while (engine.currentDecision(s)?.kind === 'firstFire') s = engine.submit(s, { type: 'defPass', side: 'ru', decisionId: engine.currentDecision(s)!.id } as never).state;
+      return r.events.filter((e) => e.type === 'asl.mines.attack').map((e) => [(e.payload as { hex: string }).hex, (e.payload as { way: string }).way]);
+    };
+    expect(step('uO10')).toEqual([['uO10', 'enter']]);
+    expect(step('uN10')).toEqual([['uO10', 'exit'], ['uO10', 'enter']]);
+  });
+
+  it('mines-belt and booby-traps load', () => {
+    expect(loadOn('mines-belt').state.phase).toBe('setup');
+    const bt = loadOn('booby-traps');
+    expect([bt.state.phase, bt.state.attacker]).toEqual(['MPh', 'ge']);
   });
 });

@@ -128,5 +128,45 @@ export const ASL_TESTBED_FIRE_SCENARIO: ScenarioDef = {
   ],
 };
 
+/**
+ * The test bed for minefields (full ASL B28): the Germans add a PzKpfw IVF2 and a PSW 234/1; the Russians have more
+ * minefield factors (18 recorded, 24 Known: room for a Known belt, B28.46) and Booby Trap capability Level A on board u
+ * (B28.9), Russians set up in P10 or O10 begin broken (for rout through and round minefields); the Known minefield the Russians put in N9 has a Trail Break from its O9 hexside to its M10 one, as if cleared.
+ */
+export const ASL_TESTBED_MINES_SCENARIO: ScenarioDef = {
+  ...ASL_TESTBED_SCENARIO,
+  id: 'asl-testbed-mines',
+  number: 'T3',
+  title: 'T3 Full ASL Test Bed: Minefields',
+  forces: ASL_TESTBED_SCENARIO.forces.map((f) => (f.side === 'ge' ? { ...f, units: [...f.units, { def: 'ge.pzivf2', count: 1 }, { def: 'ge.psw2341', count: 1 }] } : f)),
+  notes: [...ASL_TESTBED_SCENARIO.notes!, 'Minefields: the Germans add two AFV; the Russians have more mines, Booby Traps on board u and a Trail Break through N9.'],
+  ssr: [
+    ...ASL_TESTBED_SCENARIO.ssr.map((r) =>
+      r.module === 'fortifications'
+        ? {
+            ...r,
+            params: { ...r.params, mines: { factors: 18, known: 24, dummies: 1, at: true } },
+            text: 'The Russians receive 3 squads of foxhole capacity, two trenches, two Wire counters, 18 A-P minefield factors (which may be exchanged for A-T mines, B28.5), 24 Known minefield factors with one Dummy Minefield counter, one roadblock and one 1+3+5 pillbox. They are set up in the Russian setup area with the Russian units, hidden or open per A12.33; minefields are recorded (B28.1).',
+          }
+        : r,
+    ),
+    {
+      module: 'booby-traps',
+      params: { side: 'ru', boards: ['u'], level: 'A', rule: 'SSR 4' },
+      text: 'The Russians have Booby Trap capability Level A on board u (B28.9): a German Task Check of an Original 11 or 12 on board u causes Casualty Reduction to a unit of its Location.',
+    },
+    {
+      module: 'trail-breaks',
+      params: { tbs: [{ hex: 'uN9', sides: [2, 5] }] },
+      text: 'N9 holds a Trail Break across its O9 and M10 hexsides (B24.74, B28.61).',
+    },
+    {
+      module: 'set-up-broken',
+      params: { side: 'ru', hexes: ['uP10', 'uO10'] },
+      text: 'Russian units set up in P10 or O10 begin play broken, under DM.',
+    },
+  ],
+};
+
 /** The scenarios that play under the Full ASL ruleset. */
-export const ASL_SCENARIOS: ScenarioDef[] = [ASL_TESTBED_SCENARIO, ASL_TESTBED_FIRE_SCENARIO];
+export const ASL_SCENARIOS: ScenarioDef[] = [ASL_TESTBED_SCENARIO, ASL_TESTBED_FIRE_SCENARIO, ASL_TESTBED_MINES_SCENARIO];

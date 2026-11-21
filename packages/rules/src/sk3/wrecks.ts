@@ -36,8 +36,10 @@ export const wrecksModule: RuleModule = {
         if (!v.clear) return v;
         const [from, to] = [hexOfLoc(ctx.from), hexOfLoc(ctx.to)];
         const map = statics(env).map;
-        // The lower end's level: its Location's height (hex elevation plus building level; the hex's in SK). ASLRB A6.7.
-        const lo = Math.min(heightOf(env, ctx.from), heightOf(env, ctx.to));
+        // Only a same-level LOS: firer and target at the same Location height (hex elevation plus building level; the
+        // hex's in SK). A shot up or down a level is not hindered (SK4 7.4.1 "same level LOS"; ASLRB A6.7).
+        const lo = heightOf(env, ctx.from);
+        if (heightOf(env, ctx.to) !== lo) return v;
         // Every hex the line passes through, whatever its terrain: the pixel trace's `crossed` lists only hexes whose
         // art hinders, and a vehicle in open ground hinders all the same. A line exactly along a hexside is hindered by a
         // vehicle on either side, once (as Smoke, ASLRB B.6).

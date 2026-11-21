@@ -54,6 +54,8 @@ export interface MineFactors {
   dummy?: true;
   /** The strength has been shown to the other side (B28.41). */
   strengthRevealed?: true;
+  /** An unmined hex of a Known belt found by a ground unit: marked with a Dummy counter for everyone (B28.47 EXC). */
+  found?: true;
 }
 
 /** One counter as placed: what the owner chose. `hex` is the ground Location of its hex. */
@@ -70,6 +72,8 @@ export interface FortPlacement {
   ca?: number;
   pillbox?: PillboxFactors;
   mines?: MineFactors;
+  /** The Known minefield belt (B28.46) this hex belongs to. */
+  belt?: string;
 }
 
 export interface FortRecord extends FortPlacement {
@@ -80,8 +84,21 @@ export interface FortRecord extends FortPlacement {
   revealed?: true;
 }
 
+/**
+ * A multi-hex Known minefield (B28.46): two arrowed Known counters along a Hex Grain, or an Alternate Hex Grain whose left
+ * or right zigzag the owner declares (A9.221), marking every hex between them inclusive. Public: the arrows are on the board.
+ */
+export interface MineBelt {
+  id: string;
+  from: HexId;
+  to: HexId;
+  grain: 'hex' | 'alt-left' | 'alt-right';
+}
+
 export interface FortState {
   counters: FortRecord[];
+  /** Known minefield belts (B28.46). */
+  belts?: (MineBelt & { side: SideId })[];
   /** Dummy Minefield counters a side gained on its Secret dr (B28.47), beyond the special rule's allotment. */
   extraDummies?: Record<SideId, number>;
 }
@@ -112,7 +129,7 @@ export interface FortificationsParams {
   rule?: string;
 }
 
-export type FortPlaceAction = Action & { counters: FortPlacement[] };
+export type FortPlaceAction = Action & { counters: FortPlacement[]; belts?: MineBelt[] };
 
 export function fortificationsParams(env: QueryEnv, side?: SideId): FortificationsParams | null {
   const s = statics(env).scenario.ssr.find((r) => r.module === FORTIFICATIONS_MODULE && (!side || (r.params as unknown as FortificationsParams).side === side));
@@ -148,6 +165,8 @@ export function shownCounter(c: FortRecord, viewer: SideId | null): FortRecord |
   if (c.hidden && !c.revealed) return null;
   if (c.kind !== 'mines') return c;
   const m = c.mines ?? {};
+  // An unmined belt hex once found is a Dummy counter for everyone (B28.47 EXC).
+  if (m.found) return { ...c, mines: { known: true, dummy: true, found: true } };
   // A Known (or Dummy) minefield on the board, or a hidden one whose presence came out: the counter with no strength
   // on it until the strength is revealed (B28.45, B28.48); a Dummy looks exactly like a Known minefield (B28.47).
   const mines: MineFactors = m.strengthRevealed ? { ...m, dummy: undefined } : {};
@@ -161,6 +180,54 @@ export const fortificationView = (env: QueryEnv, viewer: SideId | null): FortRec
   fortCounters(env)
     .map((c) => shownCounter(c, viewer))
     .filter((c): c is FortRecord => !!c);
+
+// ---------------------------------------------------------------- Known minefield belts (B28.46)
+
+/**
+ * The hexes of a belt from `from` to `to`, both inclusive, or null when they are not on one Hex Grain (or, for an
+ * Alternate Hex Grain, on one zigzag: A9.221's alternating pair of hexsides, `alt-left` starting with the counterclockwise
+ * one as seen from `from`).
+ */
+export function beltHexes(env: QueryEnv, b: Pick<MineBelt, 'from' | 'to' | 'grain'>): HexId[] | null {
+  const map = statics(env).map;
+  if (!map.hex(b.from) || !map.hex(b.to) || b.from === b.to) return null;
+  const limit = map.distance(b.from, b.to) * 2 + 2;
+  for (let k = 0; k < 6; k++) {
+    const sides = b.grain === 'hex' ? [k] : b.grain === 'alt-left' ? [k, k + 1] : [k + 1, k];
+    const path: HexId[] = [b.from];
+    let at: HexId | undefined = b.from;
+    for (let i = 0; at && at !== b.to && i < limit; i++) {
+      at = acrossSide(map, at, mod6(sides[i % sides.length]!));
+      if (at && map.hex(at)) path.push(at);
+      else at = undefined;
+    }
+    if (at === b.to) return path;
+  }
+  return null;
+}
+
+/** Why a side's belts are illegal with its counters (B28.46), or null. */
+export function beltsIllegal(env: QueryEnv, counters: FortPlacement[], belts: MineBelt[]): string | null {
+  const ids = new Set<string>();
+  for (const b of belts) {
+    if (!b.id || ids.has(b.id)) return 'Each Known minefield belt needs its own name';
+    ids.add(b.id);
+    const path = beltHexes(env, b);
+    if (!path) return `${b.from} and ${b.to} are not along one ${b.grain === 'hex' ? 'Hex Grain' : 'Alternate Hex Grain'} (ASLRB B28.46)`;
+    for (const h of path) {
+      const here = counters.filter((c) => c.kind === 'mines' && c.hex === h);
+      // B28.46: every hex between and inclusive is a Known minefield, with only one A-P/A-T minefield however many belts cross it.
+      if (!here.length) return `${h} lies on the belt ${b.from}–${b.to}: record its mines (or none) there (ASLRB B28.46)`;
+      if (here.some((c) => !c.mines?.known)) return `${h} lies on a Known minefield belt: its mines are Known (ASLRB B28.46)`;
+    }
+  }
+  for (const c of counters) {
+    if (!c.belt) continue;
+    const b = belts.find((x) => x.id === c.belt);
+    if (!b || !(beltHexes(env, b) ?? []).includes(c.hex)) return `${c.hex} is not on the belt ${c.belt}`;
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------- where a counter may go
 
@@ -302,13 +369,14 @@ export function fortPools(env: QueryEnv, side: SideId, placed: FortPlacement[]) 
     /** Hidden A-P factors left; A-T mines cost three each (B28.5). */
     factors: (p?.mines?.factors ?? 0) - sum((c) => (c.kind === 'mines' && c.mines && !c.mines.known && !c.mines.dummy ? (c.mines.ap ?? 0) + 3 * (c.mines.at ?? 0) : 0)),
     known: (p?.mines?.known ?? 0) - sum((c) => (c.kind === 'mines' && c.mines?.known && !c.mines.dummy ? (c.mines.ap ?? 0) : 0)),
-    dummies: dummyAllotment(p?.mines?.dummies ?? 0, placed) + extra - sum((c) => (c.kind === 'mines' && c.mines?.dummy ? 1 : 0)),
+    // An unmined hex of a belt is no Dummy counter (B28.46, B28.47 EXC: one is put there only once it is found).
+    dummies: dummyAllotment(p?.mines?.dummies ?? 0, placed) + extra - sum((c) => (c.kind === 'mines' && c.mines?.dummy && !c.belt ? 1 : 0)),
     at: !!p?.mines?.at,
   };
 }
 
 /** Why a side's whole placement is illegal, or null: each counter's terrain and status, one per hex and the exclusions, the pools, the area. */
-export function fortPlaceIllegal(env: QueryEnv, side: SideId, counters: FortPlacement[]): string | null {
+export function fortPlaceIllegal(env: QueryEnv, side: SideId, counters: FortPlacement[], belts: MineBelt[] = []): string | null {
   const p = fortificationsParams(env, side);
   if (!p) return 'This side has no fortification counters to place';
   if (fortCounters(env).some((c) => c.side === side)) return 'The fortifications are already placed';
@@ -323,7 +391,7 @@ export function fortPlaceIllegal(env: QueryEnv, side: SideId, counters: FortPlac
     if (c.kind === 'foxhole' && here.some((x) => x.kind === 'foxhole')) return `One foxhole counter per hex (${c.hex}; ASLRB B27.12)`;
     if ((c.kind === 'trench' || c.kind === 'ditch') && here.some((x) => x.kind === 'trench' || x.kind === 'ditch')) return `One trench counter per hex (${c.hex}; ASLRB B27.51)`;
     if (ent(c.kind) && here.some((x) => ent(x.kind) && x.kind !== c.kind && (c.kind === 'foxhole' || x.kind === 'foxhole'))) return `A trench may not share a Location with a foxhole (${c.hex}; ASLRB B27.51)`;
-    if (c.kind === 'mines' && here.some((x) => x.kind === 'mines')) return `One minefield per hex (${c.hex}; ASLRB B28.46)`;
+    if (c.kind === 'mines' && here.some((x) => x.kind === 'mines')) return `One minefield per hex (${c.hex}; ASLRB B28.1, B28.5, B28.46)`;
     // One roadblock per hexside (B29.2: a wall across it), whichever of its two hexes it is set up in, and whichever side placed it.
     if (c.kind === 'roadblock' && c.hexside !== undefined) {
       const across = acrossSide(statics(env).map, c.hex, c.hexside);
@@ -333,6 +401,11 @@ export function fortPlaceIllegal(env: QueryEnv, side: SideId, counters: FortPlac
     }
     if (c.kind === 'pillbox' && here.some((x) => x.kind === 'pillbox')) return `A pillbox may not be placed in the same hex as another pillbox (${c.hex}; ASLRB B30.1)`;
     if ((c.kind === 'pillbox' && here.some((x) => ent(x.kind))) || (ent(c.kind) && here.some((x) => x.kind === 'pillbox'))) return `A pillbox hex takes no foxhole or trench (${c.hex}; ASLRB B30.1)`;
+  }
+  if (belts.length || counters.some((c) => c.belt)) {
+    if (!p.mines?.known) return 'No Known minefield factors to lay a belt with (ASLRB B28.46)';
+    const why = beltsIllegal(env, counters, belts);
+    if (why) return why;
   }
   const left = fortPools(env, side, counters);
   if (left.foxholes < 0) return `Only ${p.foxholes ?? 0} squad${(p.foxholes ?? 0) === 1 ? '' : 's'} of foxhole capacity (ASLRB B27.1)`;
@@ -561,12 +634,12 @@ export const aslFortificationsModule: RuleModule = {
   summary: 'Fortification counters: the record, what each side sees of it, the reveal by enemy LOS, the pillbox Location.',
   requires: ['sk1.scenario', 'sk1.movement', 'asl.rubble', 'asl.levels'],
   install(r) {
-    r.event<{ side: SideId; counters: FortRecord[] }>({
+    r.event<{ side: SideId; counters: FortRecord[]; belts?: (MineBelt & { side: SideId })[] }>({
       type: 'asl.fort.placed',
       apply(d, p) {
         const st = (d.ext[FORT_EXT] as FortState | undefined) ?? { counters: [] };
         // A side's setup placement comes once; a foxhole dug in play (B27.11) joins the counters already down.
-        d.ext[FORT_EXT] = { ...st, counters: [...st.counters.filter((c) => !p.counters.some((n) => n.id === c.id)), ...p.counters] };
+        d.ext[FORT_EXT] = { ...st, counters: [...st.counters.filter((c) => !p.counters.some((n) => n.id === c.id)), ...p.counters], ...(p.belts?.length ? { belts: [...(st.belts ?? []), ...p.belts] } : {}) };
       },
     });
     r.event<{ counter: FortRecord; reason: string }>({
@@ -596,6 +669,7 @@ export const aslFortificationsModule: RuleModule = {
     // strength only once shown, nothing of the Dummy dr.
     const shownState = (st: FortState, viewer: SideId | null): FortState => ({
       counters: st.counters.map((c) => shownCounter(c, viewer)).filter((c): c is FortRecord => !!c),
+      ...(st.belts?.length ? { belts: st.belts } : {}),
       ...(st.extraDummies && viewer && st.extraDummies[viewer] !== undefined ? { extraDummies: { [viewer]: st.extraDummies[viewer]! } } : {}),
     });
     r.redact({
@@ -613,8 +687,8 @@ export const aslFortificationsModule: RuleModule = {
           return c && shownCounter(c, viewer) ? ev : null;
         }
         if (ev.type === 'asl.fort.placed') {
-          const p = ev.payload as { side: SideId; counters: FortRecord[] };
-          return { ...ev, payload: { side: p.side, counters: p.counters.map((c) => shownCounter(c, viewer)).filter((c): c is FortRecord => !!c) } };
+          const p = ev.payload as { side: SideId; counters: FortRecord[]; belts?: MineBelt[] };
+          return { ...ev, payload: { side: p.side, counters: p.counters.map((c) => shownCounter(c, viewer)).filter((c): c is FortRecord => !!c), ...(p.belts ? { belts: p.belts } : {}) } };
         }
         if (ev.type === 'asl.fort.revealed') {
           const p = ev.payload as { counter: FortRecord; reason: string };
@@ -762,11 +836,11 @@ export const fortificationsModule: RuleModule = {
         const counters = defaultFortPlacement(env, d.owner);
         return counters.length ? [{ type: 'fort.place', counters }] : [];
       },
-      validate: (env, a, d) => fortPlaceIllegal(env, d.owner, a.counters),
+      validate: (env, a, d) => fortPlaceIllegal(env, d.owner, a.counters, a.belts ?? []),
       resolve(ctx, a, d: Decision) {
         const side = d.owner;
         const counters: FortRecord[] = a.counters.map((c, i) => ({ ...c, id: `${side}.fort${i + 1}`, side, hidden: c.hidden }));
-        ctx.emit('asl.fort.placed', { side, counters });
+        ctx.emit('asl.fort.placed', { side, counters, ...(a.belts?.length ? { belts: a.belts.map((b) => ({ ...b, side })) } : {}) });
       },
     });
 

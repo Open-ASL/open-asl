@@ -98,6 +98,11 @@ export interface FireAttackCtx {
    * is halved before Assault Fire's +1, which comes "after all modification" (SK1 3.5; ASLRB A7.36).
    */
   vsConcealed?: boolean;
+  /**
+   * Full ASL: a minefield attack (ASLRB B28.3: "no TEM (including FFMO/FFNAM) or FP modifier to a minefield attack"), so no
+   * unit's own DRM applies to it either; never set in the Starter Kit, which has no minefields.
+   */
+  mine?: true;
 }
 
 export interface FireDeclaration {
@@ -1003,6 +1008,9 @@ function basicIllegal(env: QueryEnv, decl: FireDeclaration, mode: FireMode, side
   if (hasFt && decl.sw.length + decl.units.length > 1) {
     return 'A FT may not combine with any other attack';
   }
+  // SK4 3.3.3 is silent: "Only Small Arms [EXC: MOL], MG, and IFE can be used as Subsequent First Fire", FPF
+  // being one of its options (ASLRB A8.3, A8.31). A FT marked First Fire may still Final Fire at an adjacent hex (A8.4).
+  if (hasFt && (mode === 'subsequentFirst' || mode === 'fpf')) return 'A FT cannot use Subsequent First Fire or FPF';
 
   for (const id of firers) {
     const p = pieceOf(env, id);
@@ -1561,7 +1569,8 @@ export const applyIftResult: ApplyResultFn = (ctx, attack, column, baseFinal, ou
   const notes = new Map<PieceId, DrmNote[]>();
   for (const u of attack.targets) {
     if (ctx.state.pieces[u]?.loc.kind === 'eliminated') continue;
-    const d = ctx.explain('fire.unitDrm', { attack, unit: u }, 0);
+    // A minefield attack takes no DRM of the unit's own (full ASL, ASLRB B28.3).
+    const d = attack.mine ? { value: 0, trace: [] } : ctx.explain('fire.unitDrm', { attack, unit: u }, 0);
     groups.set(d.value, [...(groups.get(d.value) ?? []), u]);
     notes.set(u, drmNotes(d));
   }

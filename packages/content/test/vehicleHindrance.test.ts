@@ -4,10 +4,10 @@ import { statics } from '@asl/rules';
 import { DEMO_JUNGLE_SCENARIO, newGame } from '../src';
 
 /**
- * AFV/Wreck LOS Hindrance (SK4 7.4.1): +1 to a same-level LOS through (not into or out of) a hex holding a wreck or a
- * non-Moving-Target AFV, friendly or enemy, unless the firer or the target cannot see that hex. The whole hex hinders:
- * the line need only pass through it, not over the counter or any hindering art. On board o (Demo 5) the CHI-HA stands
- * in the open village hex oZ7, and the line oAA9–oY7 passes through it.
+ * AFV/Wreck LOS Hindrance (SK4 7.4.1): +1 to a same-level LOS (firer and target at one level) through (not into or out
+ * of) a hex holding a wreck or a non-Moving-Target AFV, friendly or enemy, unless the firer or the target cannot see
+ * that hex. The whole hex hinders: the line need only pass through it, not over the counter or any hindering art. On
+ * board o (Demo 5) the CHI-HA stands in the open village hex oZ7, and the line oAA9–oY7 passes through it.
  */
 describe('AFV and wreck LOS Hindrance on the pixel map (SK4 7.4.1)', () => {
   const game = () => newGame(DEMO_JUNGLE_SCENARIO, 'jungle', { los: 'pixel' });
@@ -65,5 +65,33 @@ describe('AFV and wreck LOS Hindrance on the pixel map (SK4 7.4.1)', () => {
     expect(found).not.toBeNull();
     const [a, b, hidden] = found!;
     expect(trace(engine, withTank(state, { wreck: true }, hidden), a, b).parts.filter((p) => p.hex === hidden)).toEqual([]);
+  });
+
+  it('a shot up or down a level is not hindered, though the vehicle hex is at the lower end’s level (SK4 7.4.1 "same level LOS")', () => {
+    const { engine, state } = game();
+    const map = statics(engine.env(state)).map;
+    // A clear LOS from level 0 to level 1 through a level-0 hex both ends can see.
+    const ids = [...map.hexes()].map((h) => h.id);
+    const lvl = (h: string) => map.hex(h)!.elevation ?? 0;
+    let found: [string, string, string] | null = null;
+    for (const a of ids) {
+      if (lvl(a) !== 0) continue;
+      for (const b of ids) {
+        if (lvl(b) !== 1 || map.distance(a, b) < 3 || map.distance(a, b) > 5 || !map.los(a, b).clear) continue;
+        const mid = map.lineSteps!(a, b).flat().find((h) => h !== a && h !== b && lvl(h) === 0 && map.los(a, h).clear && map.los(b, h).clear);
+        if (mid) {
+          found = [a, b, mid];
+          break;
+        }
+      }
+      if (found) break;
+    }
+    expect(found).not.toBeNull();
+    const [a, b, mid] = found!;
+    for (const tags of [{}, { wreck: true }]) {
+      const s = withTank(state, tags, mid);
+      expect(trace(engine, s, a, b).parts.filter((p) => p.hex === mid)).toEqual([]);
+      expect(trace(engine, s, b, a).parts.filter((p) => p.hex === mid)).toEqual([]);
+    }
   });
 });

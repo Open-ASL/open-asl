@@ -804,6 +804,11 @@ export interface FortHex {
   hexside?: number;
   extension?: HexId[];
   ca?: number;
+  /** A minefield's Trail Breaks (ASLRB B28.61, B24.74): each across two hexsides; partial ones across one (to the centre dot). */
+  tbs?: [number, number][];
+  partial?: number[];
+  /** The hexside a Known minefield belt's arrowed end counter points along (ASLRB B28.46), toward the other end. */
+  beltArrow?: number;
   label: string;
   /** The card shown when the pointer is on the counter's own mark (a roadblock's bar). */
   tip?: string;
@@ -846,6 +851,29 @@ function drawFortifications(g: Graphics, forts: FortHex[], hexOf: (id: HexId) =>
         const a = t.toView(near.x, near.y);
         const b = t.toView(m.x, m.y);
         g.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ color: ROADBLOCK_COLOR, width: 4, alpha: f.hidden ? 0.4 : 0.8 });
+      }
+    }
+    if (f.kind === 'mines') {
+      // Trail Breaks through the minefield: full ones hexside to hexside through the centre dot, partial ones to the dot.
+      const mid = (k: number) => t.toView(c.x + (cornerOffset(k).x + cornerOffset(k + 1).x) / 2, c.y + (cornerOffset(k).y + cornerOffset(k + 1).y) / 2);
+      const o = t.toView(c.x, c.y);
+      for (const [k1, k2] of f.tbs ?? []) {
+        const a = mid(k1);
+        const b = mid(k2);
+        g.moveTo(a.x, a.y).lineTo(o.x, o.y).lineTo(b.x, b.y).stroke({ color: 0x000000, width: 7, alpha: 0.45 });
+        g.moveTo(a.x, a.y).lineTo(o.x, o.y).lineTo(b.x, b.y).stroke({ color: TB_COLOR, width: 4, alpha: 0.95 });
+      }
+      for (const k of f.partial ?? []) {
+        const a = mid(k);
+        g.moveTo(a.x, a.y).lineTo(o.x, o.y).stroke({ color: 0x000000, width: 7, alpha: 0.4 });
+        g.moveTo(a.x, a.y).lineTo(o.x, o.y).stroke({ color: TB_COLOR, width: 4, alpha: 0.6 });
+        g.circle(o.x, o.y, 4).fill({ color: TB_COLOR, alpha: 0.9 });
+      }
+      if (f.beltArrow !== undefined) {
+        // The arrow of a belt's end counter, from the centre toward the next hex of the belt (B28.46).
+        const tip = mid(f.beltArrow);
+        g.moveTo(o.x, o.y).lineTo(tip.x, tip.y).stroke({ color: 0xc23b2e, width: 3, alpha: 0.95 });
+        g.circle(tip.x, tip.y, 4).fill({ color: 0xc23b2e, alpha: 0.95 });
       }
     }
     if (f.kind === 'pillbox' && f.ca !== undefined) {

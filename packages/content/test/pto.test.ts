@@ -82,6 +82,14 @@ describe('PTO Terrain pixel LOS on board o', () => {
     // Whatever the geometry, a thread from inside the jungle mass is blocked by the hex beside it: DD2 → BB2 (jungle between).
     expect(los(pto, 'oDD1', 'oDD3').clear).toBe(false);
   });
+  it('dense jungle on a hill blocks along its hexside at the hill level, though the slope beside it is lower (SK4 1.1.1, 8.2.1)', () => {
+    // I8 and H6 are on the level-1 hill; the line between them runs along the H7|I7 hexside. H7 is jungle at level 1,
+    // I7 jungle at level 0, and the art along that hexside is the slope at level 0.
+    expect([pto.hex('oI8')!.elevation, pto.hex('oH6')!.elevation, pto.hex('oH7')!.elevation, pto.hex('oI7')!.elevation ?? 0]).toEqual([1, 1, 1, 0]);
+    expect([pto.hex('oH7')!.terrain, pto.hex('oI7')!.terrain]).toEqual(['jungle', 'jungle']);
+    expect(los(pto, 'oI8', 'oH6').clear).toBe(false);
+    expect(los(pto, 'oH6', 'oI8').clear).toBe(false);
+  });
   it('palm trees hinder on the level like an orchard; kunai hinders like grain', () => {
     const palmHex = 'oDD4';
     const a = pto.neighbors(palmHex)[0]!;

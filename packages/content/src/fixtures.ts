@@ -320,6 +320,32 @@ function fireSetup(f: FixtureBuilder) {
   testbedSetupWith(f, TESTBED_FORTIFIED, { 'ru.L91': 'uL3', 'ru.458#1': 'uL3', 'ru.447#1': 'uK5', 'ru.527': 'uN3' });
 }
 
+
+/**
+ * The minefield test beds (T1, T3): the counters of `testbedForts` (and `extra`) down, the Russians away from the eastern
+ * minefields (the 4-4-7 #3 where `ru447` says), and the Germans where `germans` says ("def#n": hex), the rest as usual.
+ */
+function minesSetup(f: FixtureBuilder, germans: Record<string, string>, opts: { ru447?: string; ru447b?: string; ru527?: string; hidden?: string[]; extra?: FortPlacement[]; forts?: (base: FortPlacement[]) => FortPlacement[] } = {}) {
+  const ru = (def: string, n = 1) => f.unit('ru', def, n);
+  f.fortify(TESTBED_FORTIFIED);
+  const base = [...testbedForts(f), ...(opts.extra ?? [])];
+  f.fortPlace(opts.forts ? opts.forts(base) : base);
+  f.setup('ru', {
+    [ru('ru.L91')]: 'uK4',
+    [ru('ru.458', 1)]: 'uK4',
+    [ru('ru.447', 1)]: 'uK5',
+    [ru('ru.458', 2)]: 'uI4',
+    [ru('ru.447', 2)]: opts.ru447b ?? 'uM5',
+    [ru('ru.447', 3)]: opts.ru447 ?? 'uL7',
+    [ru('ru.527')]: opts.ru527 ?? 'uP3',
+    [ru('ru.426', 1)]: 'uH5',
+    [ru('ru.L70')]: 'uH5',
+    [ru('ru.426', 2)]: 'uH6',
+  }, {}, opts.hidden?.length ? { hidden: opts.hidden.map((d) => ru(d)) } : {});
+  f.setup('ge', Object.fromEntries(Object.entries(germans).map(([k, hex]) => [f.unit('ge', k.split('#')[0]!, Number(k.split('#')[1] ?? 1)), hex])));
+}
+const NINE_TWO = ['ge.L92', 'ge.838', 'ge.548'];
+
 export const DEV_FIXTURES: DevFixture[] = [
   {
     id: 'kindling',
@@ -751,6 +777,139 @@ export const DEV_FIXTURES: DevFixture[] = [
       if (f.engine.legalActions(f.state, 'am').some((a) => a.type === 'vmove.end')) f.act({ type: 'vmove.end' });
       f.settle('am');
       f.until('PFPh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'mines-walk',
+    scenarioId: 'asl-testbed',
+    title: 'Minefields: walking in',
+    description:
+      'German Turn 2 Movement Phase. A 4-6-7 stands in Q10 beside P10, where the Russians recorded 8 A-P factors and an A-T factor (nothing on the board); the 9-2 with the 8-3-8 and the 5-4-8 stands in P8, two hexes from the Known 6 in N9 and the Dummy in N10. Move the 4-6-7 into P10: the minefield attacks it (one DR, no DRM), the counter appears for both sides, its strength only if the result has to be verified (ASLRB B28.41, B28.1). Move on into O10 (an exit attack in P10) and N10: the Dummy is found and removed. Walk the 9-2 stack O9 → N9: right-click N9 to choose the plain entry or Enter and clear.',
+    build(f) {
+      minesSetup(f, { 'ge.467#1': 'uS10', 'ge.L92': 'uS8', 'ge.838': 'uS8', 'ge.548': 'uS8' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      f.move([f.unit('ge', 'ge.467', 1)], ['uR10', 'uQ10']);
+      f.move(NINE_TWO.map((d) => f.unit('ge', d)), ['uR8', 'uQ8', 'uP8']);
+      f.until('MPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'mines-leave',
+    scenarioId: 'asl-testbed',
+    title: 'Minefields: leaving one',
+    description:
+      'Russian Turn 1 Movement Phase. A Russian 4-4-7 set up in its own Known minefield in N9 (setting up there draws no attack). Move it out: the minefield attacks it as it leaves, in N9 (ASLRB B28.41, B28.412); broken or pinned by that attack it stays in N9, its MF spent there. Out into O9 or M10: no other attack.',
+    build(f) {
+      minesSetup(f, {}, { ru447: 'uN9' });
+      f.until('MPh', { turn: 1, attacker: 'ru' });
+    },
+  },
+  {
+    id: 'mines-own',
+    scenarioId: 'asl-testbed',
+    title: 'Minefields: the owner\'s own',
+    description:
+      'Russian Turn 1 Movement Phase. A Russian 4-4-7 stands in O10 beside P10, where the Russians recorded their own hidden minefield. Move it into P10: its own mines attack it, and the minefield is put on the board for the Germans to see (ASLRB B28.41; a unit never passes its own hidden minefield unharmed).',
+    build(f) {
+      minesSetup(f, {}, { ru447: 'uO10' });
+      f.until('MPh', { turn: 1, attacker: 'ru' });
+    },
+  },
+  {
+    id: 'mines-advance',
+    scenarioId: 'asl-testbed',
+    title: 'Minefields: advancing',
+    description:
+      'German Turn 2 Advance Phase. The 9-2 stack stands in O9 beside the Known minefield in N9. Advance into N9: the minefield attacks the advancing units on entry (ASLRB B28.411); advance out of it next turn and it attacks them on the way out first.',
+    build(f) {
+      minesSetup(f, { 'ge.L92': 'uS8', 'ge.838': 'uS8', 'ge.548': 'uS8' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      f.move(NINE_TWO.map((d) => f.unit('ge', d)), ['uR8', 'uQ8', 'uP8', 'uO9']);
+      f.until('APh', { turn: 2, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'mines-clear',
+    scenarioId: 'asl-testbed',
+    title: 'Minefields: Clearance',
+    description:
+      'Russian Turn 1 Movement Phase. A 4-4-7 stands in the Known minefield in N9, another 4-4-7 beside it in M10. Before any stack moves, right-click N9: Clear the minefield (Trail Break)… — no MF and no First Fire, the squad is TI and you name the TB\'s two hexsides (ASLRB B24.74). Then move the M10 squad: click N9 and choose Enter and clear, picking the TB\'s other hexside: all its MF, no attack, a partial Trail Break, TI. The Clearance DR comes at the end of the CCPh: ≤ 2 places the TB, an Original 12 Reduces the clearers; until then the entering squad leaves free of attack only back into M10.',
+    build(f) {
+      minesSetup(f, {}, { ru447: 'uN9', ru447b: 'uM10' });
+      f.until('MPh', { turn: 1, attacker: 'ru' });
+    },
+  },
+  {
+    id: 'mines-tb',
+    scenarioId: 'asl-testbed-mines',
+    title: 'Minefields: a Trail Break',
+    description:
+      'German Turn 2 Movement Phase on the minefield test bed. The Known minefield in N9 has a Trail Break from its O9 hexside to its M10 hexside (drawn on the hex); the 9-2 stack stands in O9. Click N9: Enter along the TB costs twice the MF and draws no attack, with the -1 TB Defensive First Fire DRM (ASLRB B28.61, B13.4212); leaving into M10 along the same TB draws none either. Entering by another hexside, or leaving by one, is attacked.',
+    build(f) {
+      minesSetup(f, { 'ge.L92': 'uS8', 'ge.838': 'uS8', 'ge.548': 'uS8' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      f.move(NINE_TWO.map((d) => f.unit('ge', d)), ['uR8', 'uQ8', 'uP8', 'uO9']);
+      f.until('MPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'mines-armor',
+    scenarioId: 'asl-testbed-mines',
+    title: 'Minefields: AFV and A-T mines',
+    description:
+      'German Turn 1 Movement Phase on the minefield test bed. The PzKpfw IVF2 is in S10 and the PSW 234/1 armoured car in S9; P10 holds recorded A-P and A-T mines, and the Russians put 2 open A-T mines on the paved road at P8 (in full view). Drive into P10: the A-P attack first (only a KIA immobilizes an AFV), then the A-T dr and attack on the 36+ column with the Aerial AF (ASLRB B28.42, B28.51, B28.52); a fully tracked AFV that gets through leaves a partial Trail Break, a full one when it drives out by another hexside. In the Russian Movement Phase the 4-4-7 in O9 can step to P8 and spend one more MF to remove the A-T mines at the end of the MPh (B28.53).',
+    build(f) {
+      minesSetup(f, { 'ge.pzivf2': 'uS10', 'ge.psw2341': 'uS9' }, { ru447: 'uO9', extra: [{ kind: 'mines', hex: 'uP8', hidden: false, mines: { at: 2 } }] });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'mines-belt',
+    scenarioId: 'asl-testbed-mines',
+    title: 'Minefields: a Known belt',
+    description:
+      'Russian setup on the minefield test bed, nothing placed yet: 24 Known minefield factors. In the fortification tray press Known belt, click the first hex and then the other end along a Hex Grain (for an Alternate Hex Grain choose the left or right zigzag): every hex between them becomes a Known minefield, listed in the tray with none / 6 / 8 / 12 to record. The Germans see the two arrowed end counters and a blank Known counter in each hex; an unmined hex found by a unit is marked as a Dummy (ASLRB B28.46, B28.47).',
+    build(f) {
+      f.fortify(TESTBED_FORTIFIED);
+    },
+  },
+  {
+    id: 'booby-traps',
+    scenarioId: 'asl-testbed-mines',
+    title: 'Booby Traps',
+    description:
+      'German Turn 1 Movement Phase on the minefield test bed: the Russians have Booby Trap capability Level A on board u (SSR 4). Move toward the Russians: every German Task Check on board u (a PTC from Defensive First Fire, a Leader Loss TC) with an Original DR of 11 or 12 sets off a Booby Trap: Casualty Reduction to a unit of its Location by Random Selection, perhaps another than the one that rolled; broken and pinned units roll the PTC for this alone (ASLRB B28.9).',
+    build(f) {
+      minesSetup(f, { 'ge.L92': 'uS8', 'ge.838': 'uS8', 'ge.548': 'uS8' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'mines-rout',
+    scenarioId: 'asl-testbed-mines',
+    title: 'Minefields: rout',
+    description:
+      'German Turn 1 Rout Phase on the minefield test bed: the Russian 4-4-7s set up in P10 (in their own recorded minefield) and O10 began play broken. Select one: the rout ends are drawn, those reached only through the Known minefield in N9 tagged "via minefield (optional)" — a router need not go through a known minefield (ASLRB B28.413, A10.51). The P10 squad takes the exit attack as it leaves; a squad Reduced to a HS by a minefield attack may end its rout there (End rout here).',
+    build(f) {
+      minesSetup(f, {}, { ru447: 'uP10', ru447b: 'uO10' });
+      f.until('RtPh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'mines-hip',
+    scenarioId: 'asl-testbed',
+    title: 'Minefields: turned back by a hidden unit',
+    description:
+      'German Turn 2 Movement Phase. The recorded minefield is in O10 here (not P10), and the Russian 5-2-7 set up hidden in the N10 woods behind it. The 9-2 stack stands in O9: step into O10 (the entry attack), then into N10: the exit attack in O10 comes first, the hidden squad turns the stack back into O10, and the minefield attacks it again as it re-enters (ASLRB B28.412, A12.15).',
+    build(f) {
+      minesSetup(f, { 'ge.L92': 'uS8', 'ge.838': 'uS8', 'ge.548': 'uS8' }, {
+        ru527: 'uN10',
+        hidden: ['ru.527'],
+        forts: (base) => base.filter((c) => !(c.kind === 'mines' && (c.hex === 'uP10' || c.hex === 'uN10')) && c.hex !== 'uO10').concat([{ kind: 'mines', hex: 'uO10', hidden: true, mines: { ap: 8, at: 1 } }]),
+      });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      f.move(NINE_TWO.map((d) => f.unit('ge', d)), ['uR8', 'uQ8', 'uP8', 'uO9']);
+      f.until('MPh', { turn: 2, attacker: 'ge' });
     },
   },
 ];

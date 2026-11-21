@@ -65,6 +65,11 @@ declare module '@asl/engine' {
     'rout.inPlace': { ctx: { unit: PieceId }; value: boolean };
     /** Full ASL: MF a routing unit pays to take the stairs to Location `to` of its hex (ASLRB B23.4: one; A24.7 one more into a SMOKE Location). */
     'rout.stairsMf': { ctx: { unit: PieceId; to: LocId }; value: number };
+    /**
+     * Full ASL: hexes a rout need not move through (ASLRB B28.413, A10.51: a known minefield), so that the nearest shelters
+     * round them are legal destinations as well as those through them. None in the Starter Kit.
+     */
+    'rout.avoid': { ctx: { unit: PieceId }; value: HexId[] };
   }
 }
 
@@ -345,6 +350,8 @@ interface RoutPlan {
   onTheWay: Set<HexId>;
   /** Whether any building or woods hex can be reached this RtPh. */
   sheltered: boolean;
+  /** Full ASL: destinations reached only through a hex the rout need not move through (`rout.avoid`, a known minefield). */
+  viaAvoided?: Set<HexId>;
 }
 
 /**
@@ -355,6 +362,25 @@ interface RoutPlan {
  * into adjacent shelter hexes (see `canStop`).
  */
 export function planRout(env: QueryEnv, unitId: PieceId): RoutPlan {
+  // Full ASL: a router need not move through a known minefield and may take a longer route to a shelter instead (ASLRB
+  // B28.413), but may rout into, out of or within one at its option (A10.51): the shelters nearest without those hexes
+  // and the shelters nearest through them are both legal destinations. The Starter Kit avoids nothing.
+  const avoid = env.query('rout.avoid', { unit: unitId }, []);
+  const plan = planRoutAvoiding(env, unitId, new Set());
+  if (!avoid.length) return plan;
+  const round = planRoutAvoiding(env, unitId, new Set(avoid));
+  const cost = new Map(plan.cost);
+  for (const [h, c] of round.cost) if (!cost.has(h) || c < cost.get(h)!) cost.set(h, c);
+  return {
+    cost,
+    destinations: new Set([...plan.destinations, ...round.destinations]),
+    onTheWay: new Set([...plan.onTheWay, ...round.onTheWay]),
+    sheltered: plan.sheltered || round.sheltered,
+    viaAvoided: new Set([...plan.destinations].filter((h) => !round.destinations.has(h))),
+  };
+}
+
+function planRoutAvoiding(env: QueryEnv, unitId: PieceId, avoid: Set<HexId>): RoutPlan {
   const unit = pieceOf(env, unitId);
   const start = nodeOf(env, unit)!;
   const side = unit.side;
@@ -369,6 +395,7 @@ export function planRout(env: QueryEnv, unitId: PieceId): RoutPlan {
     const h = queue.shift()!;
     const c = cost.get(h)!;
     for (const n of routNeighbours(env, h).sort()) {
+      if (avoid.has(hexOfLoc(n))) continue;
       if (stepIllegal(env, side, h, n, seen, unitId)) continue;
       const nc = c + routStepCost(env, unitId, h, n) + env.query('rout.planLeaveMf', { unit: unitId, hex: h, start: h === start }, 0);
       if (nc > mf) continue;
@@ -737,6 +764,12 @@ export const routModule: RuleModule = {
     r.procedure<RoutStartSideFn>(ROUT_START_SIDE, () => (ctx, side) => startSide(ctx, side));
     r.procedure<RoutEnterFn>(ROUT_ENTER, () => () => true);
     r.procedure<RoutEnteredFn>(ROUT_ENTERED, () => () => {});
+    r.procedure<RoutEndHereFn>(ROUT_END_HERE, () => (ctx, unit) => {
+      const act = routState(ctx)?.active;
+      if (act?.unit !== unit) return;
+      finishRout(ctx, act, ctx.state.pieces[unit]?.loc.kind === 'hex');
+      reAsk(ctx);
+    });
     r.event<{ state: RoutState | null; step?: RoutStep }>({
       type: 'sk1.rout.state',
       apply(d, p) {
@@ -1001,6 +1034,15 @@ function reAsk(ctx: Ctx) {
  */
 export const ROUT_START_SIDE = 'sk1.rout.startSide';
 export type RoutStartSideFn = (ctx: Ctx, side: SideId) => void;
+/** Procedure that ends the rout under way of `unit` where it stands (full ASL, ASLRB B28.413); never called in the Starter Kit. */
+export const ROUT_END_HERE = 'sk1.rout.endHere';
+export type RoutEndHereFn = (ctx: Ctx, unit: PieceId) => void;
+/** Full ASL: escorting leaders that stay behind before the next step (ASLRB B28.412: broken or pinned by a minefield's exit attack). */
+export function dropRoutEscort(ctx: Ctx, leaders: PieceId[]) {
+  const st = routState(ctx);
+  if (!st?.active || !leaders.length) return;
+  ctx.emit('sk1.rout.state', { state: { ...st, active: { ...st.active, escort: st.active.escort.filter((l) => !leaders.includes(l)) } } });
+}
 export const ROUT_ENTER = 'sk1.rout.enter';
 export type RoutEnterFn = (ctx: Ctx, unit: PieceId, hex: HexId) => boolean;
 /** Procedure run once a routing unit and its escort stand in the Location entered: (ctx, units, loc, beneath its entrenchment). A no-op in the Starter Kit. */
@@ -1043,9 +1085,19 @@ function enterHex(ctx: Ctx, act: ActiveRout, toLoc: LocId, cost: number, lowCraw
   const from = nodeOf(ctx, pieceOf(ctx, act.unit))!;
   const to = routNode(toLoc);
   // A hex that turns out to hold a hidden enemy (SK2 HIP) ends the rout there.
-  if (!ctx.proc<RoutEnterFn>(ROUT_ENTER)(ctx, act.unit, to)) return { act, over: true, alive: true };
+  if (!ctx.proc<RoutEnterFn>(ROUT_ENTER)(ctx, act.unit, to)) return { act, over: true, alive: ctx.state.pieces[act.unit]?.loc.kind === 'hex' };
+  // Full ASL: an escort a rule stopped before the step (ASLRB B28.412: broken or pinned by a minefield's exit attack) stays.
+  const now = record ? routState(ctx)?.active : undefined;
+  if (now?.unit === act.unit && now.escort.length !== act.escort.length) act = { ...act, escort: now.escort };
   for (const id of [act.unit, ...act.escort]) ctx.emit('piece.moved', { id, loc: locationAt(toLoc) });
   ctx.proc<RoutEnteredFn>(ROUT_ENTERED)(ctx, [act.unit, ...act.escort], toLoc, beneath);
+  // Full ASL: a unit lost on entering (ASLRB B28.413: a minefield attack comes before Interdiction) routs no further.
+  if (ctx.state.pieces[act.unit]?.loc.kind !== 'hex') {
+    const gone: ActiveRout = { ...act, path: [...act.path, toLoc], spent: act.spent + cost, escort: act.escort.filter((l) => ctx.state.pieces[l]?.loc.kind === 'hex') };
+    if (record) ctx.emit('sk1.rout.state', { state: { ...routState(ctx)!, active: gone } });
+    return { act: gone, over: true, alive: false };
+  }
+  if (act.escort.some((l) => ctx.state.pieces[l]?.loc.kind !== 'hex')) act = { ...act, escort: act.escort.filter((l) => ctx.state.pieces[l]?.loc.kind === 'hex') };
   let next: ActiveRout = {
     ...act,
     path: [...act.path, toLoc],

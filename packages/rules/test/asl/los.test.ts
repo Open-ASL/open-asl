@@ -146,13 +146,13 @@ describe('A6.6, A6.7: a vehicle or wreck hinders only a LOS between same-level e
   // K1 is a level 1 hill hex; K2 and K3 Open Ground below it. A wreck in K2.
   const terrain: Record<string, HexTerrainSpec> = { uK1: { terrain: 'open', elevation: 1 } };
   const wreck: PieceSpec = { id: 'w', def: 'ge.pzivf2', side: 'ge', hex: 'uK2', tags: { vca: 0, ca: 0, wreck: true } };
-  it('from level 1 down to the ground beyond the wreck: no Hindrance in full ASL (the Starter Kit counts it); at ground level both do', () => {
+  it('from level 1 down to the ground beyond the wreck: no Hindrance, in full ASL and the Starter Kit (SK4 7.4.1 "same level LOS"); at ground level both do', () => {
     const asl = losOf([wreck], { terrain });
     const down = asl('uK1', 'uK3');
     expect(down.clear).toBe(true);
     expect(down.hindrance).toBe(0);
     const sk = losOf([wreck], { terrain, asl: false })('uK1', 'uK3');
-    expect(sk.hindrance).toBe(1);
+    expect(sk.hindrance).toBe(0);
     // Same level: K2 and K4, both on the ground, see each other through a wreck in K3 with +1.
     const flat = losOf([{ ...wreck, hex: 'uK3' }], { terrain })('uK2', 'uK4');
     expect(flat.hindrance).toBe(1);

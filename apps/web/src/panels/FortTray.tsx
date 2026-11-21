@@ -45,6 +45,10 @@ interface Props {
   onUnplace(index: number): void;
   /** Change a placed foxhole's size or a minefield's factors. */
   onChange(index: number, patch: Partial<FortPlacement>): void;
+  /** The Known belt tool (ASLRB B28.46): null when off; its first hex, then its second when a zigzag is to be chosen. */
+  belt?: { from?: string; to?: string } | null;
+  onBelt?(): void;
+  onGrain?(grain: 'alt-left' | 'alt-right'): void;
 }
 
 const AP: MineFactors['ap'][] = [6, 8, 12];
@@ -57,7 +61,7 @@ const pillKey = (p: PillboxFactors) => `${p.capacity}+${p.ca}+${p.nca}`;
  * their strength (A-P 6/8/12, or A-T factors by exchange). Placed counters are listed with their hex, hidden or open,
  * and can be taken back. Hidden or open, a roadblock's hexside and a pillbox's arc are set on the map (the hex wheel).
  */
-export function FortTray({ env, side, params, placed, locked, picked, onPick, onUnplace, onChange }: Props) {
+export function FortTray({ env, side, params, placed, locked, picked, onPick, onUnplace, onChange, belt, onBelt, onGrain }: Props) {
   const left = fortPools(env, side, placed);
   const pick = (spec: FortSpec) => onPick(picked && JSON.stringify(picked) === JSON.stringify(spec) ? null : spec);
   const same = (spec: FortSpec) => !!picked && JSON.stringify(picked) === JSON.stringify(spec);
@@ -99,6 +103,22 @@ export function FortTray({ env, side, params, placed, locked, picked, onPick, on
         Click a tile, then a green hex. Hidden or open: right-click the hex (a minefield is always recorded, a Known or Dummy one always on the board). A roadblock asks for its road hexside, a pillbox for its Covered Arc, on the map. Units go beneath or inside a counter from the hex wheel once they are down. Unused counters are forfeited on Confirm.
       </p>
       <div className="tray-grid">{tiles}</div>
+      {params.mines?.known && onBelt && !locked && (
+        <div className="belt-tool">
+          <button className={belt ? 'on' : ''} onClick={onBelt} title="Two arrowed Known counters along a Hex Grain (or Alternate Hex Grain): every hex between them, inclusive, is a Known minefield whose mines (or none) you record (ASLRB B28.46)">
+            Known belt
+          </button>
+          {belt && !belt.from && <span className="muted small"> Click the first hex of the belt.</span>}
+          {belt?.from && !belt.to && <span className="muted small"> From {hexLabel(belt.from)}: click the other end (same Hex Grain or Alternate Hex Grain).</span>}
+          {belt?.from && belt.to && (
+            <span className="small">
+              {' '}
+              {hexLabel(belt.from)}–{hexLabel(belt.to)} is on an Alternate Hex Grain: which zigzag (ASLRB A9.221)?{' '}
+              <button onClick={() => onGrain?.('alt-left')}>Left</button> <button onClick={() => onGrain?.('alt-right')}>Right</button>
+            </span>
+          )}
+        </div>
+      )}
       {placed.length > 0 && (
         <>
           <div className="small muted">Placed</div>
@@ -108,6 +128,7 @@ export function FortTray({ env, side, params, placed, locked, picked, onPick, on
                 <img src={markerImage(fortMarker(c)) ?? ''} alt="" width={28} height={28} draggable={false} />
                 <span className="fort-row-what">
                   {hexLabel(c.hex)} {fortKindName(c)}
+                  {c.belt && <span className="muted"> · belt</span>}
                   {c.kind === 'roadblock' && c.hexside === undefined && <span className="amber"> · hexside?</span>}
                   {c.kind === 'pillbox' && c.ca === undefined && <span className="amber"> · arc?</span>}
                 </span>
@@ -120,7 +141,19 @@ export function FortTray({ env, side, params, placed, locked, picked, onPick, on
                     ))}
                   </span>
                 )}
-                {c.kind === 'mines' && !c.mines?.dummy && !locked && (
+                {c.kind === 'mines' && c.belt && !locked && (
+                  <span className="chooser" title={`On the Known belt ${c.belt}: record this hex's A-P mines, or none (ASLRB B28.46)`}>
+                    <button className={c.mines?.dummy ? 'on' : ''} onClick={() => onChange(i, { mines: { known: true, dummy: true } })} title="No mines in this hex of the belt">
+                      none
+                    </button>
+                    {AP.map((ap) => (
+                      <button key={ap} className={c.mines?.ap === ap ? 'on' : ''} disabled={left.known + (c.mines?.ap ?? 0) < ap!} onClick={() => onChange(i, { mines: { known: true, ap } })} title={`${ap} Known A-P factors`}>
+                        {ap}
+                      </button>
+                    ))}
+                  </span>
+                )}
+                {c.kind === 'mines' && !c.mines?.dummy && !c.belt && !locked && (
                   <span className="chooser">
                     {AP.map((ap) => {
                       const pool = c.mines?.known ? left.known : left.factors;

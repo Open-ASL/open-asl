@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ATT_BANDS, COUNTERS, ITT_BANDS, IFT_COLUMNS, SK1_TABLES, TO_HIT, TO_KILL_AP, VTT_BANDS } from '@asl/content';
 import { SK4_TERRAIN, type IftResult, type SpecialAmmoDef, type ToHitEntry, type VehicleDef } from '@asl/rules';
-import { counterImage } from '../game/assets';
+import { assetUrl, counterImage } from '../game/assets';
 import { NATION } from '../game/describe';
 import * as D from './chartData';
 
@@ -33,8 +33,51 @@ const SECTIONS: { id: SectionId; name: string; blurb: string }[] = [
 
 let lastSection: SectionId = 'fire';
 
-/** The quick-reference charts. Opened with C or the top-bar button; 1–7 or ←/→ step through the sections. */
+/** The quick-reference charts over the game. Opened with C or the top-bar button; 1–9 or ←/→ step through the sections. */
 export function ChartsDialog({ onClose, nationalities }: Props) {
+  return (
+    <div className="set-backdrop" onClick={onClose}>
+      <ChartsBinder
+        onClose={onClose}
+        nationalities={nationalities}
+        onPopOut={() => {
+          openChartsWindow(nationalities);
+          onClose();
+        }}
+      />
+    </div>
+  );
+}
+
+/** The charts' own window name: popping them out again brings the open window forward instead of a second one. */
+const CHARTS_WINDOW = 'open-asl-charts';
+
+/** Open the charts in a window of their own (`/charts`), to keep beside the game or on a second screen. */
+export function openChartsWindow(nationalities?: string[]) {
+  const q = nationalities?.length ? `?n=${encodeURIComponent(nationalities.join(','))}` : '';
+  const w = window.open(`/charts${q}`, CHARTS_WINDOW, 'popup,width=1180,height=820');
+  w?.focus();
+}
+
+/** The `/charts` page: the binder filling a window of its own, the nationalities in play from `?n=`. */
+export function ChartsWindow() {
+  const nationalities = useMemo(() => new URLSearchParams(window.location.search).get('n')?.split(',').filter(Boolean), []);
+  useEffect(() => {
+    const title = document.title;
+    document.title = 'Charts · Open ASL';
+    return () => {
+      document.title = title;
+    };
+  }, []);
+  return (
+    <div className="charts-window">
+      <ChartsBinder windowed nationalities={nationalities} onClose={() => window.close()} />
+    </div>
+  );
+}
+
+/** The binder itself: a rail of sections and the page, in the dialog or filling its own window (`windowed`). */
+function ChartsBinder({ onClose, nationalities, onPopOut, windowed }: Props & { onPopOut?(): void; windowed?: boolean }) {
   const [section, setSection] = useState<SectionId>(lastSection);
   useEffect(() => {
     lastSection = section;
@@ -75,45 +118,58 @@ export function ChartsDialog({ onClose, nationalities }: Props) {
   };
   const current = SECTIONS.find((s) => s.id === section)!;
   return (
-    <div className="set-backdrop" onClick={onClose}>
-      <div className="set-panel charts" role="dialog" aria-label="Charts" onClick={(e) => e.stopPropagation()}>
-        <nav className="ch-rail" role="tablist" aria-label="Chart sections" aria-orientation="vertical">
-          <div className="ch-brand">
-            <span className="kicker">Quick reference</span>
-            <span className="ch-brand-title">Charts</span>
-          </div>
-          {SECTIONS.map((s, i) => (
-            <button
-              key={s.id}
-              role="tab"
-              aria-selected={s.id === section}
-              className={`ch-tab ${s.id === section ? 'on' : ''}`}
-              onClick={() => setSection(s.id)}
-              title={`${s.name} (${i + 1})`}
-            >
-              <span className="ch-tab-n">{i + 1}</span>
-              <span className="ch-tab-txt">
-                <span className="ch-tab-name">{s.name}</span>
-                <span className="ch-tab-blurb">{s.blurb}</span>
-              </span>
-            </button>
-          ))}
-          <p className="ch-rail-hint hint">
-            <kbd>1</kbd>–<kbd>{SECTIONS.length}</kbd> <kbd>←</kbd> <kbd>→</kbd> turn the page
-            <br />
-            <kbd>C</kbd> <kbd>Esc</kbd> close
-          </p>
-        </nav>
-        <div className="ch-page" role="tabpanel" aria-label={current.name}>
-          <div className="ch-page-head">
-            <h2 className="modal-title">{current.name}</h2>
-            <button className="ghost" onClick={onClose} aria-label="Close">
+    <div className={`set-panel charts${windowed ? ' windowed' : ''}`} role={windowed ? 'main' : 'dialog'} aria-label="Charts" onClick={(e) => e.stopPropagation()}>
+      <nav className="ch-rail" role="tablist" aria-label="Chart sections" aria-orientation="vertical">
+        <div className="ch-brand">
+          <span className="kicker">Quick reference</span>
+          <span className="ch-brand-title">Charts</span>
+        </div>
+        {SECTIONS.map((s, i) => (
+          <button
+            key={s.id}
+            role="tab"
+            aria-selected={s.id === section}
+            className={`ch-tab ${s.id === section ? 'on' : ''}`}
+            onClick={() => setSection(s.id)}
+            title={`${s.name} (${i + 1})`}
+          >
+            <span className="ch-tab-n">{i + 1}</span>
+            <span className="ch-tab-txt">
+              <span className="ch-tab-name">{s.name}</span>
+              <span className="ch-tab-blurb">{s.blurb}</span>
+            </span>
+          </button>
+        ))}
+        <p className="ch-rail-hint hint">
+          <kbd>1</kbd>–<kbd>{SECTIONS.length}</kbd> <kbd>←</kbd> <kbd>→</kbd> turn the page
+          <br />
+          {windowed ? (
+            <>
+              <kbd>Esc</kbd> close the window
+            </>
+          ) : (
+            <>
+              <kbd>C</kbd> <kbd>Esc</kbd> close
+            </>
+          )}
+        </p>
+      </nav>
+      <div className="ch-page" role="tabpanel" aria-label={current.name}>
+        <div className="ch-page-head">
+          <h2 className="modal-title">{current.name}</h2>
+          <div className="ch-page-actions">
+            {onPopOut && (
+              <button className="ghost ch-popout" onClick={onPopOut} title="Open the charts in a window of their own, to keep beside the game or on a second screen">
+                ⧉ Pop out
+              </button>
+            )}
+            <button className="ghost" onClick={onClose} aria-label={windowed ? 'Close the window' : 'Close'}>
               ✕
             </button>
           </div>
-          <div className="ch-page-body" key={section}>
-            {body[section]()}
-          </div>
+        </div>
+        <div className="ch-page-body" key={section}>
+          {body[section]()}
         </div>
       </div>
     </div>
@@ -703,13 +759,8 @@ function AfvDiagram({ focus, setFocus }: { focus: number | null; setFocus(n: num
       <rect className="afv-ctr" x="20" y="20" width="200" height="200" rx="9" />
       <g {...zone(8)}>
         <circle className="afv-turret-ring" cx="114" cy="118" r="84" />
-        <g className="afv-tank" transform="translate(-8 -2) rotate(-35 122 120)">
-          <rect x="94" y="78" width="56" height="88" rx="4" />
-          <rect x="88" y="82" width="8" height="80" rx="2" />
-          <rect x="148" y="82" width="8" height="80" rx="2" />
-          <circle cx="122" cy="128" r="17" />
-          <line x1="122" y1="111" x2="122" y2="54" />
-        </g>
+        {/* The vehicle depiction: the game's own top-down art of an M4A3, turned as on the counter. */}
+        <image className="afv-tank" href={assetUrl('charts/afv-tank.webp')} x="36" y="40" width="156" height="156" transform="rotate(-35 114 118)" />
       </g>
       <g {...zone(1)}>
         <rect className="afv-ink-box" x="34" y="34" width="24" height="24" />

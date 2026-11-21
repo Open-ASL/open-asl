@@ -6,7 +6,7 @@ import type { MatchDoc } from '@asl/platform';
 import { GameScreen } from '../GameScreen';
 import { seatNames } from './seatNames';
 import type { Session } from '../game/session';
-import { PHASE_NAME, sideNameOf } from '../game/describe';
+import { PHASE_NAME, phaseSide, sideNameOf } from '../game/describe';
 import { buildReplay, extendReplay, nextTurnStep, prevTurnStep, turnMarks, type Replay, type TurnMark } from './replayTimeline';
 
 /** Autoplay: the pause after each step has finished playing, by speed. */
@@ -155,7 +155,7 @@ export function ReplayBoard({ matchId, match, scenario, actions }: { matchId: st
 
   const state = frame.state;
   const env = useMemo(() => replay.engine.env(state), [replay.engine, state]);
-  const where = state.phase === 'setup' ? 'Setup' : `Turn ${state.turn} · ${sideNameOf(env, state.attacker)} ${PHASE_NAME[state.phase] ?? state.phase}`;
+  const where = state.phase === 'setup' ? 'Setup' : `Turn ${state.turn} · ${sideNameOf(env, phaseSide(state.phase, state.attacker, state.sides))} ${PHASE_NAME[state.phase] ?? state.phase}`;
   const outcome = match.result ? (match.result.winner ? `${sideNameOf(env, match.result.winner)} victory · ${match.result.reason}` : `Draw · ${match.result.reason}`) : 'Live recording';
 
   return (

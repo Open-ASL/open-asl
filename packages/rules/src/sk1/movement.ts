@@ -888,8 +888,13 @@ export const movementModule: RuleModule = {
         if (dr < 6) {
           ctx.emit('piece.moved', { id: a.sw, loc: { kind: 'held', by: a.unit } });
           if (pieceOf(ctx, a.sw).side !== ctx.state.attacker) ctx.emit('sk1.sw.owner', { id: a.sw, side: ctx.state.attacker });
+          // PP now carried beyond the IPC cost one MF each of the MPh's allowance, the MF already spent included (SK4 4.0
+          // "loses one MF for each PP carried in excess"; ASLRB A4.42 EX: "has only three MF left to expend in the MPh").
+          // A unit that expends no further MF carries nothing (A4.44): it simply has none left to expend.
+          const mf = ctx.query('unit.mf', { unit: a.unit, stack: ms.units, doubleTime: ms.doubleTime }, 0);
+          if (mf < (ms.allowance[a.unit] ?? 0)) ctx.emit('sk1.move.state', { state: { ...ms, allowance: { ...ms.allowance, [a.unit]: mf } } });
         }
-        spendInPlace(ctx, ms, 1, {});
+        spendInPlace(ctx, moveState(ctx)!, 1, {});
         afterMfExpenditure(ctx);
       },
     });
@@ -1208,6 +1213,11 @@ function entryRefusal(env: QueryEnv, ms: MoveState, to: HexId): string {
   const p = pieceOf(env, ms.units[0]!);
   const entry = entryHexesOf(env, p);
   if (entry.includes(to)) return `${to} is not next to the stack's offboard position: move along the edge first`;
+  return notEntryHex(env, p, to);
+}
+
+/** Why map hex `to` is not one of the hexes an entering piece may come on by, in the words of its card where it has them. */
+export function notEntryHex(env: QueryEnv, p: Piece, to: HexId): string {
   const force = statics(env).scenario.forces[p.tags['force'] as number];
   // A tactical reserve enters by its SSR's edges, not the force's ("enter on Turn 1 ... along the north edge").
   const reserve = p.tags['reserve'] as string | undefined;

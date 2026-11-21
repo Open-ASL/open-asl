@@ -209,6 +209,8 @@ export function setupRule(f: ScenarioForce): string {
   if (s.description) return s.description;
   if (s.kind === 'area' || s.kind === 'scatter') return s.description;
   if (s.kind === 'hexes') return `Set up in ${s.hexes.map(hex).join(', ')}`;
+  // Appearing on map hexes rather than entering by an edge (ASLRB A2.51).
+  if (s.appear) return `Appears on Turn ${s.turn} in ${(s.hexes ?? []).map(hex).join(', ')}`;
   const where = s.hexes?.length ? (s.hexes.length === 1 ? `at ${hex(s.hexes[0]!)}` : s.hexes.length <= 4 ? `at ${s.hexes.map(hex).join(', ')}` : `between ${hex(s.hexes[0]!)} and ${hex(s.hexes[s.hexes.length - 1]!)}`) : '';
   const spent = s.mpSpent !== undefined ? ` having already expended ${s.mpSpent === 'half' ? 'half their MP' : `${s.mpSpent} MP`}` : s.mfSpent ? ` having already expended ${s.mfSpent} MF` : '';
   return `Enter on Turn ${s.turn} along ${edgeWords(s.edge) === 'any' ? 'any edge' : `the ${edgeWords(s.edge)} edge`}${where ? ` ${where}` : ''}${spent}`;

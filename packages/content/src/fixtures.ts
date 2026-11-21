@@ -512,6 +512,35 @@ export const DEV_FIXTURES: DevFixture[] = [
     },
   },
   {
+    id: 'lma5-speirs-appears',
+    scenarioId: 'lma-5',
+    title: 'Lt Speirs appears on the X0-CC3 row',
+    description:
+      'SSR 4: every phase passed until Lt Dike fails his Rally Phase MC; the next American Rally Phase begins with the American setting up Lt Speirs on a hex of the X0-CC3 row (ASLRB A2.51).',
+    build(f) {
+      for (let i = 0; i < 4 && f.decision.kind === 'setup'; i++) {
+        const dflt = f.engine.legalActions(f.state, f.decision.owner).find((x) => x.type === 'setup.place');
+        if (!dflt) throw new Error('Fixture: no default setup');
+        const { side: _s, decisionId: _d, ...rest } = dflt;
+        f.act(rest as Omit<Action, 'side' | 'decisionId'> & Record<string, unknown>);
+      }
+      const speirs = f.unit('am', 'am.L102');
+      for (let guard = 0; guard < 3000 && !f.state.result; guard++) {
+        if (f.decision.kind === 'offboardSetup') {
+          // Due (relieved the turn before): his placement is on top of the Rally Phase. Item Company sets up as the default puts it.
+          if (f.state.pieces[speirs]!.tags['entryTurn'] === f.state.turn) return;
+          const dflt = f.engine.legalActions(f.state, f.decision.owner).find((x) => x.type === 'setup.offboard');
+          if (!dflt) throw new Error('Fixture: no default offboard setup');
+          const { side: _s, decisionId: _d, ...rest } = dflt;
+          f.act(rest as Omit<Action, 'side' | 'decisionId'> & Record<string, unknown>);
+          continue;
+        }
+        f.pass();
+      }
+      throw new Error('Fixture: Lt Dike never failed his Morale Check');
+    },
+  },
+  {
     id: 'two-story-house',
     scenarioId: 'asl-testbed',
     title: 'Two Story House (levels)',

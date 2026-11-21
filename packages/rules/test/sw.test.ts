@@ -62,6 +62,33 @@ describe('Support weapons: recovery, portage and dropping (SK1 4.0)', () => {
     expect(s.pieces['rMMG']!.tags['portaged']).toBeUndefined();
   });
 
+  it('a SW recovered mid-move counts against the MF of the whole MPh from then on (ASLRB A4.42, A4.44)', () => {
+    // A 4 MF squad carrying a 3 PP MMG (at its IPC) steps into a hex (1 MF) and recovers a 1 PP FT there (1 MF). It now
+    // carries one PP over its IPC: "loses one MF", so 3 MF for the MPh, 2 of them spent, one left.
+    const pieces = (ft: string) => [
+      { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yN4' },
+      { id: 'mmg', def: 'am.MMG', side: 'ge', heldBy: 'g1' },
+      { id: 'ft', def: ft, side: 'ge', hex: 'yO4' },
+      { id: 'b1', def: 'br.458', side: 'br', hex: 'yA1' },
+    ];
+    const { engine, state } = makeEngine({ scenario: GE_VS_BR, startPhase: 'MPh', dice: [1], terrain: {}, pieces: pieces('ge.FT') });
+    let s = act(engine, state, { type: 'move.start', units: ['g1'] }).state;
+    expect(moveState(engine.env(s))!.allowance['g1']).toBe(4);
+    s = settle(engine, act(engine, s, { type: 'move.step', to: 'yO4' }).state);
+    s = settle(engine, act(engine, s, { type: 'move.recover', unit: 'g1', sw: 'ft' }).state);
+    expect(s.pieces['ft']!.loc).toEqual({ kind: 'held', by: 'g1' });
+    const ms = moveState(engine.env(s))!;
+    expect([ms.allowance['g1'], ms.spent['g1']]).toEqual([3, 2]);
+    s = settle(engine, act(engine, s, { type: 'move.step', to: 'yP4' }).state);
+    expect(() => act(engine, s, { type: 'move.step', to: 'yQ4' })).toThrow();
+    // A failed attempt leaves the PP carried, and the allowance, as they were.
+    const failed = makeEngine({ scenario: GE_VS_BR, startPhase: 'MPh', dice: [6], terrain: {}, pieces: pieces('ge.FT') });
+    let f = act(failed.engine, failed.state, { type: 'move.start', units: ['g1'] }).state;
+    f = settle(failed.engine, act(failed.engine, f, { type: 'move.step', to: 'yO4' }).state);
+    f = settle(failed.engine, act(failed.engine, f, { type: 'move.recover', unit: 'g1', sw: 'ft' }).state);
+    expect(moveState(failed.engine.env(f))!.allowance['g1']).toBe(4);
+  });
+
   it('a SMC may not recover a SW that would take it over 2 PP', () => {
     const { engine, state } = makeEngine({
       scenario: RU_VS_GE,

@@ -162,7 +162,7 @@ import {
 import { caChangeFor, gunHexOf, shotOptions, spineLabel, spineToward, thPreview } from './game/ordnance';
 import { DirectorPicker, GunComposer } from './panels/GunComposer';
 import type { SmokeThrow } from '@asl/rules';
-import { entrenchDrm, entrenchHexIllegal, entrenchers, entrenchmentKnownTo, entrenchmentMf, entrenchmentName, entrenchmentRoom, isEntrenched, smc, stackEntrenchment, mineStepChoices, mineTbThrough, removeMinesIllegal, sideToward as mineSideToward, lastMineAttacks } from '@asl/rules';
+import { maBffRefusal, vehicleMgUnavailable, entrenchDrm, entrenchHexIllegal, entrenchers, entrenchmentKnownTo, entrenchmentMf, entrenchmentName, entrenchmentRoom, isEntrenched, smc, stackEntrenchment, mineStepChoices, mineTbThrough, removeMinesIllegal, sideToward as mineSideToward, lastMineAttacks } from '@asl/rules';
 import { WIRE_DROP_DECISION, hasUnitsLeft, WA_RPH_DECISION, CLEARANCE_RULE, clearanceSideFor, defaultTbHexsides, roadblockBetween, clearanceCandidates, clearanceTargets, clearanceUnitIllegal, hasWa, lastWireExit, roadblockObstacles, stackWire, taskDrm, wallSidesOf, type ClearanceKind, type WireExitResult } from '@asl/rules';
 import { ACQ_CHOICE_DECISION, CONCEAL_RTPH_DECISION, backblastFrom, mmc, squadEquivalents, LEADER_PTC_DECISION, ONCE_DR_DECISION, actionIllegal, onceDrRules, ordnanceWeaponIllegal, banzaiSteps, banzaiState, banzaiWindowsPending, concealRtphUnits, concealmentActive, declareIllegal as banzaiIllegal, dcChargeOptions, isJapanese, obConcealment, redactState } from '@asl/rules';
 import { counterTerrainIllegal, defaultFortPlacement, fortArea, fortCounters, fortKindName, fortPlaceIllegal, fortPools, fortSetupIllegal, fortificationView, fortificationsParams, hipIllegal, isPillboxLoc, roadblockExtension, type FortPlacement } from '@asl/rules';
@@ -176,6 +176,9 @@ import { dmChoices, type DmChoice } from './game/dmChoice';
 import { wreckChoices } from './game/wreckChoice';
 import { SMOKE_DISPENSER_MPH_ONLY, turnAndFireHint, turnWithoutFiringLabel } from './game/vehicleEntries';
 import { offboardShown as offboardHexesShown, offboardStepKey } from './game/offboard';
+import { passRefusal } from './game/passRefusal';
+import { appearMix, appearWords } from './game/appear';
+import { moverHex, turnSpineToward } from './game/vehicleTurn';
 import { staleFire, weaponHolder } from './game/staleFire';
 import { keepsTicks } from './game/stackClick';
 import { aimsAt, beyondRange, blindFireOffered, fireLeaders, fireSelectable, swCarriers, withinRange } from './game/fireSelection';
@@ -1294,12 +1297,15 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   // A card's deployment hexes with minimums by each (LMA9 SSR 1): how far the placements so far go.
   const anchors = useMemo(() => (placing ? setupAnchorProgress(env, placing.owner, pending, swWhere) : []), [placing, env, pending, swWhere]);
   // A reserve rule (SSR tactical reserve) lets this setup leave units behind to enter later.
+  // Reinforcements set up on the map hexes their card names rather than offboard (ASLRB A2.51): the panel says so.
+  const appearing = placing?.kind === 'offboardSetup' ? appearMix(todo) : 'none';
   const reserve = useMemo(() => (placing?.kind === 'offboardSetup' ? (todo.map((p) => reserveRuleFor(env, p)).find((r) => r) ?? null) : null), [placing, todo, env]);
   // Every entry edge the card names, and any a reserve rule has since sent units to ('N,E'), as
   // one sorted key: the hex list below is rebuilt only when that set changes, not on every action
   // (BoardView rebuilds its whole canvas when the list it was set up with is replaced).
   const entryEdges = useMemo(() => {
-    const edges = new Set(scenario.forces.flatMap((f) => (f.setup.kind === 'enter' ? [f.setup.edge] : [])));
+    // A force that appears on map hexes (ASLRB A2.51) enters by no edge: none is drawn for it.
+    const edges = new Set(scenario.forces.flatMap((f) => (f.setup.kind === 'enter' && !f.setup.appear ? [f.setup.edge] : [])));
     for (const p of Object.values(state.pieces)) if (typeof p.tags['entryEdge'] === 'string') for (const e of p.tags['entryEdge'].split(',')) edges.add(e);
     return [...edges].sort().join(',');
   }, [scenario, state.pieces]);
@@ -1582,9 +1588,11 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
    */
   const turnable = useMemo((): { v: Piece; hex: HexId; moving: boolean; turn(vca: number): Omit<Action, 'side' | 'decisionId'>; turret(tca: number): Omit<Action, 'side' | 'decisionId'>; hullHint: string; turretHint: string } | null => {
     if (!owner || !decision || decision.owner !== owner) return null;
-    if (decision.kind === 'phase' && phase === 'MPh' && ms?.vehicle && ms.hex) {
+    // A vehicle waiting offboard to enter turns there too, from its offboard hex (SK4 3.3, 3.3.2).
+    const at = moverHex(ms);
+    if (decision.kind === 'phase' && phase === 'MPh' && ms?.vehicle && at) {
       const v = state.pieces[ms.units[0]!]!;
-      return { v, hex: ms.hex, moving: true, turn: (vca) => ({ type: 'vmove.turn', vca }), turret: (tca) => ({ type: 'vmove.turret', tca }), hullHint: '1 MP, 2 and a Bog Check in woods or a building', turretHint: 'free, as far round as you like, once per MP spent' };
+      return { v, hex: at, moving: true, turn: (vca) => ({ type: 'vmove.turn', vca }), turret: (tca) => ({ type: 'vmove.turret', tca }), hullHint: '1 MP, 2 and a Bog Check in woods or a building', turretHint: 'free, as far round as you like, once per MP spent' };
     }
     if (decision.kind === 'motionFacing') {
       const v = state.pieces[decision.data?.['vehicle'] as string];
@@ -2167,8 +2175,10 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   }, [gunShot, owner, target, env, state, ms, decision, phase]);
   /** Everyone standing in a hex (units and vehicles; held weapons excluded). */
   const unitsHereOf = (hex: HexId): Piece[] => Object.values(state.pieces).filter((p) => p.loc.kind === 'hex' && p.loc.hex === hex && !isWeaponDef(defOf(env, p)));
-  /** A vehicle's MGs that could still fire: its fixed-mount MG pieces without a fire marker or malfunction. */
-  const vehicleMgsReady = (v: Piece): Piece[] => swHeldBy(state, v.id).filter((w) => (defOf(env, w) as { kind: string; fixed?: boolean }).fixed && !w.tags['fire'] && !w.tags['malf'] && !w.tags['mgDisabled']);
+  /** A vehicle's MGs that have not fired and are not malfunctioned or disabled: `vehicleMgsReady` those whose crew may fire them now. */
+  const vehicleMgsUnfired = (v: Piece): Piece[] => swHeldBy(state, v.id).filter((w) => (defOf(env, w) as { kind: string; fixed?: boolean }).fixed && !w.tags['fire'] && !w.tags['malf'] && !w.tags['mgDisabled']);
+  // The AAMG only while Crew Exposed (SK4 7.8; ASLRB D1.83), a Buttoned Up Open-Topped AFV only its BMG.
+  const vehicleMgsReady = (v: Piece): Piece[] => vehicleMgsUnfired(v).filter((w) => !vehicleMgUnavailable(env, w.id));
   const mgLabel = (mgs: Piece[]) => mgs.map((w) => `${(defOf(env, w) as { type: string }).type} ${(defOf(env, w) as { fp: number }).fp}`).join(' + ');
   /** An enemy AFV the acting side can see: only then is an Infantry MG offered as ordnance (SK4 4.1). */
   const enemyAfvInSight =
@@ -2936,8 +2946,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         return;
       }
       // A moving vehicle: clicking a neighbouring hex it cannot drive into turns the hull toward it (1 MP per hexspine).
-      if (ms.vehicle && ms.hex && statics.map.neighbors(ms.hex).includes(hex)) {
-        const spine = spineToward(env, ms.hex, hex, Number(state.pieces[ms.units[0]!]!.tags['vca'] ?? 0));
+      const from = moverHex(ms);
+      if (ms.vehicle && from) {
+        const spine = turnSpineToward(statics.map, from, hex, Number(state.pieces[ms.units[0]!]!.tags['vca'] ?? 0));
         if (spine !== null && session.check({ type: 'vmove.turn', vca: spine }) === null) {
           run({ type: 'vmove.turn', vca: spine }, true);
           return;
@@ -3664,7 +3675,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         const bff: WheelItem[] = [];
         if (ms.hex && vd.ma && !v.tags['malf'] && !v.tags['maDisabled']) {
           const opts = shotOptions(env, v.id, 'bounding').filter((o) => o.type !== 'ATT' && o.type !== 'IFE');
-          const bffErr = v.tags['bff'] && !v.tags['bffRof'] ? 'The MA fired Bounding First Fire and lost ROF' : v.tags['bff'] && (ms.vehicle.sinceBff ?? 0) === 0 ? 'Spend another MP before firing again' : null;
+          // From the vehicle's move so far, as the engine judges it: its MGs firing first leave the MA free to fire (SK4 3.3.2.2).
+          const bffErr = maBffRefusal(env, v.id);
           const ma = `${vd.ma.caliber}${vd.ma.barrel ?? ''}`;
           if (bffErr) bff.push(action(ma, () => {}, { disabled: true, hint: bffErr }));
           else bff.push(...opts.map((o) => action(`${ma} · ${o.label}`, () => declareGun(v.id, o.type, false, o.ammo), { hint: o.hint, disabled: !o.available })));
@@ -3691,6 +3703,12 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
             // Or one MG on its own (the BMG through the hull's arc, the CMG through the turret's).
             if (mgs.length > 1) bff.push(...mgs.map((w) => action(`${mgLabel([w])} only…`, pick([w]), { hint })));
           }
+          // An MG the crew's posture bars (a Buttoned Up AAMG) stays on the menu, greyed with the reason.
+          if (mode !== 'bffMg')
+            for (const w of vehicleMgsUnfired(v)) {
+              const why = vehicleMgUnavailable(env, w.id);
+              if (why) bff.push(action(`${mgLabel([w])}`, () => {}, { disabled: true, hint: why }));
+            }
         }
         if (bff.length)
           items.push(
@@ -4548,7 +4566,11 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       .map((u) => ({ u, err: plain(session.check({ type: 'rally.transfer', sw: sw.id, to: u.id })) }));
     const ok = options.filter((o) => o.err === null);
     const label = `${pieceLabel(env, sw)}${holder ? ` (${pieceLabel(env, state.pieces[holder]).replace(/^\S+ /, '')})` : ''}`;
-    if (ok.length === 0) return null;
+    if (ok.length === 0) {
+      // Greyed with the reason when no unit here may take it in a phase a SW changes hands (a broken holder keeps it).
+      const why = passRefusal(phase, decision?.kind, decision?.owner === owner, options.map((o) => o.err));
+      return why ? action(label, () => {}, { disabled: true, hint: why }) : null;
+    }
     // Each unit with what it already carries, so two alike squads can be told apart (one with an LMG, one with none).
     const to = (u: Piece) => {
       const has = swHeldBy(state, u.id).map((w) => pieceLabel(env, w).replace(/^\S+ /, ''));
@@ -5136,7 +5158,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         ) : waitingOn ? (
           <section className={`panel decision waiting side-${waitingOn}`}>
             <div className="who">{sideName(waitingOn)} — {session.mySide === null ? 'their orders' : 'waiting for their orders'}</div>
-            <h2>{decisionTitle(decision!.kind, phase, fortOpen, decision!.data?.['ending'] === true && !banzaiState(env)?.dff, fortByLoc)}</h2>
+            <h2>{decisionTitle(decision!.kind, phase, fortOpen, decision!.data?.['ending'] === true && !banzaiState(env)?.dff, fortByLoc, appearing)}</h2>
             {theirPlacing ? (
               <>
                 <p className="hint">
@@ -5165,7 +5187,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           decision && (
             <section className={`panel decision side-${decision.owner}`}>
               <div className="who">{sideName(decision.owner)} — your orders</div>
-              <h2>{decisionTitle(decision.kind, phase, fortOpen, decision.data?.['ending'] === true && !banzaiState(env)?.dff, fortByLoc)}</h2>
+              <h2>{decisionTitle(decision.kind, phase, fortOpen, decision.data?.['ending'] === true && !banzaiState(env)?.dff, fortByLoc, appearing)}</h2>
               {error && <div className="error">{error}</div>}
 
               {scatterUi.panel}
@@ -5609,7 +5631,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                     hint={
                       placing.kind === 'setup'
                         ? `Drag each counter onto a green hex, or click it and then a hex. A weapon goes in a hex with a unit of its group, which then carries it (a leader alone will). Drag placed counters to move them, or back here to return them; a unit takes its weapons along. Click a stack again to pick its next counter, a weapon on its own.${gunTodo.length ? ' A Gun goes with a crew; once it is down, click a segment of the ring around its hex to set its Covered Arc (or right-click its hex).' : ''}`
-                        : `Set up everything entering this turn in the offboard hexes along its entry edge (green). They enter from there in the Movement Phase, into the map hexes the card allows (blue where it names them). A weapon goes in a hex with a unit of its group, which then carries it.${
+                        : appearing === 'all'
+                          ? 'Set up each unit that appears this turn in a green hex: the map hexes its card names (it appears there, with no edge to enter by). A weapon goes in a hex with a unit of its group, which then carries it.'
+                          : `${appearing === 'some' ? 'Units that appear on the map go in the green map hexes their card names. ' : ''}Set up everything entering this turn in the offboard hexes along its entry edge (green). They enter from there in the Movement Phase, into the map hexes the card allows (blue where it names them). A weapon goes in a hex with a unit of its group, which then carries it.${
                             reserve
                               ? ` ${reserve.label ? `${reserve.label}: ` : ''}up to ${reserve.mmc} MMC, ${reserve.smc} SMC and ${reserve.sw} SW may be left here unplaced; they enter on Turn ${reserve.turn} along the ${reserve.edges.map((e) => EDGE_NAME[e] ?? e).join(' or ')} edge.`
                               : ''
@@ -6390,7 +6414,7 @@ function hexOfId(state: { pieces: Record<string, Piece> }, id: string) {
   return p?.loc.kind === 'hex' ? p.loc.hex : '';
 }
 
-function decisionTitle(kind: string, phase: string, fortifyOpen = false, endingMove = false, fortifyByLoc = false) {
+function decisionTitle(kind: string, phase: string, fortifyOpen = false, endingMove = false, fortifyByLoc = false, appear: 'all' | 'some' | 'none' = 'none') {
   switch (kind) {
     case 'firstFire':
       return endingMove ? 'Move over: Defensive First Fire?' : 'Defensive First Fire?';
@@ -6403,7 +6427,8 @@ function decisionTitle(kind: string, phase: string, fortifyOpen = false, endingM
     case 'setup':
       return 'Scenario setup';
     case 'offboardSetup':
-      return 'Set up reinforcements offboard';
+      // Units that appear on map hexes (ASLRB A2.51) are set up on the map, not offboard.
+      return appear === 'all' ? 'Set up reinforcements on the map' : appear === 'some' ? 'Set up reinforcements' : 'Set up reinforcements offboard';
     case 'fortify':
       if (fortifyByLoc) return fortifyOpen ? 'Fortify Locations' : 'Fortify Locations (secret)';
       return fortifyOpen ? 'Fortify a building' : 'Fortify buildings (secret)';
@@ -6479,7 +6504,9 @@ function Reinforcements({ env, sideName, viewer }: { env: QueryEnv; sideName(s?:
   const groups = new Map<string, Piece[]>();
   for (const p of waiting) {
     const pending = ordered.includes(forceIdOf(p) ?? '');
-    const k = `${pending ? 'dr' : p.tags['entryTurn']}|${p.side}|${p.tags['entryEdge']}${pending ? `|${p.tags['force']}` : ''}`;
+    // A unit that appears on map hexes (ASLRB A2.51) has no edge: its hexes stand in for one, marked '@'.
+    const where = p.tags['appearHexes'] !== undefined ? `@${p.tags['appearHexes']}` : p.tags['entryEdge'];
+    const k = `${pending ? 'dr' : p.tags['entryTurn']}|${p.side}|${where}${pending ? `|${p.tags['force']}` : ''}`;
     groups.set(k, [...(groups.get(k) ?? []), p]);
   }
   return (
@@ -6524,7 +6551,7 @@ function Reinforcements({ env, sideName, viewer }: { env: QueryEnv; sideName(s?:
               {bySsr ? 'SSR' : orderTurns ? `T${orderTurns.join('/')} dr` : provisional ? `T${from}+ dr` : waitsOnFire ? 'after fire' : `T${turn}`}
             </span>
             <span>
-              <b className={`nat nat-${side}`}>{sideName(side)}</b> · {edgeWords(edge!) === 'any' ? 'any edge' : `${edgeWords(edge!)} edge`}:{' '}
+              <b className={`nat nat-${side}`}>{sideName(side)}</b> · {edge!.startsWith('@') ? appearWords(edge!.slice(1)) : edgeWords(edge!) === 'any' ? 'any edge' : `${edgeWords(edge!)} edge`}:{' '}
               <span className="muted">{[...counts].map(([l, n]) => (n > 1 ? `${n}× ${l}` : l)).join(', ')}</span>
             </span>
           </div>

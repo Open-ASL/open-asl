@@ -40,7 +40,7 @@ import { LMA2_ENTRY_IQ, LMA2_ENTRY_QY, LMA2_SINGLE_HEX_BUILDINGS, LMA2_VC_HEXES 
 import { entryStretchState, isHidden as isHiddenLma2 } from '@asl/rules';
 import { LMA_9, LMA9_CA_SETUP, LMA9_DEPLOYMENT, LMA9_GE_SETUP, LMA9_VC_BUILDINGS } from '../src/scenarios/lma/lma9';
 import { artilleryMissions, setupAnchorProgress } from '@asl/rules';
-import { LMA_5, LMA5_EASY_SETUP, LMA5_ITEM_ENTRY, LMA5_PANZER_SETUP, LMA5_SPEIRS_ENTRY, LMA5_UW_BUILDINGS, LMA5_VILLAGE } from '../src';
+import { LMA_5, LMA5_EASY_SETUP, LMA5_ITEM_ENTRY, LMA5_PANZER_SETUP, LMA5_UW_BUILDINGS, LMA5_VILLAGE } from '../src';
 import { mmcLost, vehicleEntryCost } from '@asl/rules';
 import { LMA_7, LMA7_HILLS_T, LMA7_HILLS_V, LMA7_HILL_HEXES } from '../src/scenarios/lma/lma7';
 import { PREPARED, clearAreasTally, squadEquivalentsLost } from '@asl/rules';
@@ -109,6 +109,13 @@ describe('SK3 vehicles (VASL import)', () => {
     expect(c['ru.T34M43.aamg']).toBeUndefined();
     // SK1/SK2 games know nothing of them.
     expect(sk2Counters()['ru.T34M43']).toBeUndefined();
+  });
+  it('keeps the counter back\'s "VCA only" CMG: the StuG IIIG (L)\'s stays out of CC, the KV-2\'s CMG and RMG attack (ASLRB A11.62, D1.82)', () => {
+    const c = sk3Counters();
+    expect(c['ge.stgiiigl']).toMatchObject({ turret: 'NT', mg: { cmg: 4, aamg: 1 }, cmgVcaOnly: true });
+    // The KV-2 has no turret frame on its counter but no "VCA only" note: CMG 4 and RMG 2 may attack in CC.
+    expect(c['ru.KV2']).toMatchObject({ mg: { bmg: 2, cmg: 4, rmg: 2 } });
+    expect((c['ru.KV2'] as VehicleDef).cmgVcaOnly).toBeUndefined();
   });
   it('keeps every existing scenario on its SK1/SK2 ruleset', () => {
     // The free download cards with vehicles (S28) play under the SK3 rules too, as do the armor and jungle demos and the minefield test bed (two German AFV).
@@ -1936,7 +1943,8 @@ describe('LMA5 Frères d’arme 5: Foy', () => {
     expect(force(LMA_5, 'am-easy').units.filter((u) => u.def.startsWith('am.L')).map((u) => u.def)).toEqual(['am.L91', 'am.L81', 'am.L61']);
     expect([count(LMA_5, 'am-item', 'am.747'), count(LMA_5, 'am-item')]).toEqual([6, 8]);
     expect(sws(LMA_5, 'am-item')).toEqual(['am.BAZ44', 'am.DC']);
-    expect(force(LMA_5, 'am-speirs')).toMatchObject({ units: [{ def: 'am.L102', count: 1 }], setup: { kind: 'enter', edge: 'E', provisional: 'ssr' } });
+    // SSR 4: Lt Speirs "appears as a reinforcement the following turn on the X0-CC3 row": set up on its hexes, not entering by an edge.
+    expect(force(LMA_5, 'am-speirs')).toMatchObject({ units: [{ def: 'am.L102', count: 1 }], setup: { kind: 'enter', provisional: 'ssr', appear: true, hexes: LMA5_EASY_SETUP } });
     expect(force(LMA_5, 'am-item').setup).toMatchObject({ kind: 'enter', turn: 2, edge: 'E', provisional: { drAtMost: { 2: 3, 3: 6 } } });
     // The 88L's M# is red on the counter: a large target.
     expect(COUNTERS['ge.AA88L']).toMatchObject({ kind: 'gun', targetSize: 'large', m: 4, rof: 2, mount: '360' });
@@ -1948,10 +1956,11 @@ describe('LMA5 Frères d’arme 5: Foy', () => {
     expect(LMA5_VILLAGE).toHaveLength(63);
     expect(LMA5_VILLAGE).toEqual(expect.arrayContaining(['yI1', 'yN10', 'yL6']));
     expect(LMA5_PANZER_SETUP).toHaveLength(19);
-    expect(LMA5_EASY_SETUP).toEqual(expect.arrayContaining(['yX0', 'yCC3', 'yAA1']));
-    expect(LMA5_EASY_SETUP).not.toContain('yX4');
+    // "Between X0 and CC3": the hexes of the row joining them (SSR 4 names it "the X0-CC3 row"), one straight line of hexes.
+    expect(LMA5_EASY_SETUP).toEqual(['yX0', 'yY1', 'yZ1', 'yAA2', 'yBB2', 'yCC3']);
+    const yMap = buildMap([{ board: 'y', x: 0, y: 0 }], { los: 'grid' });
+    expect(new Set(LMA5_EASY_SETUP.map((h) => yMap.hex(h)!.cube.r)).size).toBe(1);
     expect(LMA5_ITEM_ENTRY).toEqual(['yA1', 'yB0', 'yC1', 'yD0', 'yE1']);
-    expect(LMA5_SPEIRS_ENTRY).toEqual(['yX0', 'yY1', 'yZ0', 'yAA1', 'yBB0', 'yCC1']);
     let { engine, state } = game();
     for (const side of ['ge', 'am']) {
       const d = engine.currentDecision(state)!;
@@ -1962,9 +1971,43 @@ describe('LMA5 Frères d’arme 5: Foy', () => {
       state = engine.submit(state, { ...auto, side, decisionId: d.id } as never).state;
     }
     for (const p of Object.values(state.pieces).filter((x) => x.side === 'ge' && x.tags['force'] === 0 && x.loc.kind === 'hex')) expect(LMA5_UW_BUILDINGS).toContain((p.loc as { hex: string }).hex);
+    const easy = Object.values(state.pieces).filter((x) => x.side === 'am' && x.loc.kind === 'hex');
+    expect(easy.length).toBeGreaterThan(0);
+    for (const p of easy) expect(LMA5_EASY_SETUP).toContain((p.loc as { hex: string }).hex);
     // Lt Speirs waits for SSR 4; he is not a unit the Americans have yet.
     const speirs = Object.values(state.pieces).find((p) => p.defId === 'am.L102')!;
-    expect(speirs).toMatchObject({ loc: { kind: 'offboard', edge: 'E' }, tags: { entryRoll: 'ssr', entryTurn: 0 } });
+    expect(speirs).toMatchObject({ loc: { kind: 'offboard', edge: 'E' }, tags: { entryRoll: 'ssr', entryTurn: 0, appearHexes: LMA5_EASY_SETUP.join(',') } });
+    // No edge to enter by: the board draws no offboard hexes for him.
+    expect(speirs.tags['entryEdge']).toBeUndefined();
+  });
+
+  it('SSR 4: once due, Lt Speirs is set up on a hex of the X0-CC3 row as the American RPh begins, and plays on from there', () => {
+    let { engine, state } = game();
+    const speirsId = Object.values(state.pieces).find((p) => p.defId === 'am.L102')!.id;
+    for (const side of ['ge', 'am']) {
+      const d = engine.currentDecision(state)!;
+      // Due on Turn 1, as if Lt Dike had been relieved the turn before (the relief itself: rules/test/leaderRelief.test.ts).
+      if (side === 'am') state = { ...state, pieces: { ...state.pieces, [speirsId]: { ...state.pieces[speirsId]!, tags: { ...state.pieces[speirsId]!.tags, entryTurn: 1 } } } };
+      const [auto] = engine.legalActions(state, side) as unknown as [{ placements: Record<string, string> }];
+      state = engine.submit(state, { ...auto, side, decisionId: d.id } as never).state;
+    }
+    const d = engine.currentDecision(state)!;
+    expect(d).toMatchObject({ kind: 'offboardSetup', owner: 'am' });
+    const env = engine.env(state);
+    // What the player is offered: the row's hexes, all of them (each can take a leader), and no offboard hex.
+    expect(piecesToPlace(env, d).map((p) => p.id)).toEqual([speirsId]);
+    expect(placementHexes(env, state.pieces[speirsId]!).sort()).toEqual([...LMA5_EASY_SETUP].sort());
+    const [auto] = engine.legalActions(state, 'am') as unknown as [{ placements: Record<string, string> }];
+    expect(LMA5_EASY_SETUP).toContain(auto.placements[speirsId]);
+    state = engine.submit(state, { ...auto, side: 'am', decisionId: d.id } as never).state;
+    expect(state.pieces[speirsId]!.loc).toEqual({ kind: 'hex', hex: auto.placements[speirsId] });
+    // The RPh goes on; in the MPh he moves like any unit on the map.
+    for (let i = 0; i < 6 && state.phase !== 'MPh'; i++) {
+      const dd = engine.currentDecision(state)!;
+      state = engine.submit(state, { type: 'endPhase', side: dd.owner, decisionId: dd.id } as never).state;
+    }
+    expect(state.phase).toBe('MPh');
+    expect(engine.legalActions(state, 'am').some((a) => a.type === 'move.start' && (a['units'] as string[]).includes(speirsId))).toBe(true);
   });
 
   it('VC: at the end of an American MPh, a unit of each company in one building having lost fewer MMC than the Germans', () => {

@@ -218,6 +218,8 @@ export interface VehicleDef extends CounterBase {
   };
   /** Machine guns (SK4 7.8): Bow / Coaxial / Anti-Aircraft / Rear FP; a white dot on the BMG is a Fixed Mount. */
   mg: { bmg?: number; bmgFixed?: boolean; cmg?: number; aamg?: number; rmg?: number };
+  /** "CMG: VCA Only" (or "MG: VCA only") on the counter back: that CMG may not attack in CC (ASLRB D1.82, A11.62). */
+  cmgVcaOnly?: true;
   /** The MA is one of the vehicle's MGs (the Light Tank Mk VIB prints "*CMG" with a ROF box): that MG fires with the MA's ROF. */
   maMg?: { mg: 'bmg' | 'cmg'; rof?: number };
   /** Open-Topped (SK4 7.13): the depiction on a white background. */
@@ -790,6 +792,13 @@ export interface ScenarioForce {
         mfSpent?: number;
         /** Vehicles enter "having already expended" that many MP, or half their MP allowance ('half'). */
         mpSpent?: number | 'half';
+        /**
+         * The force appears on `hexes` (map hexes) rather than moving on from an edge ("appears as a reinforcement ... on
+         * the X0-CC3 row"): its owner sets it up there as the first act of the RPh it is due, as entering units set up
+         * offboard then (ASLRB A2.51); if none of them can take it, it comes a Game Turn later (A2.5). `edge` is only where
+         * it waits until then.
+         */
+        appear?: boolean;
       }
     /**
      * Placed by a dice roll from a chosen hex (S22 SSR 1: stacks scattered around a "rendezvous" hex); the

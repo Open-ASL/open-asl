@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Engine, GameState } from '@asl/engine';
+import { ALL_SCENARIOS, newGame } from '@asl/content';
 import { statics } from '@asl/rules';
 import { sk2CoreModules } from '../../../packages/rules/src/sk2';
 import { sk3CoreModules } from '../../../packages/rules/src/sk3';
@@ -43,6 +44,19 @@ describe('offboard hexes on the board', () => {
 
   it('draws none before it moves, nor for any other unit', () => {
     expect(offboardStepKey(legal(state), map)).toBe('');
+  });
+
+  it('takes a step into an upper building level for an onboard step, not an unknown hex (ASLRB A2.8 Location ids)', () => {
+    // A squad on level 1 of a two-level building steps along that level ("uP2:1") or down the stairs: both stay on the map.
+    const { engine: e, state: s0 } = newGame(ALL_SCENARIOS.find((x) => x.id === 'asl-testbed-mines')!, 'levels', { los: 'grid' });
+    const sq = Object.values(s0.pieces).find((p) => p.side === 'ru' && p.defId === 'ru.527')!;
+    const pieces = Object.fromEntries(Object.values(s0.pieces).filter((p) => p.loc.kind === 'hex').map((p) => [p.id, p]));
+    pieces[sq.id] = { ...sq, loc: { kind: 'hex', hex: 'uP3', level: 1 } };
+    const start: GameState = { ...s0, phase: 'MPh', attacker: 'ru', turn: 2, pieces, decisions: [{ id: 'd1', kind: 'phase', owner: 'ru', deadlineClass: 'turn', data: { phase: 'MPh' } }] };
+    const s = act(e, start, { type: 'move.start', units: [sq.id] }).state;
+    const steps = (e.legalActions(s, 'ru') as Action[]).filter((a) => a.type === 'move.step').map((a) => a['to'] as string);
+    expect(steps.some((to) => to.includes(':'))).toBe(true);
+    expect(offboardStepKey(e.legalActions(s, 'ru') as Action[], statics(e.env(s)).map)).toBe('');
   });
 
   it('keeps the entry edges and the hexes beyond the exit hexes, each once', () => {

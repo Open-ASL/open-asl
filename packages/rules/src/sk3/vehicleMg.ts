@@ -119,6 +119,23 @@ export function turretTurnFor(env: QueryEnv, decl: Pick<FireDeclaration, 'sw' | 
   return rearOnly ? (spine + 3) % 6 : spine;
 }
 
+/**
+ * Why a vehicle MG may not fire now whatever its target (disabled, or barred by the crew's posture: the AAMG only
+ * Crew Exposed, SK4 7.8; ASLRB D1.83), or null. The wheel offers only the MGs this passes.
+ */
+export function vehicleMgUnavailable(env: QueryEnv, id: PieceId): string | null {
+  const mg = vehicleMgOf(env, id);
+  if (!mg) return null;
+  const v = pieceOf(env, mg.vehicle);
+  const d = vehicle(env, v);
+  const kind = mg.kind;
+  if (pieceOf(env, id).tags[T3.mgDisabled]) return `The ${kind.toUpperCase()} is disabled`;
+  if (kind === 'aamg' && !isCe(v)) return 'The AAMG fires only while Crew Exposed';
+  if (d?.openTopped && !isCe(v) && kind !== 'bmg') return 'A Buttoned Up Open-Topped AFV fires only its bow MG';
+  if (kind === 'cmg' && isCe(v) && (d?.turret === 'RST' || d?.turret === '1MT')) return 'A Restricted Slow Traverse or One Man Turret cannot fire its CMG while Crew Exposed';
+  return null;
+}
+
 /** Why a vehicle's MGs (and its MA's IFE with them) may not fire this declaration, or null. */
 export function vehicleMgIllegal(env: QueryEnv, decl: FireDeclaration, mode: FireMode, side: string, moving?: PieceId[]): string | null {
   const mgs = decl.sw.map((id) => ({ id, mg: vehicleMgOf(env, id) })).filter((x) => x.mg);
@@ -155,10 +172,8 @@ export function vehicleMgIllegal(env: QueryEnv, decl: FireDeclaration, mode: Fir
   const tca = decl.tca ?? tcaOf(env, v);
   for (const { id, mg } of mgs) {
     const kind = mg!.kind;
-    if (pieceOf(env, id).tags[T3.mgDisabled]) return `The ${kind.toUpperCase()} is disabled`;
-    if (kind === 'aamg' && !isCe(v)) return 'The AAMG fires only while Crew Exposed';
-    if (d.openTopped && !isCe(v) && kind !== 'bmg') return 'A Buttoned Up Open-Topped AFV fires only its bow MG';
-    if (kind === 'cmg' && isCe(v) && (d.turret === 'RST' || d.turret === '1MT')) return 'A Restricted Slow Traverse or One Man Turret cannot fire its CMG while Crew Exposed';
+    const unavailable = vehicleMgUnavailable(env, id);
+    if (unavailable) return unavailable;
     if (decl.target !== at && kind !== 'aamg') {
       const spine = kind === 'bmg' ? vcaOf(v) : kind === 'rmg' ? (tca + 3) % 6 : tca;
       if (!inCoveredArc(me.cube, spine, target.cube)) return `The ${kind.toUpperCase()} fires through the ${kind === 'bmg' ? 'Vehicle' : 'Turret'} Covered Arc: turn first`;

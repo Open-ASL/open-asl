@@ -4,6 +4,14 @@ import { SKY_NAME, chartLabel, entrenchmentAt, minefieldAt, rubbleAt, fortifiedK
 // The naming helpers live in @asl/rules (labels.ts) so the server can name units too; re-exported for the many callers here.
 export { NATION, PHASE_NAME, defLabel, hexLabel, humanize, nameIds, nationName, pieceLabel, sideNameOf };
 
+/**
+ * The side a phase belongs to, to name it by: the DEFENDER's in the Defensive Fire Phase (SK1 3.4: "the DEFENDER may
+ * fire"; a card's "Russian Defensive Fire Phase" is the Russians' own), the ATTACKER's otherwise.
+ */
+export function phaseSide(phase: string, attacker: SideId, sides: readonly SideId[]): SideId {
+  return phase === 'DFPh' ? (sides.find((s) => s !== attacker) ?? attacker) : attacker;
+}
+
 /** Ammunition names for the log (SK4 6.2). */
 const AMMO_LABEL: Record<string, string> = { HE: 'HE', AP: 'AP', HEAT: 'HEAT', APCR: 'APCR', APDS: 'APDS', SMOKE: 'Smoke', WP: 'WP' };
 
@@ -168,14 +176,16 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
     at = i;
     const p = e.payload as Record<string, unknown>;
     switch (e.type) {
-      case 'turn.phaseStarted':
+      case 'turn.phaseStarted': {
+        const side = phaseSide(p['phase'] as string, p['attacker'] as string, env.state.sides);
         out.push({
           seq: e.seq,
           kind: 'phase',
-          text: `Turn ${p['turn']} — ${sideNameOf(env, p['attacker'] as string)} ${PHASE_NAME[p['phase'] as string] ?? p['phase']}`,
-          phase: { turn: p['turn'] as number, side: p['attacker'] as string, name: PHASE_NAME[p['phase'] as string] ?? String(p['phase']) },
+          text: `Turn ${p['turn']} — ${sideNameOf(env, side)} ${PHASE_NAME[p['phase'] as string] ?? p['phase']}`,
+          phase: { turn: p['turn'] as number, side, name: PHASE_NAME[p['phase'] as string] ?? String(p['phase']) },
         });
         break;
+      }
       case 'sk1.fire.attack': {
         const dr = p['dr'] as [number, number];
         // How the FP came about (½ Advancing Fire, +1 Assault Fire ...) and every DRM on the attack.
@@ -840,6 +850,19 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
           kind: 'info',
           text: `${ap?.rule ?? 'SSR'}: first ${firer} fire attack (Turn ${r.firedOn}): the ${sideNameOf(env, r.side)} ${force?.group ?? 'reinforcements'} enter on Turn ${r.turn}${edge ? ` along the ${edge} edge` : ''}`,
         });
+        break;
+      }
+      case 'sk1.appeared': {
+        // A reinforcement set up on the map hexes its card names, as its side's RPh begins (ASLRB A2.51).
+        const r = p as { side: string; units: string[]; hexes: string[] };
+        const who = r.units.map((u) => (env.state.pieces[u] ? pieceLabel(env, env.state.pieces[u]!) : u)).join(', ');
+        out.push({ seq: e.seq, kind: 'info', text: `${sideNameOf(env, r.side)} reinforcement appears: ${who} in ${r.hexes.map((h) => h.replace(/^[a-z]+(?=[A-Z])/, '')).join(', ')}` });
+        break;
+      }
+      case 'sk1.appearDelayed': {
+        // None of its hexes could take it (enemy-held, or full): it comes a Game Turn later (ASLRB A2.5).
+        const r = p as { side: string; units: string[]; turn: number };
+        out.push({ seq: e.seq, kind: 'info', text: `${sideNameOf(env, r.side)} reinforcement${r.units.length === 1 ? '' : 's'} cannot appear: no hex for ${r.units.length === 1 ? 'it' : 'them'} to set up in; due on Turn ${r.turn}` });
         break;
       }
       case 'sk1.reserve': {

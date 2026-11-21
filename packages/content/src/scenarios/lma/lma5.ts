@@ -16,12 +16,13 @@ export const LMA5_UW_BUILDINGS = buildingHexesWhere('y', { rows: ['U', 'W'] });
 export const LMA5_VILLAGE = hexesWhere('y', { rows: ['I', 'N'] });
 /** The tanks: ≤ 2 hexes from L6. */
 export const LMA5_PANZER_SETUP = hexesWithin('y', 'yL6', 2);
-/** Easy Company: between X0 and CC3 (hexrows X-CC, hexes numbered 0-3). */
-export const LMA5_EASY_SETUP = hexesWhere('y', { rows: ['X', 'CC'], numbered: [0, 3] });
+/**
+ * Easy Company: "between X0 and CC3", the hexes of the row joining them (SSR 4 calls it "the X0-CC3 row"): X0 and CC3
+ * lie on one straight line of hexes, X0-Y1-Z1-AA2-BB2-CC3, as the card's other "between" ranges run along a row.
+ */
+export const LMA5_EASY_SETUP = ['yX0', 'yY1', 'yZ1', 'yAA2', 'yBB2', 'yCC3'];
 /** Item Company: from the east edge between A1 and E1. */
 export const LMA5_ITEM_ENTRY = edgeHexesWhere('y', 'N', ['A', 'E']);
-/** Lt Speirs: "on the X0-CC3 row", entering from the east edge along hexrows X-CC. */
-export const LMA5_SPEIRS_ENTRY = edgeHexesWhere('y', 'N', ['X', 'CC']);
 
 /** LMA5 Frères d’arme 5: Foy (Foy, Belgium, 13 January 1945). */
 export const LMA_5: ScenarioDef = {
@@ -137,7 +138,9 @@ export const LMA_5: ScenarioDef = {
         kind: 'enter',
         turn: 3,
         edge: 'E',
-        hexes: LMA5_SPEIRS_ENTRY,
+        // SSR 4: he "appears as a reinforcement the following turn on the X0-CC3 row": set up on one of its hexes.
+        hexes: LMA5_EASY_SETUP,
+        appear: true,
         provisional: 'ssr',
         description:
           'Lt Speirs (10-2) appears as a reinforcement the turn after Lt Dike fails a MC, on the X0-CC3 row (SSR 4)',

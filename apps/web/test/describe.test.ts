@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Ctx, RuleModule } from '@asl/engine';
 import { FP, japaneseModule, type FireDeclaration, type FireMode, type ResolveFireFn } from '@asl/rules';
-import { act, makeEngine } from '../../../packages/rules/test/fixtures';
+import { RU_VS_GE, act, makeEngine } from '../../../packages/rules/test/fixtures';
 import { ASL_TESTBED_SCENARIO, fixtureActions, newGame, PLAYABLE_SCENARIOS } from '@asl/content';
 import type { GameState } from '@asl/engine';
 import { describeEvents, entryRoll, phaseSections, type LogLine } from '../src/game/describe';
@@ -24,6 +24,15 @@ const testFire: RuleModule = {
 const terrain = { yP5: { terrain: 'building-stone' }, yO5: { terrain: 'orchard' } };
 
 describe('game log', () => {
+  it('a phase header names the side the phase belongs to: the DEFENDER in the Defensive Fire Phase (SK1 3.4)', () => {
+    const { engine, state } = makeEngine({ scenario: RU_VS_GE, pieces: [] });
+    const env = engine.env(state);
+    const head =(phase: string) => describeEvents(env, [{ seq: 1, type: 'turn.phaseStarted', payload: { phase, turn: 4, attacker: 'ru' } }] as never)[0]!;
+    expect(head('DFPh').phase).toMatchObject({ turn: 4, side: 'ge', name: 'Defensive Fire Phase' });
+    expect(head('DFPh').text).toBe('Turn 4 — German Defensive Fire Phase');
+    for (const phase of ['RPh', 'PFPh', 'MPh', 'AFPh', 'RtPh', 'APh', 'CCPh']) expect(head(phase).phase!.side, phase).toBe('ru');
+  });
+
   it('a rout step that drew Interdiction carries the LOS it was interdicted along, to be drawn like a shot\u2019s', () => {
     // Open Ground from N5 to the woods at L5; a German squad at P5 sees M5 (SK1 3.6).
     const { engine, state } = makeEngine({

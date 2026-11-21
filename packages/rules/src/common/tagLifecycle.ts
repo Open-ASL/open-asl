@@ -54,6 +54,8 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   entryRoll: 'lasting',
   entryHexes: 'lasting',
   entryMfSpent: 'lasting',
+  /** The map hexes a reinforcement appears on (its card): set at creation, cleared when it is set up on one (ASLRB A2.51). */
+  appearHexes: 'lasting',
   // SK2 (sk2/status T2)
   ca: 'lasting',
   emplaced: 'lasting',

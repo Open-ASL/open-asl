@@ -488,8 +488,9 @@ export const concealmentModule: RuleModule = {
         } else if (st.step === 'ambusher' && st.ambusher) {
           drop(otherSide(ctx.state, st.ambusher));
         } else if (st.step === 'other' && st.ambusher) {
-          // The ambusher's attacks are done and an enemy still stands: it did not "both ambush and eliminate all enemy units".
-          drop(st.ambusher);
+          // The ambusher's attacks are done. If an enemy unit is still in the hex (broken or not), it did not "both ambush and
+          // eliminate all enemy units"; if none is, it keeps its "?" whoever sees the hex.
+          if (inHex(otherSide(ctx.state, st.ambusher)).length > 0) drop(st.ambusher);
         }
       },
     });

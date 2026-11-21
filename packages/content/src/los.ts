@@ -251,7 +251,7 @@ export function pixelTracers(
       const t = s / steps;
       const x = ax + (bx - ax) * t;
       const y = ay + (by - ay) * t;
-      const owners = nearestHexes(centers, x, y);
+      let owners = nearestHexes(centers, x, y);
       if (owners.some((o) => o.id === from.id || o.id === to.id)) {
         // Woods art under the thread inside the end hexes themselves (an SSR may make it a mere hindrance).
         if (obstacle.has(terrainAt(x, y)) && WOODS.has(terrainAt(x, y))) for (const o of owners) if (o.id === from.id || o.id === to.id) woods.add(o.id);
@@ -270,7 +270,9 @@ export function pixelTracers(
         // SK4 1.1.1 / 3.2.1: hexes, units and terrain are at the level under them. Ground higher than
         // both hexes is a hill in the way; between levels, higher ground outside the higher hex is a
         // second Crest Line (the slope it leaves through may spill a few pixels past its hexside).
-        // Ground below both is overlooked entirely: neither obstacle nor Hindrance.
+        // Ground below both is overlooked entirely: neither obstacle nor Hindrance. Terrain, though, is at the level of its
+        // hex's centre dot (SK4 1.1.1): woods art of a hill hex drawn over the lower ground beside it is on the hill, and
+        // blocks a LOS between two hill hexes.
         const e = elevationAt(x, y);
         if (e > lo) {
           const slope = fromLevel > lo && e <= fromLevel && sinceHigher <= CREST_TOLERANCE_STEPS;
@@ -278,7 +280,10 @@ export function pixelTracers(
           continue;
         }
         hillRun = 0;
-        if (e < lo) continue;
+        if (e < lo) {
+          owners = owners.filter((o) => (o.elevation ?? 0) >= lo);
+          if (!owners.length) continue;
+        }
       }
       // Palm trees (PTO): an obstacle to a LOS between two levels, a Hindrance like any orchard on one level.
       if (fromLevel !== lo && opts.obstacleBetweenLevels && owners.some(opts.obstacleBetweenLevels)) return { clear: false, crossed, blockedAt: { x, y } };
@@ -305,7 +310,7 @@ export function pixelTracers(
       if (hindrance.has(code)) {
         const want = hindranceId[code]!;
         const [o1, o2] = nearestTwo(centers, x, y);
-        if (o1) {
+        if (o1 && owners.includes(o1.h)) {
           const sliver = o2 && o1.d / o2.d >= SPILL_RATIO && (o2.h.terrain === want || (want === 'brush' && isInherent(o2.h)));
           // A hex an SSR makes orchard (S20: "hexes that depict only Brush") is orchard whatever is drawn.
           const h = sliver ? o2.h : o1.h;

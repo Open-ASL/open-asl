@@ -83,18 +83,26 @@ export function maIllegal(env: QueryEnv, shot: OrdnanceShot, mode: FireMode): st
   const mgClass = swHeldBy(env.state, p.id).map((w) => fireMarker(w)).filter(Boolean).map((m) => (m === 'prep' ? 'PFPh' : m === 'adv' ? 'AFPh' : 'DF'))[0];
   const myClass = mode === 'prep' ? 'PFPh' : mode === 'advancing' ? 'AFPh' : 'DF';
   if (mgClass && mgClass !== myClass) return 'The Main Armament fires in the same fire phase as the vehicle\'s MGs';
-  if (mode === 'bounding') {
-    const ms = moveState(env);
-    if (!ms?.vehicle || ms.units[0] !== p.id) return 'Bounding First Fire is for the vehicle that is moving';
-    if (!ms.vehicle.started && !ms.vehicle.stopped) return 'Start the vehicle first';
-    // With ROF kept the MA carries no fire marker yet: `maBff` says the MA has fired this MPh. The vehicle's BFF tag
-    // alone is not enough: its MGs firing first set it too, and the MA may still fire after them (SK4 3.3.2.2).
-    if (ms.vehicle.maBff && !p.tags[T3.bffRof]) return 'The MA fired Bounding First Fire and lost ROF';
-    if (ms.vehicle.maBff && ms.vehicle.sinceBff === 0) return 'Spend another MP before firing again';
-    // Its MGs fired first: the first MA shot is from their hex, as "all other Weapons must be fired from the same hex as
-    // the first MA shot" (SK4 3.3.2.2). After it, an MA that kept ROF may fire again from another hex (ASLRB D3.3, C2.24).
-    if (!ms.vehicle.maBff && ms.vehicle.bffFrom && ms.hex !== ms.vehicle.bffFrom) return `Its MGs fired from ${ms.vehicle.bffFrom.replace(/^[a-z]/, '')}: in its MPh a vehicle fires every weapon from the hex of its first MA shot`;
-  }
+  if (mode === 'bounding') return maBffRefusal(env, p.id);
+  return null;
+}
+
+/**
+ * Why the moving vehicle's MA may not fire Bounding First Fire now, whatever the target (SK4 3.3.2.2), or null: the
+ * checks that rest on its move so far. The wheel greys its MA entry with this.
+ */
+export function maBffRefusal(env: QueryEnv, vehicleId: PieceId): string | null {
+  const p = pieceOf(env, vehicleId);
+  const ms = moveState(env);
+  if (!ms?.vehicle || ms.units[0] !== p.id) return 'Bounding First Fire is for the vehicle that is moving';
+  if (!ms.vehicle.started && !ms.vehicle.stopped) return 'Start the vehicle first';
+  // With ROF kept the MA carries no fire marker yet: `maBff` says the MA has fired this MPh. The vehicle's BFF tag
+  // alone is not enough: its MGs firing first set it too, and the MA may still fire after them (SK4 3.3.2.2).
+  if (ms.vehicle.maBff && !p.tags[T3.bffRof]) return 'The MA fired Bounding First Fire and lost ROF';
+  if (ms.vehicle.maBff && ms.vehicle.sinceBff === 0) return 'Spend another MP before firing again';
+  // Its MGs fired first: the first MA shot is from their hex, as "all other Weapons must be fired from the same hex as
+  // the first MA shot" (SK4 3.3.2.2). After it, an MA that kept ROF may fire again from another hex (ASLRB D3.3, C2.24).
+  if (!ms.vehicle.maBff && ms.vehicle.bffFrom && ms.hex !== ms.vehicle.bffFrom) return `Its MGs fired from ${ms.vehicle.bffFrom.replace(/^[a-z]/, '')}: in its MPh a vehicle fires every weapon from the hex of its first MA shot`;
   return null;
 }
 

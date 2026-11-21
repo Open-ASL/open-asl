@@ -304,6 +304,19 @@ export type SetupAction = Action & {
 
 /** Procedure run after a setup's placements are applied: (ctx, action, decision). Other rule packs wrap it (Guns). */
 export const SETUP_PLACED = 'sk1.scenario.placed';
+
+/** Reinforcements set up on the map hexes their card names, as their side's RPh begins (ASLRB A2.51). */
+export interface AppearedEvent {
+  side: SideId;
+  units: PieceId[];
+  hexes: HexId[];
+}
+/** Reinforcements due to appear that none of their hexes could take: they come on the given Game Turn (ASLRB A2.5). */
+export interface AppearDelayedEvent {
+  side: SideId;
+  units: PieceId[];
+  turn: number;
+}
 export type SetupPlacedFn = (ctx: Ctx, action: SetupAction, decision: Decision) => void;
 
 function setupHexes(force: ScenarioForce): HexId[] | null {
@@ -375,6 +388,9 @@ function placementHexesOf(env: QueryEnv, p: Piece): HexId[] {
     // Not where no unit may enter (S19's flooded grain), whatever area the card names.
     return (setupHexes(forceOf(env, p)) ?? [...map.hexes()].map((h) => h.id)).filter((h) => terrainOf(env, h).mf !== Infinity);
   }
+  // A force the card has appear on map hexes is set up on them, where a unit may enter (ASLRB A2.51).
+  const appear = p.tags['appearHexes'] as string | undefined;
+  if (appear !== undefined && p.loc.kind === 'offboard') return appear.split(',').filter((h) => !!map.hex(h) && terrainOf(env, h).mf !== Infinity);
   const edge = p.tags['entryEdge'] as string | undefined;
   if (!edge) return [];
   const allowed = (p.tags['entryHexes'] as string | undefined)?.split(',');
@@ -908,6 +924,9 @@ export const scenarioModule: RuleModule = {
     });
     /** Units held back at an offboard setup under a reserve rule, to enter on `turn` from `edges`. */
     r.event<{ side: SideId; pieces: PieceId[]; turn: number; edges: string[]; label: string | null }>({ type: 'sk1.reserve', apply() {} });
+    // A reinforcement set up on the map hexes its card names (ASLRB A2.51), and one none of them could take, a turn later (A2.5).
+    r.event<AppearedEvent>({ type: 'sk1.appeared', apply() {} });
+    r.event<AppearDelayedEvent>({ type: 'sk1.appearDelayed', apply() {} });
     r.event<{ unit: PieceId; side: SideId; vp: number }>({
       type: 'sk1.exited',
       apply(d, p) {
@@ -998,8 +1017,12 @@ export const scenarioModule: RuleModule = {
               const tags: Record<string, string | number> = { force: fi };
               if (force.setup.kind === 'enter') {
                 tags['entryTurn'] = force.setup.turn;
-                tags['entryEdge'] = force.setup.edge;
-                if (force.setup.hexes) tags['entryHexes'] = force.setup.hexes.join(',');
+                // A force that appears on map hexes has no edge to enter by: it is set up on them when due (ASLRB A2.51).
+                if (force.setup.appear) tags['appearHexes'] = (force.setup.hexes ?? []).join(',');
+                else {
+                  tags['entryEdge'] = force.setup.edge;
+                  if (force.setup.hexes) tags['entryHexes'] = force.setup.hexes.join(',');
+                }
                 // Infantry enter with MF, vehicles with MP (or half their allowance), already expended per the card.
                 const spent = force.setup.mfSpent ?? force.setup.mpSpent;
                 if (spent) tags['entryMfSpent'] = spent;
@@ -1117,6 +1140,12 @@ export const scenarioModule: RuleModule = {
       event: 'turn.phaseStarted',
       handler(ctx, ev) {
         if (ev.payload.phase !== 'RPh') return;
+        // A unit due to appear on map hexes none of which can take it (enemy-held, or full) comes a Game Turn later: delayed
+        // entry is never voluntary (ASLRB A2.5).
+        const due = dueOffboard(ctx, ctx.state.attacker);
+        const blocked = due.filter((p) => p.tags['appearHexes'] !== undefined && !placementHexes(ctx, p).some((h) => !placementIllegal(ctx, ctx.state.attacker, due, { [p.id]: h }, true)));
+        for (const p of blocked) setTags(ctx, p.id, { entryTurn: ctx.state.turn + 1 });
+        if (blocked.length) ctx.emit('sk1.appearDelayed', { side: ctx.state.attacker, units: blocked.map((p) => p.id), turn: ctx.state.turn + 1 } satisfies AppearDelayedEvent);
         if (dueOffboard(ctx, ctx.state.attacker).length === 0) return;
         ctx.pushDecision({ kind: OFFBOARD_SETUP_DECISION, owner: ctx.state.attacker, deadlineClass: 'turn', data: {} });
       },
@@ -1141,10 +1170,19 @@ export const scenarioModule: RuleModule = {
       resolve(ctx, a) {
         const decision = ctx.state.decisions[ctx.state.decisions.length - 1]!;
         const todo = dueOffboard(ctx, decision.owner);
+        const appeared: PieceId[] = [];
         for (const [id, hex] of Object.entries(a.placements).sort()) {
           const p = pieceOf(ctx, id);
+          // A force that appears on map hexes is set up on the map itself, its waiting over (ASLRB A2.51).
+          if (p.tags['appearHexes'] !== undefined && statics(ctx).map.hex(hexOfLoc(hex))) {
+            ctx.emit('piece.moved', { id, loc: locationAt(hex) });
+            setTags(ctx, id, { appearHexes: null });
+            appeared.push(id);
+            continue;
+          }
           ctx.emit('piece.moved', { id, loc: { kind: 'offboard', edge: p.loc.kind === 'offboard' ? p.loc.edge : undefined, hex } });
         }
+        if (appeared.length) ctx.emit('sk1.appeared', { side: decision.owner, units: appeared, hexes: [...new Set(appeared.map((u) => hexOfLoc(a.placements[u]!)))].sort() } satisfies AppearedEvent);
         applySwAssignments(ctx, a.sw);
         // Units kept back (a reserve rule allowed it) enter later, from the edges it names.
         const kept = todo.filter((p) => !a.placements[p.id]).sort(byId);

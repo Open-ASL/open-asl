@@ -25,7 +25,7 @@ export interface LeaderReliefParams {
   name: string;
   /** The first Game Turn the Rally Phase check is taken. */
   fromTurn: number;
-  /** The replacement force (setup `{ kind: 'enter', provisional: 'ssr' }`): due the Game Turn after the failure. */
+  /** The replacement force (setup `{ kind: 'enter', provisional: 'ssr' }`, with `appear` when it appears on map hexes): due the Game Turn after the failure. */
   replacement: { force: string; name: string };
   /** The card's name for the rule, e.g. 'SSR 4'. */
   rule?: string;

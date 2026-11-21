@@ -121,6 +121,30 @@ describe('Close Combat with a vehicle (SK4 3.8)', () => {
     expect(s.phase).not.toBe('CCPh');
   });
 
+  it('a vehicle attacks with its CMG and RMG combined; only a CMG marked "VCA only" on the counter stays out (SK4 3.8; ASLRB A11.62, D1.82)', () => {
+    // A German 4-6-7 advanced into the KV-2's hex. The non-vehicular side goes first and passes; the KV-2 attacks with
+    // CMG 4 + RMG 2 = 6 against the squad's CCV 5: 1:1 (its BMG may not attack in CC).
+    const kv = makeEngine({
+      pieces: [{ id: 'g', def: 'ge.467', side: 'ge', hex: 'yM5', tags: { advancedInto: 'yM5' } }, { id: 'kv', def: 'ru.KV2', side: 'ru', hex: 'yM5', tags: { vca: 0, ca: 0 } }],
+      scenario: { ...RU_VS_GE, firstSide: 'ge' },
+      extra,
+      startPhase: 'CCPh',
+      dice: [5, 5],
+    });
+    let s = chooseHex(kv.engine, kv.state, 'yM5');
+    expect(decisionOf(kv.engine, s).owner).toBe('ge');
+    s = act(kv.engine, s, { type: 'cc.declare', attacks: [] }).state;
+    const r = act(kv.engine, s, { type: 'cc.declare', attacks: [{ attackers: ['kv'], targets: ['g'] }] });
+    expect(ev(r, 'sk1.cc.attack')[0]).toMatchObject({ side: 'ru', odds: '1:1', fp: { attack: [['kv', 6]], defense: [['g', 5]] } });
+    // The StuG IIIG (L)'s CMG fires through its VCA only: Buttoned Up it has no CC attack at all; Crew Exposed, its AAMG.
+    const stug = (ce: boolean) =>
+      makeEngine({ pieces: [{ id: 'st', def: 'ge.stgiiigl', side: 'ge', hex: 'yM5', tags: { vca: 0, ca: 0, ...(ce ? { ce: true } : {}) } }], scenario: RU_VS_GE, extra, startPhase: 'CCPh' });
+    for (const ce of [false, true]) {
+      const g = stug(ce);
+      expect(g.engine.query(g.state, 'cc.attackFp', { unit: 'st' }, 0).value).toBe(ce ? 1 : 0);
+    }
+  });
+
   it('an original 2 that could not otherwise succeed rolls a third die; an original 12 is a Casualty Reduction for the attacker', () => {
     // Panzer in Motion (+2): a lone leader (CCV 2) needs < 0: impossible; original 2 → third die 1 → eliminated.
     const two = setup([1, 1, 1], { motion: true });

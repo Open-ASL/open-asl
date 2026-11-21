@@ -125,4 +125,29 @@ describe('Woods-Road in the Rout Phase (SK1 1.1.1, 3.6)', () => {
     woodsInSight(engine, state, 'yM4');
     expect(rolled(act(engine, state, { type: 'rout.step', unit: 'a1', to: 'yM4' }).events)).toBe(0);
   });
+
+  it('an advance along the road costs the road rate: a half-squad with a mortar (2 MF) is not made CX (ASLRB A4.72, B13.4)', () => {
+    // The 3-4-8 HS (IPC 3) carries a 5-PP mortar: 4 MF less 2 for the excess PP leaves 2 MF. Into the Woods-Road
+    // hex M4 across the M3|M4 road hexside costs 1 MF; from L4, not across a road hexside, the woods cost all 2 MF.
+    const advance = (from: string) => {
+      const { engine, state } = makeEngine({
+        terrain,
+        roadHexsides,
+        startPhase: 'APh',
+        pieces: [
+          { id: 'h1', def: 'am.348h', side: 'am', hex: from },
+          { id: 'm1', def: 'am.MTR', side: 'am', heldBy: 'h1' },
+          { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yM9' },
+        ],
+      });
+      expect(engine.env(state).query('unit.mf', { unit: 'h1', stack: ['h1'], doubleTime: false }, 0)).toBe(2);
+      return act(engine, state, { type: 'advance', units: ['h1'], to: 'yM4' }).state.pieces['h1']!;
+    };
+    const road = advance('yM3');
+    expect(road.loc).toMatchObject({ kind: 'hex', hex: 'yM4' });
+    expect(road.tags['cx']).toBeUndefined();
+    const woods = advance('yL4');
+    expect(woods.loc).toMatchObject({ kind: 'hex', hex: 'yM4' });
+    expect(woods.tags['cx']).toBe(true);
+  });
 });

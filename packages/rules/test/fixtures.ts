@@ -139,6 +139,15 @@ export const COUNTERS: Record<string, CounterDef> = {
   'ge.pzivf2.bmg': { id: 'ge.pzivf2.bmg', nationality: 'ge', kind: 'sw', type: 'BMG', fp: 3, range: 8, pp: 0, fixed: true, b: 12, repair: 1 },
   'ge.pzivf2.cmg': { id: 'ge.pzivf2.cmg', nationality: 'ge', kind: 'sw', type: 'CMG', fp: 5, range: 12, pp: 0, fixed: true, b: 12, repair: 1 },
   'ge.otv': { id: 'ge.otv', nationality: 'ge', name: 'OT test AFV', openTopped: true, kind: 'vehicle', tracked: true, mp: 14, groundPressure: 'normal', af: { hull: { front: 6, side: 3, rear: 3 }, turret: { front: 6, side: 4, rear: 4 } }, turret: 'T', targetSize: 'normal', ma: { type: 'AT', caliber: 75, barrel: 'L', rof: 1, ammo: { he: true, ap: true }, specialAmmo: [{ kind: 'SMOKE', steps: [{ n: 8 }] }] }, mg: { bmg: 3, cmg: 5 }, smoke: [{ kind: 'sD', n: 6 }], ceDrm: 2, crewMorale: 8, cvp: 0 },
+  // As imported: the KV-2 (2/4 R2, no turret frame on its counter) and the StuG IIIG (L), whose CMG fires through its
+  // VCA only ("MG:VCA only" on the counter back).
+  'ru.KV2': { id: 'ru.KV2', nationality: 'ru', name: 'KV-2', kind: 'vehicle', tracked: true, mp: 9, redMp: true, groundPressure: 'normal', af: { hull: { front: 8, side: 8, rear: 8 }, turret: { front: 11, side: 8, rear: 8 } }, turret: 'NT', targetSize: 'veryLarge', ma: { type: 'AT', caliber: 152, barrel: '*', ammo: { he: true, ap: true } }, mg: { bmg: 2, cmg: 4, rmg: 2 }, cs: 7, ceDrm: 2, crewMorale: 8, cvp: 0 },
+  'ru.KV2.bmg': { id: 'ru.KV2.bmg', nationality: 'ru', kind: 'sw', type: 'BMG', fp: 2, range: 8, pp: 0, fixed: true, b: 12, repair: 1 },
+  'ru.KV2.cmg': { id: 'ru.KV2.cmg', nationality: 'ru', kind: 'sw', type: 'CMG', fp: 4, range: 12, pp: 0, fixed: true, b: 12, repair: 1 },
+  'ru.KV2.rmg': { id: 'ru.KV2.rmg', nationality: 'ru', kind: 'sw', type: 'RMG', fp: 2, range: 8, pp: 0, fixed: true, b: 12, repair: 1 },
+  'ge.stgiiigl': { id: 'ge.stgiiigl', nationality: 'ge', name: 'StuG IIIG (L)', kind: 'vehicle', tracked: true, mp: 13, groundPressure: 'normal', af: { hull: { front: 8, side: 3, rear: 3 }, turret: { front: 8, side: 3, rear: 3 } }, turret: 'NT', targetSize: 'small', ma: { type: 'AT', caliber: 75, barrel: 'L', rof: 1, ammo: { he: true, ap: true } }, mg: { cmg: 4, aamg: 1 }, cmgVcaOnly: true, cs: 4, ceDrm: 2, crewMorale: 8, cvp: 0 },
+  'ge.stgiiigl.cmg': { id: 'ge.stgiiigl.cmg', nationality: 'ge', kind: 'sw', type: 'CMG', fp: 4, range: 12, pp: 0, fixed: true, b: 12, repair: 1 },
+  'ge.stgiiigl.aamg': { id: 'ge.stgiiigl.aamg', nationality: 'ge', kind: 'sw', type: 'AAMG', fp: 1, range: 8, pp: 0, fixed: true, b: 12, repair: 1 },
   'ge.otv.bmg': { id: 'ge.otv.bmg', nationality: 'ge', kind: 'sw', type: 'BMG', fp: 3, range: 8, pp: 0, fixed: true, b: 12, repair: 1 },
   'ge.otv.cmg': { id: 'ge.otv.cmg', nationality: 'ge', kind: 'sw', type: 'CMG', fp: 5, range: 12, pp: 0, fixed: true, b: 12, repair: 1 },
 };

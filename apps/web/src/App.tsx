@@ -20,6 +20,7 @@ import { ProfileRedirect } from './profile/ProfileRedirect';
 const ScenarioExplorer = lazy(() => import('./lobby-v2/ScenarioExplorer').then((m) => ({ default: m.ScenarioExplorer })));
 const PublicProfilePage = lazy(() => import('./profile/PublicProfilePage').then((m) => ({ default: m.PublicProfilePage })));
 const AarPage = lazy(() => import('./aar/AarPage').then((m) => ({ default: m.AarPage })));
+const ChartsWindow = lazy(() => import('./panels/Charts').then((m) => ({ default: m.ChartsWindow })));
 
 export function App() {
   useEffect(() => {
@@ -43,6 +44,8 @@ export function App() {
         <Route path="/profile/:nickname" element={<Suspense fallback={<Splash text="Reading service record…" />}><PublicProfilePage /></Suspense>} />
         <Route path="/match/:id/replay" element={<PublicReplay />} />
         <Route path="/aar/:matchId" element={<Suspense fallback={<Splash text="Reading the after action report…" />}><AarPage /></Suspense>} />
+        {/* The charts popped out of a game into a window of their own. */}
+        <Route path="/charts" element={<Suspense fallback={<Splash text="Opening the charts…" />}><ChartsWindow /></Suspense>} />
         <Route
           path="/app"
           element={

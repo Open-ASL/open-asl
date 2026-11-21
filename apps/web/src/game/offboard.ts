@@ -1,4 +1,5 @@
 import type { Action, HexId } from '@asl/engine';
+import { hexOfLoc } from '@asl/rules';
 
 /** The part of the map the board needs to draw offboard hexes. */
 interface OffboardMap<H extends { id: HexId } = { id: HexId }> {
@@ -8,10 +9,13 @@ interface OffboardMap<H extends { id: HexId } = { id: HexId }> {
   offboardNeighbors(id: HexId): { onboard: HexId[] };
 }
 
-/** The offboard hexes a legal `move.step` enters now, sorted and joined (a stable memo key). */
+/**
+ * The offboard hexes a legal `move.step` enters now, sorted and joined (a stable memo key). A step names a Location (an
+ * upper building level is "uP2:1", ASLRB A2.8); an offboard hex has no levels, so the step is judged by its hex.
+ */
 export function offboardStepKey(legal: readonly Action[], map: OffboardMap): string {
   return legal
-    .filter((a) => a.type === 'move.step' && typeof a['to'] === 'string' && !map.hex(a['to']) && !!map.offboardHex(a['to']))
+    .filter((a) => a.type === 'move.step' && typeof a['to'] === 'string' && !map.hex(hexOfLoc(a['to'])) && !!map.offboardHex(a['to']))
     .map((a) => a['to'] as string)
     .sort()
     .join(',');

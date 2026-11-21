@@ -1643,6 +1643,11 @@ button.google:hover:not(:disabled) { filter: none; background: #f2f2f2; }
 .ch-rail-hint { margin-top: auto; padding: 12px 6px 0; font-size: 11px; line-height: 1.9; }
 .ch-page { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .ch-page-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 10px; border-bottom: 1px solid var(--line); background: var(--hexes), transparent; }
+.ch-page-actions { display: flex; align-items: center; gap: 6px; }
+.ch-popout { font-size: 12px; letter-spacing: 0.04em; }
+/* The charts in a window of their own (/charts): the binder fills it. */
+.charts-window { position: fixed; inset: 0; display: grid; background: var(--panel); }
+.set-panel.charts.windowed { width: 100vw; height: 100vh; border: 0; border-radius: 0; box-shadow: none; animation: none; }
 .ch-page-body { flex: 1; overflow: auto; padding: 16px 18px 22px; animation: rise 0.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .ch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; align-items: start; }
 .set-panel .ch-card { background: rgba(0, 0, 0, 0.18); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px 14px; min-width: 0; }
@@ -1751,8 +1756,7 @@ button.google:hover:not(:disabled) { filter: none; background: #f2f2f2; }
 .afv-white { fill: #f4efe2; }
 .afv-ink-box { fill: none; stroke: #15110a; stroke-width: 2; }
 .afv-turret-ring { fill: none; stroke: #f4efe2; stroke-width: 3; }
-.afv-tank rect, .afv-tank circle { fill: rgba(244, 239, 226, 0.22); stroke: #15110a; stroke-width: 1.4; }
-.afv-tank line { stroke: #15110a; stroke-width: 3; stroke-linecap: round; }
+.afv-tank { filter: drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.45)); }
 .afv-zone { cursor: help; }
 .afv-callout { cursor: help; }
 .afv-callout circle { fill: var(--panel-3); stroke: var(--line-hi); stroke-width: 1; transition: fill 0.12s ease; }

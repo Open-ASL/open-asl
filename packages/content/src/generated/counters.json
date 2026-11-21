@@ -5651,6 +5651,7 @@
    "cmg": 4,
    "aamg": 1
   },
+  "cmgVcaOnly": true,
   "smoke": [
    {
     "kind": "sN",

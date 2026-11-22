@@ -71,7 +71,7 @@ export function maIllegal(env: QueryEnv, shot: OrdnanceShot, mode: FireMode): st
   if (!p || !d || !d.ma) return 'The vehicle has no Main Armament';
   if (isWreck(p)) return 'A wreck does not fire';
   if (p.tags[T3.maDisabled]) return 'The Main Armament is disabled';
-  if (!crewCanAct(p)) return p.tags[T3.shock] ? 'A Shocked crew cannot fire' : 'A Stunned crew cannot fire this Player Turn';
+  if (!crewCanAct(p)) return p.tags[T3.shock] ? 'A Shocked crew cannot fire' : 'A stunned crew cannot fire this Player Turn';
   if (isCe(p) && (d.turret === 'RST' || d.turret === '1MT')) return 'A Restricted Slow Traverse or One Man Turret cannot fire its MA while Crew Exposed: Button Up first';
   if (mode === 'prep' && inMotion(p)) return 'A vehicle in Motion may not Prep Fire: it must move first';
   // Turned without MP at the end of this phase (SK4 3.3.2): it fires no more in it.

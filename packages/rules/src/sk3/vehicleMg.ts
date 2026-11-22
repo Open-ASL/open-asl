@@ -151,7 +151,7 @@ export function vehicleMgIllegal(env: QueryEnv, decl: FireDeclaration, mode: Fir
   const d = vehicle(env, v)!;
   if (v.side !== side) return 'Not your vehicle';
   if (isWreck(v)) return 'A wreck does not fire';
-  if (!crewCanAct(v)) return v.tags[T3.shock] ? 'A Shocked crew cannot fire' : 'A Stunned crew cannot fire this Player Turn';
+  if (!crewCanAct(v)) return v.tags[T3.shock] ? 'A Shocked crew cannot fire' : 'A stunned crew cannot fire this Player Turn';
   // Turned without MP at the end of this phase (SK4 3.3.2): it fires no more in it.
   const turned = caTurnedIllegal(env, v);
   if (turned) return turned;

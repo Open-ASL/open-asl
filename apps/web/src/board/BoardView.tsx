@@ -589,8 +589,8 @@ export function vehicleTabs(env: { state: GameState; statics: Statics }, p: Piec
   if (t['immob']) out.push({ text: 'IMM', tone: 'out' });
   if (t['shock'] === 'shock') out.push({ text: 'SHOCK', tone: 'bad' });
   if (t['shock'] === 'uk') out.push({ text: 'UK', tone: 'bad' });
-  if (t['stun'] === 'fresh') out.push({ text: 'STUN', tone: 'bad' });
-  if (t['stun'] === 'plus1') out.push({ text: 'STUN +1', tone: 'bad' });
+  if (t['stun'] === 'fresh') out.push({ text: 'stun', tone: 'bad' });
+  if (t['stun'] === 'plus1') out.push({ text: 'stun +1', tone: 'bad' });
   if (t['recall']) out.push({ text: 'RECALL', tone: 'bad' });
   if (t['lowAmmo']) out.push({ text: 'LOW AMMO', tone: 'bad' });
   if (t['maDisabled']) out.push({ text: 'MA', tone: 'out' });

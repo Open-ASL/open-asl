@@ -23,8 +23,9 @@ describe('vehicle status tabs (in place of full-size marker counters)', () => {
   });
 
   it('shows each state that hampers it, and a malfunctioned or disabled MA or MG (SK4 3.3.2, 7.2, 7.6, 7.7, 7.10)', () => {
-    expect(at({ immob: true, stun: 'fresh', malf: true })).toEqual(['IMM:out', 'STUN:bad', 'MA:bad']);
+    expect(at({ immob: true, stun: 'fresh', malf: true })).toEqual(['IMM:out', 'stun:bad', 'MA:bad']);
     expect(at({ bog: 'bogged', shock: 'uk', recall: true, lowAmmo: true, maDisabled: true, malf: true })).toEqual(['BOG:bad', 'UK:bad', 'RECALL:bad', 'LOW AMMO:bad', 'MA:out']);
+    expect(at({ stun: 'plus1' })).toEqual(['stun +1:bad']);
     expect(at({}, 'am.M4A3', { malf: true })).toEqual(['BMG:bad']);
     expect(at({}, 'am.M4A3', { mgDisabled: true, malf: true })).toEqual(['BMG:out']);
     expect(at({ wreck: true, immob: true })).toEqual([]);

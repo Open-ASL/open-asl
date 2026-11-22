@@ -51,7 +51,7 @@ const STATUS: [string, string][] = [
   ['immob', 'Immobilized'],
   ['dugIn', 'Dug in'],
   ['shock', 'Shocked'],
-  ['stun', 'Stunned'],
+  ['stun', 'stunned'],
   ['recall', 'Recalled'],
   ['wreck', 'Wreck'],
   ['bff', 'Bounding First Fire'],
@@ -70,7 +70,7 @@ const VALUE_LABEL: Record<string, string> = {
   'rphAction-transfer': 'Transferred a SW this RPh',
   'rphAction-deploy': 'Deploy attempted this RPh',
   'rphAction-recombine': 'Recombination this RPh',
-  'bog-mired': 'Mired', 'shock-uk': 'Unconfirmed Kill', 'stun-plus1': 'Stunned (+1)' };
+  'bog-mired': 'Mired', 'shock-uk': 'Unconfirmed Kill', 'stun-plus1': 'stunned (+1)' };
 const FIRE_LABEL = { prep: 'Prep Fire', adv: 'Advancing Fire', first: 'First Fire', final: 'Final Fire' } as const;
 
 const NONE: ReadonlySet<PieceId> = new Set();

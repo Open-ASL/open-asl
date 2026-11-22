@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { DiceToast, ToastUnit } from './useGameFx';
+import { KEEP_CASE_RESULTS, type DiceToast, type ToastUnit } from './useGameFx';
 
 const PIPS: Record<number, number[]> = {
   1: [4],
@@ -120,7 +120,7 @@ function ToastCard({ toast: t, still }: { toast: DiceToast; still?: boolean }) {
           </div>
         )}
         {t.results.map((r, i) => (
-          <div key={i} className="dt-result">
+          <div key={i} className={KEEP_CASE_RESULTS.has(r) ? 'dt-result keep-case' : 'dt-result'}>
             {r}
           </div>
         ))}

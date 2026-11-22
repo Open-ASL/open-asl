@@ -550,6 +550,8 @@ input[type='checkbox'] { accent-color: var(--brass); width: 16px; height: 16px; 
 }
 .tag-dm, .tag-shock { color: #007bff; } .tag-shock-uk { color: #2194ff; }
 .tag-pinned, .tag-stun-fresh, .tag-cc { color: #f00a0a; }
+/* A lowercase stun is not a STUN (SK4 7.7; ASLRB D5.34): its tag keeps its case. */
+.tag-stun { text-transform: none; }
 .tag-fire-prep, .tag-fire-adv, .tag-bff { color: #f07000; }
 .tag-fire-first, .tag-fire-final { color: #c505c5; }
 .tag-rfp { color: #3f7d1c; }
@@ -834,6 +836,7 @@ input[type='checkbox'] { accent-color: var(--brass); width: 16px; height: 16px; 
 .dice-toast .dt-result { font-family: var(--font-head); font-weight: 700; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--brass-hi); animation: rise 0.3s ease 0.7s both; }
 .bad .dt-result { color: var(--red-hi); }
 .good .dt-result { color: var(--green); }
+.dice-toast .dt-result.keep-case { text-transform: none; }
 /* The units on a roll: who fired, who it happened to, each with its outcome under the counter. */
 .dice-toast .dt-units { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 7px; margin: 6px 0 4px; }
 .dice-toast .dt-arrow { align-self: center; font: 600 13px var(--font-head); letter-spacing: 0.06em; color: var(--muted); padding: 0 2px 12px; }
@@ -1082,6 +1085,7 @@ p.cc-hint { margin: 0; text-transform: none; letter-spacing: 0.02em; font-size: 
 .peek-row img { width: 36px; height: 36px; border-radius: 3px; box-shadow: 0 2px 3px rgba(0, 0, 0, 0.7); }
 .peek-name { display: grid; line-height: 1.2; }
 .peek-status { font-size: 10px; color: var(--brass); letter-spacing: 0.04em; text-transform: uppercase; }
+.peek-status .keep-case { text-transform: none; }
 
 /* interactive stack card: the pointer can move onto it to pick chits */
 .stack-peek.interactive { pointer-events: auto; }

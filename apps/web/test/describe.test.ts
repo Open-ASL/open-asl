@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Action, Ctx, RuleModule } from '@asl/engine';
 import { FP, japaneseModule, type FireDeclaration, type FireMode, type ResolveFireFn } from '@asl/rules';
 import { RU_VS_GE, act, makeEngine } from '../../../packages/rules/test/fixtures';
-import { ASL_TESTBED_SCENARIO, fixtureActions, newGame, PLAYABLE_SCENARIOS } from '@asl/content';
+import { ASL_TESTBED_SCENARIO, DEMO_VEHICLES_SCENARIO, fixtureActions, newGame, PLAYABLE_SCENARIOS } from '@asl/content';
 import type { GameState } from '@asl/engine';
 import { describeEvents, entryRoll, phaseSections, type LogLine } from '../src/game/describe';
 
@@ -57,6 +57,14 @@ describe('game log', () => {
     const line = describeEvents(engine.env(t.state), t.events).find((l) => l.text.startsWith('Rout:'))!;
     expect(line.text).toMatch(/Interdiction by/);
     expect(line.los).toEqual({ from: ['yP5'], to: 'yM5' });
+  });
+
+  it('tells a stun from a STUN by its case: a CE crew that fails its MC is stunned, an original 12 STUNs it (SK4 7.7; ASLRB D5.34)', () => {
+    const { engine, state } = newGame(DEMO_VEHICLES_SCENARIO, 'stun', { los: 'grid' });
+    const v = Object.values(state.pieces).find((p) => p.defId === 'am.M4A3')!;
+    const line = (status: string, by: string) => describeEvents(engine.env(state), [{ seq: 1, type: 'sk3.vehicle.status', payload: { vehicle: v.id, status, by } }] as never)[0]!.text;
+    expect(line('stun', 'fire on the CE crew: the CE crew failed its MC')).toMatch(/ is stunned \(fire on the CE crew: the CE crew failed its MC\)$/);
+    expect(line('STUN', 'fire on the CE crew: the CE crew rolled 12 on its MC')).toMatch(/ is Stunned and Recalled \(/);
   });
 
   it('a cowering attack shows the column it came to and the one it cowered to (SK1 3.2)', () => {

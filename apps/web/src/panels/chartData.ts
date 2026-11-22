@@ -364,7 +364,7 @@ export const VEHICLE_LISTS: DrmList[] = [
     foot: 'Final TK# = TK# (+1 vs the rear) × 2 on a Critical Hit, minus the AF of the aspect hit. Hull or turret: colored die < white die hits the turret. An original 12 is a dud.',
     rows: [
       { v: '< TK', label: 'Eliminated: the vehicle burns as a wreck' },
-      { v: '= TK', label: 'Hull hit: Immobilized. Turret hit: Shock', note: 'A MG hit equal to its TK# Stuns the crew instead.' },
+      { v: '= TK', label: 'Hull hit: Immobilized. Turret hit: Shock', note: 'A MG hit equal to its TK# stuns the crew instead.' },
       { v: 'TK+1', label: 'HE: Immobilized (hull) or Shock (turret). AP, APCR, HEAT: Possible Shock, a NTC on the crew morale' },
       { group: 'Crew Exposed crew, same DR on the IFT' },
       { v: 'KIA, K', label: 'STUN: Buttoned Up for the rest of the game and Recalled; +1 to its fire thereafter', ref: 'SK4 7.7' },

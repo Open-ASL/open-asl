@@ -3,7 +3,7 @@ import type { Action, Engine, GameState } from '@asl/engine';
 import { facingOf, hitLocation } from '../src/sk3/facing';
 import { sk2CoreModules } from '../src/sk2';
 import { sk3CoreModules } from '../src/sk3';
-import { T3 } from '../src/sk3/status';
+import { T3, stunWord } from '../src/sk3/status';
 import { RU_VS_GE, act, makeEngine, type PieceSpec } from './fixtures';
 
 /*
@@ -185,6 +185,36 @@ describe('the To Kill process (SK4 7.9, 7.10)', () => {
     expect(r.state.pieces['t34']!.tags[T3.stun]).toBe('fresh');
     expect(r.state.pieces['t34']!.tags[T3.recall]).toBe(true);
     expect(r.state.pieces['t34']!.tags[T3.ce]).toBeUndefined();
+  });
+
+  it('a STUN is recorded apart from a stun and written in capitals, a stun in lowercase, through the +1 flip (SK4 7.7; ASLRB D5.34)', () => {
+    // The CE T-34 in M5 under the German squad's fire from M6 (8 column): DR 2 is a KIA on the crew → STUN; DR 4 calls for a crew MC, failed on DR 10 → stun.
+    const run = (dice: number[]) => {
+      const g = makeEngine({ pieces: [{ id: 'sq', def: 'ge.467', side: 'ge', hex: 'yM6' }, t34('yM5', { ce: true })], scenario: { ...RU_VS_GE, firstSide: 'ge' }, extra, startPhase: 'PFPh', dice });
+      return { engine: g.engine, state: act(g.engine, g.state, { type: 'fire', decl: { units: ['sq'], sw: [], target: 'yM5' } }).state };
+    };
+    const STUN = run([1, 1]);
+    const stun = run([2, 2, 5, 5]);
+    expect(STUN.state.pieces['t34']!.tags).toMatchObject({ [T3.stun]: 'fresh', [T3.STUN]: true, [T3.recall]: true });
+    expect(stun.state.pieces['t34']!.tags).toMatchObject({ [T3.stun]: 'fresh' });
+    expect(stun.state.pieces['t34']!.tags[T3.STUN]).toBeUndefined();
+    // Either one Buttons the crew Up.
+    expect(STUN.state.pieces['t34']!.tags[T3.ce]).toBeUndefined();
+    expect(stun.state.pieces['t34']!.tags[T3.ce]).toBeUndefined();
+    expect(stunWord(STUN.state.pieces['t34']!, 'stunned')).toBe('STUNNED');
+    expect(stunWord(stun.state.pieces['t34']!, 'stunned')).toBe('stunned');
+    // Play on to the end of the German Player Turn: both counters flip to +1, and the STUN stays a STUN.
+    for (const g of [STUN, stun]) {
+      let s = g.state;
+      for (let i = 0; i < 20 && s.pieces['t34']!.tags[T3.stun] === 'fresh'; i++) {
+        const d = g.engine.currentDecision(s)!;
+        const legal = g.engine.legalActions(s, d.owner).find((a) => a.type === 'endPhase' || a.type === 'defPass');
+        if (!legal) break;
+        s = g.engine.submit(s, { ...legal, side: d.owner, decisionId: d.id } as never).state;
+      }
+      expect(s.pieces['t34']!.tags[T3.stun]).toBe('plus1');
+      expect(stunWord(s.pieces['t34']!, 'stun')).toBe(g === STUN ? 'STUN' : 'stun');
+    }
   });
 
   it('Shock recuperates in the Rally Phase: 1-2 recovers, 3-6 becomes an Unconfirmed Kill, which on 4-6 is a wreck', () => {

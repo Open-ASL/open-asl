@@ -17,7 +17,7 @@ import { SPINES, arcNeighbours, inCoveredArc, spineChange } from '../sk2/arc';
 import { levelOf } from '../sk2/elevation';
 import { T2 } from '../sk2/status';
 import { OP, simpleShots, type OrdnanceFireFn, type OrdnancePauseFn, type OrdnanceResumeFn, type OrdnanceShot } from '../sk2/ordnance';
-import { T3, crewCanAct, inMotion, isBogged, isCe, isImmobile, isMobile, isWreck, tcaOf, vcaOf, vehicle } from './status';
+import { T3, crewCanAct, inMotion, isBogged, isCe, isImmobile, isMobile, isWreck, stunWord, tcaOf, vcaOf, vehicle } from './status';
 import { applyVehicleEffect } from './vehicleStatus';
 import { installRecall } from './recall';
 
@@ -268,7 +268,7 @@ export function vehicleCannotStart(env: QueryEnv, id: PieceId): string | null {
   if (isWreck(p)) return 'A wreck does not move';
   if (p.tags[T3.immob]) return 'The vehicle is Immobilized';
   if (p.tags[T3.dugIn]) return 'A dug-in vehicle never moves';
-  if (!crewCanAct(p)) return p.tags[T3.shock] ? 'A Shocked vehicle may not move' : 'A Stunned vehicle may not move this Player Turn';
+  if (!crewCanAct(p)) return p.tags[T3.shock] ? 'A Shocked vehicle may not move' : `A ${stunWord(p, 'stunned')} vehicle may not move this Player Turn`;
   const ms = moveState(env);
   if (ms) {
     if (ms.units[0] !== id) return 'Finish moving the current stack first';
@@ -1102,7 +1102,7 @@ function ceIllegal(env: QueryEnv, id: PieceId, ce: boolean): string | null {
   if (p.side !== env.state.attacker) return 'Not your vehicle';
   if (env.state.phase !== 'MPh' && env.state.phase !== 'APh') return 'CE/BU changes in your Movement or Advance Phase';
   if (isWreck(p)) return 'A wreck has no crew';
-  if (!crewCanAct(p)) return 'A Shocked or Stunned crew stays Buttoned Up';
+  if (!crewCanAct(p)) return p.tags[T3.shock] ? 'A Shocked crew stays Buttoned Up' : `A ${stunWord(p, 'stunned')} crew stays Buttoned Up`;
   if (isCe(p) === ce) return ce ? 'Already Crew Exposed' : 'Already Buttoned Up';
   if (p.tags[T3.ceChanged] === `${env.state.turn}:${env.state.attacker}:${env.state.phase}`) return 'CE/BU may change once per phase';
   if (env.state.phase === 'MPh' && (fireMarker(p) === 'prep' || swHeldBy(env.state, id).some((w) => fireMarker(w) === 'prep'))) return 'No CE/BU change in the MPh after Prep Fire';

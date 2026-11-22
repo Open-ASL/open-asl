@@ -28,6 +28,8 @@ export const T3 = {
   shock: 'shock',
   /** Stunned this Player Turn ('fresh'), or carrying the +1 Stun counter for the rest of the game ('plus1'). */
   stun: 'stun',
+  /** The `stun` counter is a STUN (SK4 7.7; ASLRB D5.34), written in capitals, as against a stun: set with the Recall, never removed. */
+  STUN: 'STUN',
   /** Recalled (SK4 7.10): must leave the map by the shortest route. */
   recall: 'recall',
   /** A wreck (SK4 7.4): the counter stays on the map flipped. */
@@ -72,6 +74,9 @@ export const isShocked = (p: Piece) => p.tags[T3.shock] !== undefined;
 export const isStunned = (p: Piece) => p.tags[T3.stun] === 'fresh';
 export const hasStunPlus1 = (p: Piece) => p.tags[T3.stun] === 'plus1';
 export const isRecalled = (p: Piece) => p.tags[T3.recall] === true;
+export const hasSTUN = (p: Piece) => p.tags[T3.STUN] === true;
+/** A stun's word as the players write it: a STUN in capitals, a stun in lowercase, never mixed (SK4 7.7; ASLRB D5.34). */
+export const stunWord = (p: Piece, word: 'stun' | 'stunned') => (hasSTUN(p) ? word.toUpperCase() : word);
 /** The hull's Covered Arc (hexspine 0–5). */
 export const vcaOf = (p: Piece): number => (p.tags[T3.vca] as number | undefined) ?? 0;
 /** The turret's Covered Arc: SK2's `ca` tag for a turreted vehicle, the VCA otherwise. */

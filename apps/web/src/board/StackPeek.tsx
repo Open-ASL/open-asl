@@ -1,6 +1,6 @@
 import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
-import { bunkerTrenches, controlState, pillboxLoc, entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, lastMineAttacks, roadblockObstacles } from '@asl/rules';
+import { bunkerTrenches, controlState, pillboxLoc, entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, lastMineAttacks, roadblockObstacles, stunWord } from '@asl/rules';
 import { AMMO_NAME, acquisitionsAt, ammoOut, defOf, fireAt, fireMarker, fireNumbers, fortCounters, fortKindName, gunIdent, isWeaponDef, locationsOf, moveState, parseLabor, rubbleAt, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, terrainOf, windOf, type Statics, type VehicleDef } from '@asl/rules';
 import { counterImage, cxMarker, markerImage } from '../game/assets';
 import { fortMarker } from '../panels/FortTray';
@@ -50,7 +50,7 @@ function vehicleMgStates(env: QueryEnv, p: Piece): { type: string; state: 'malfu
 
 /**
  * Status of a counter: the marker chit that sits on it on the board (if any) and a label. `keepCase` keeps a label out
- * of the status line's capitals: a lowercase stun is not a STUN (SK4 7.7; ASLRB D5.34).
+ * of the status line's capitals, which would make a stun read as a STUN (SK4 7.7; ASLRB D5.34).
  */
 type Status = { label: string; marker?: string; keepCase?: boolean };
 function statusOf(env: QueryEnv, p: Piece): Status[] {
@@ -117,8 +117,8 @@ function statusOf(env: QueryEnv, p: Piece): Status[] {
     if (t['dugIn']) out.push({ label: 'dug in' });
     if (t['shock'] === 'shock') out.push({ label: 'Shocked', marker: 'Shock' });
     if (t['shock'] === 'uk') out.push({ label: 'Unconfirmed Kill', marker: 'UK' });
-    if (t['stun'] === 'fresh') out.push({ label: 'stunned', marker: 'Stun', keepCase: true });
-    if (t['stun'] === 'plus1') out.push({ label: 'stun +1', marker: 'StunPlus1', keepCase: true });
+    if (t['stun'] === 'fresh') out.push({ label: stunWord(p, 'stunned'), marker: 'Stun', keepCase: true });
+    if (t['stun'] === 'plus1') out.push({ label: `${stunWord(p, 'stun')} +1`, marker: 'StunPlus1', keepCase: true });
     if (t['recall']) out.push({ label: 'Recalled', marker: 'Recall' });
     if (t['bff']) out.push({ label: 'Bounding First Fire', marker: 'FireBnd' });
     if (t['lowAmmo']) out.push({ label: 'Low Ammo', marker: 'LowAmmo' });

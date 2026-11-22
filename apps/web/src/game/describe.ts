@@ -1285,7 +1285,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
       }
       case 'sk3.vehicle.status': {
         const st = p['status'] as string;
-        out.push({ seq: e.seq, kind: 'fire', text: `${name(p['vehicle'] as string)} ${st === 'immobilized' ? 'is Immobilized' : st === 'shock' ? 'is Shocked' : st === 'stun' ? 'is stunned' : st === 'STUN' ? 'is Stunned and Recalled' : st === 'bu' ? 'Buttons Up' : st} (${p['by']})` });
+        out.push({ seq: e.seq, kind: 'fire', text: `${name(p['vehicle'] as string)} ${st === 'immobilized' ? 'is Immobilized' : st === 'shock' ? 'is Shocked' : st === 'stun' ? 'is stunned' : st === 'STUN' ? 'is STUNNED and Recalled' : st === 'bu' ? 'Buttons Up' : st} (${p['by']})` });
         break;
       }
       case 'sk3.vehicle.check': {

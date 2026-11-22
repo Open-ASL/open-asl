@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture, UPDATE_PRIORITY } from 'pixi.js';
 import { cubeDistance, cubeNeighbors, type GameState, type HexId, type Piece, type QueryEnv, type SideId } from '@asl/engine';
-import { GEO, coveredArc, defOf, gun as gunDef, gunHex, hexOf as hexOfPiece, inCoveredArc, isCaptured, isWeaponDef, isWreck, spineDirections, swHeldBy, tcaOf, vcaOf, vehicle as vehicleDef, type MapHex, type ObjectiveArea, type Statics, acquisitionOf, gunIdents, ordnanceOf, SMOKE58, stackOrder, hexOfLoc, levelOfLoc, locKey } from '@asl/rules';
+import { GEO, stunWord, coveredArc, defOf, gun as gunDef, gunHex, hexOf as hexOfPiece, inCoveredArc, isCaptured, isWeaponDef, isWreck, spineDirections, swHeldBy, tcaOf, vcaOf, vehicle as vehicleDef, type MapHex, type ObjectiveArea, type Statics, acquisitionOf, gunIdents, ordnanceOf, SMOKE58, stackOrder, hexOfLoc, levelOfLoc, locKey } from '@asl/rules';
 import { CAVE_GONE, UNKNOWN_DEF_ID, cavesParams, caveLoc, cornerOffset, hexPixel, isCaveLoc, isPillboxLoc, moveState, pillboxCaHexsides, pillboxLoc, shownFireMarker, sideToward, smokeGrenades } from '@asl/rules';
 import { playableBounds, playableRect, printedRect, type CropPlacement } from './crop';
 import { boardImage, counterImage, cxMarker, loadTurrets, markerImage, splitTurret } from '../game/assets';
@@ -589,8 +589,8 @@ export function vehicleTabs(env: { state: GameState; statics: Statics }, p: Piec
   if (t['immob']) out.push({ text: 'IMM', tone: 'out' });
   if (t['shock'] === 'shock') out.push({ text: 'SHOCK', tone: 'bad' });
   if (t['shock'] === 'uk') out.push({ text: 'UK', tone: 'bad' });
-  if (t['stun'] === 'fresh') out.push({ text: 'stun', tone: 'bad' });
-  if (t['stun'] === 'plus1') out.push({ text: 'stun +1', tone: 'bad' });
+  if (t['stun'] === 'fresh') out.push({ text: stunWord(p, 'stun'), tone: 'bad' });
+  if (t['stun'] === 'plus1') out.push({ text: `${stunWord(p, 'stun')} +1`, tone: 'bad' });
   if (t['recall']) out.push({ text: 'RECALL', tone: 'bad' });
   if (t['lowAmmo']) out.push({ text: 'LOW AMMO', tone: 'bad' });
   if (t['maDisabled']) out.push({ text: 'MA', tone: 'out' });

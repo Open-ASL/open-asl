@@ -62,7 +62,7 @@ export function applyVehicleEffect(ctx: Ctx, vehicleId: PieceId, effect: Vehicle
       break;
     }
     case 'STUN':
-      setTags(ctx, vehicleId, { [T3.stun]: 'fresh', [T3.recall]: true, [T3.ce]: null, [T3.motion]: null });
+      setTags(ctx, vehicleId, { [T3.stun]: 'fresh', [T3.STUN]: true, [T3.recall]: true, [T3.ce]: null, [T3.motion]: null });
       ctx.emit('sk3.vehicle.status', { vehicle: vehicleId, status: 'STUN', by });
       haltMover(ctx, vehicleId);
       break;
@@ -161,7 +161,7 @@ const REPAIR_TRIED = 'repairTried_';
 export const vehicleStatusModule: RuleModule = {
   id: 'sk3.vehicleStatus',
   ref: 'SK4 3.1 g, 3.2.3, 7.10',
-  summary: 'Shock/UK recuperation, Stun and Recall, Immobilization and wrecks.',
+  summary: 'Shock/UK recuperation, stun, STUN and Recall, Immobilization and wrecks.',
   requires: ['sk1.rally', 'sk3.vehicles'],
   install(r) {
     r.event<{ vehicle: PieceId; by: string }>({ type: 'sk3.vehicle.wrecked', apply() {} });

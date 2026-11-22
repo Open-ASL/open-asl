@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
-import { entrenchmentAt, entrenchmentName, entrenchmentRoom, isEntrenched } from '@asl/rules';
+import { entrenchmentAt, entrenchmentName, entrenchmentRoom, isEntrenched, stunWord } from '@asl/rules';
 import { AMMO_NAME, haltedUnits, hexOfLoc, isCaveLoc, ppOf, terrainOf, acquisitionsAt, ammoOut, coveredArc, defOf, fireMarker, gunIdent, isWeaponDef, levelOfLoc, locOf, locationsOf, moveState, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, unitsInHex, unpossessedWeaponsAt, unpossessedWeaponsInHex, type Statics } from '@asl/rules';
 import { counterImage, hasBack, markerImage } from '../game/assets';
 import { counterNotes, latwToHit } from '../game/counterNotes';
@@ -70,7 +70,9 @@ const VALUE_LABEL: Record<string, string> = {
   'rphAction-transfer': 'Transferred a SW this RPh',
   'rphAction-deploy': 'Deploy attempted this RPh',
   'rphAction-recombine': 'Recombination this RPh',
-  'bog-mired': 'Mired', 'shock-uk': 'Unconfirmed Kill', 'stun-plus1': 'stunned (+1)' };
+  'bog-mired': 'Mired', 'shock-uk': 'Unconfirmed Kill' };
+/** A stun in lowercase, a STUN in capitals, its +1 side marked (SK4 7.7; ASLRB D5.34). */
+const stunLabel = (p: Piece) => `${stunWord(p, 'stunned')}${p.tags['stun'] === 'plus1' ? ' (+1)' : ''}`;
 const FIRE_LABEL = { prep: 'Prep Fire', adv: 'Advancing Fire', first: 'First Fire', final: 'Final Fire' } as const;
 
 const NONE: ReadonlySet<PieceId> = new Set();
@@ -222,7 +224,7 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
               className={`tag tag-${k}${typeof p.tags[k] === 'string' ? ` tag-${k}-${p.tags[k]}` : ''}${d.kind === 'vehicle' ? ` vehicle-${k}` : ''}`}
               style={k === 'ce' || k === 'hip' ? ({ '--chit': CHIT[d.nationality] } as CSSProperties) : undefined}
             >
-              {VALUE_LABEL[`${k}-${String(p.tags[k])}`] ?? label}
+              {k === 'stun' ? stunLabel(p) : (VALUE_LABEL[`${k}-${String(p.tags[k])}`] ?? label)}
             </span>
           ))}
           {p.loc.kind === 'hex' && p.tags['prepared'] === p.loc.hex && (

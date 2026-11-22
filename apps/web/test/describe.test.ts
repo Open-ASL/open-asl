@@ -64,7 +64,7 @@ describe('game log', () => {
     const v = Object.values(state.pieces).find((p) => p.defId === 'am.M4A3')!;
     const line = (status: string, by: string) => describeEvents(engine.env(state), [{ seq: 1, type: 'sk3.vehicle.status', payload: { vehicle: v.id, status, by } }] as never)[0]!.text;
     expect(line('stun', 'fire on the CE crew: the CE crew failed its MC')).toMatch(/ is stunned \(fire on the CE crew: the CE crew failed its MC\)$/);
-    expect(line('STUN', 'fire on the CE crew: the CE crew rolled 12 on its MC')).toMatch(/ is Stunned and Recalled \(/);
+    expect(line('STUN', 'fire on the CE crew: the CE crew rolled 12 on its MC')).toMatch(/ is STUNNED and Recalled \(/);
   });
 
   it('a cowering attack shows the column it came to and the one it cowered to (SK1 3.2)', () => {

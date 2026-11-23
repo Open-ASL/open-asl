@@ -242,8 +242,9 @@ export const leaveMatch = onCall(async (req) => {
  * server; the result the engine reaches is the one that counts. A computer game is only marked
  * finished: it awards no experience, rating, record or medals.
  */
-// A long recording (4000+ events) takes seconds to replay: a full CPU and room beyond the 60 s default.
-export const completeHotseatMatch = onCall({ timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
+// A long recording takes a minute or more to replay (1,500 actions of a PTO scenario: 50 s on a fast desktop): a whole
+// vCPU (1 GiB alone gets about half of one) and room beyond the 60 s default.
+export const completeHotseatMatch = onCall({ timeoutSeconds: 300, memory: '1GiB', cpu: 1 }, async (req) => {
   const { uid } = requireMember(req);
   const ref = matchRef(requireString(req.data?.matchId, 'matchId'));
   const match = (await ref.get()).data();

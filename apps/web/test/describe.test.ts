@@ -310,7 +310,7 @@ describe('fortified buildings in the log', () => {
     const log2 = describeEvents(engine.env(t2.state), t2.events);
     expect(log2.map((l) => l.text).join('\n')).not.toMatch(/fortified/i);
     const fire = log2.find((l) => /^[A-Z][\w ]* on P5: /.test(l.text))!;
-    expect(fire.text).toContain('DR 3+3=6 +3');
+    expect(fire.text).toContain('DR 3+3=6, DRM +3');
     expect(fire.detail ?? '').not.toContain('Fortified');
   });
 });

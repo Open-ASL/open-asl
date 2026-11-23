@@ -166,7 +166,7 @@ function HotseatMatch({ matchId, match, scenario, actions, onReload }: { matchId
       <GameScreen scenario={scenario} players={seatNames(match)} session={session} matchId={matchId} onQuit={() => navigate('/app')} aar={aarCue(matchId, match, scored === 'done' || match.status === 'complete', scoreFailure(scored))} />
       {lock && <LockedBoard lock={lock} onReload={lock === 'moved' || match.result ? onReload : null} />}
       {fixtureError && <div className="save-warning">Dev fixture: {fixtureError}</div>}
-      {!lock && (writeError || (scored !== 'pending' && scored !== 'done')) && <div className="save-warning">{writeError ? `Not saved: ${writeError}` : `Result not recorded: ${scored}`}</div>}
+      {!lock && (writeError || (scoreFailure(scored) && match.status !== 'complete')) && <div className="save-warning">{writeError ? `Not saved: ${writeError}` : `Result not recorded: ${scored}`}</div>}
     </>
   );
 }
@@ -236,7 +236,7 @@ function ComputerMatch({ matchId, match, scenario, actions, onReload }: { matchI
           </div>
         </Modal>
       )}
-      {!lock && (writeError || (scored !== 'pending' && scored !== 'done')) && <div className="save-warning">{writeError ? `Not saved: ${writeError}` : `Result not recorded: ${scored}`}</div>}
+      {!lock && (writeError || (scoreFailure(scored) && match.status !== 'complete')) && <div className="save-warning">{writeError ? `Not saved: ${writeError}` : `Result not recorded: ${scored}`}</div>}
     </>
   );
 }

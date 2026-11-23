@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { achieved, controlChits, controlMatters, controlledHexes, statics, type VictoryCondition } from '../src';
+import { achieved, controlChits, controlMatters, controlState, controlledHexes, statics, type ScenarioForce, type VictoryCondition } from '../src';
 import { RU_VS_GE, act as submit, makeEngine } from './fixtures';
 
 describe('Control (SK1 2.0)', () => {
@@ -170,5 +170,70 @@ describe('Control victory counts hexes by hex Control (ASLRB A26.13; tester repo
     s = submit(engine, s, { type: 'move.step', to: 'zK5' }).state;
     expect(achieved(engine.env(s), vc)).toBe(true);
     expect(controlChits(engine.env(s), statics(engine.env(s)).scenario)).toEqual({ zK5: 'ru', zK6: 'ru' });
+  });
+});
+
+describe('Control at scenario start (SK4 Definitions "Control"; ASLRB A26.11)', () => {
+  const area = (side: string, hexes: string[]): ScenarioForce => ({ side, units: [], setup: { kind: 'area', description: 'test', hexes } });
+  const enter = (side: string): ScenarioForce => ({ side, units: [], setup: { kind: 'enter', turn: 1, edge: 'W' } });
+  // Building K lies wholly in the German area; building L only half (L6 is outside it).
+  const terrain = {
+    yK5: { terrain: 'building-stone', buildingId: 'K' },
+    yK6: { terrain: 'building-stone', buildingId: 'K' },
+    yL5: { terrain: 'building-stone', buildingId: 'L' },
+    yL6: { terrain: 'building-stone', buildingId: 'L' },
+  };
+  const start = (forces: ScenarioForce[], extra: Parameters<typeof makeEngine>[0]['scenario'] = {}, pieces: Parameters<typeof makeEngine>[0]['pieces'] = []) =>
+    makeEngine({ terrain, scenario: { forces, ...extra }, pieces });
+
+  it("gives each side its setup area, but not hexes in both sides' areas, and a building only when all of it is in the area", () => {
+    const { engine, state } = start([area('am', ['yA1', 'yA2', 'yB1']), area('ge', ['yB1', 'yK5', 'yK6', 'yL5'])]);
+    const ctl = controlState(engine.env(state));
+    expect(ctl.hexes).toMatchObject({ yA1: 'am', yA2: 'am', yK5: 'ge', yK6: 'ge', yL5: 'ge' });
+    expect(ctl.hexes['yB1']).toBeUndefined(); // in both areas
+    expect(ctl.hexes['yL6']).toBeUndefined();
+    expect(ctl.hexes['yP7']).toBeUndefined(); // both sides set up on the board: the rest of it is nobody's
+    expect(ctl.buildings).toEqual({ K: 'ge' });
+  });
+
+  it('gives a side the whole board when it is the only side setting up there; a force that enters sets up nowhere', () => {
+    const { engine, state } = start([area('am', ['yA1']), enter('ge')]);
+    const ctl = controlState(engine.env(state));
+    expect(ctl.hexes['yP7']).toBe('am');
+    expect(ctl.hexes['yK5']).toBe('am');
+    expect(ctl.buildings).toEqual({ K: 'am', L: 'am' });
+  });
+
+  it('denies the whole board when the other side scatters its setup from a hex chosen in play', () => {
+    const { engine, state } = start([area('am', ['yA1']), { side: 'ge', units: [], setup: { kind: 'scatter', description: 'test' } }]);
+    const ctl = controlState(engine.env(state));
+    expect(ctl.hexes['yA1']).toBe('am');
+    expect(ctl.hexes['yP7']).toBeUndefined();
+  });
+
+  it("lays the card's own at-start Control over the setup areas", () => {
+    const { engine, state } = start([area('am', ['yA1']), area('ge', ['yK5', 'yK6'])], { initialControl: [{ side: 'am', hexes: ['yK5'] }] });
+    expect(controlState(engine.env(state)).hexes).toMatchObject({ yA1: 'am', yK5: 'am', yK6: 'ge' });
+  });
+
+  it('keeps an empty hex until the enemy gains it, across Player Turns, and loses it to an enemy MMC that enters', () => {
+    const { engine, state } = makeEngine({
+      terrain,
+      scenario: { ...RU_VS_GE, forces: [area('ru', ['yI4', 'yI5']), area('ge', ['yK5', 'yK6', 'yJ4'])] },
+      startPhase: 'MPh',
+      pieces: [
+        { id: 'r1', def: 'ru.447', side: 'ru', hex: 'yI4' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yP9' },
+      ],
+    });
+    let s = state;
+    expect(controlledHexes(engine.env(s))).toMatchObject({ yJ4: 'ge', yK5: 'ge', yK6: 'ge' });
+    s = submit(engine, s, { type: 'move.start', units: ['r1'] }).state;
+    s = submit(engine, s, { type: 'move.step', to: 'yJ4' }).state;
+    expect(controlledHexes(engine.env(s))['yJ4']).toBe('ru');
+    // Through to the next Player Turn: what nobody entered stays German.
+    const turn = s.turn;
+    while (s.turn === turn || s.phase !== 'RPh') s = submit(engine, s, { type: 'endPhase' }).state;
+    expect(controlledHexes(engine.env(s))).toMatchObject({ yJ4: 'ru', yK5: 'ge', yK6: 'ge' });
   });
 });

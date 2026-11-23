@@ -769,25 +769,60 @@ function drawObjectives(g: Graphics, objectives: ObjectiveArea[], placements: Pl
 const NATION_COLOR: Record<string, number> = { ge: 0x5f87a1, am: 0x727b23, ru: 0x7c510d, br: 0xb8975a, al: 0x6f9c5a, it: 0x6c7a82, ja: 0xe9c22a };
 /** Stock colours for counters without art. */
 const STOCK_COLOR: Record<string, number> = { ge: 0x9ac8e8, ru: 0xc8a050, am: 0x9fbf5f, br: 0xe5cea0, al: 0xbfe3c4, it: 0xd2d6d8 };
-/** Control chit: a quarter of a counter's width, as VASL players place them. */
-const CONTROL_CHIT = COUNTER / 4;
+/** Control chit: about a third of a counter's width, as VASL players place them. */
+const CONTROL_CHIT = COUNTER / 3;
 
 /**
- * Control chits: a small square in the nationality's counter colour in the centre of each
- * Controlled hex, drawn under the counters so an occupied hex still shows who holds it.
+ * A nationality's emblem, `size` across, centred on (x, y): the marks of the turn chit and briefing (`fx/TurnChit`'s
+ * Emblem), drawn on the board. A nationality without one gets a disc in its counter colour.
+ */
+function drawEmblem(g: Graphics, nat: string, x: number, y: number, size: number) {
+  const s = size / 40;
+  switch (nat) {
+    case 'ge': {
+      const cross = [-6, -20, 6, -20, 6, -6, 20, -6, 20, 6, 6, 6, 6, 20, -6, 20, -6, 6, -20, 6, -20, -6, -6, -6].map((v, i) => (i % 2 ? y : x) + v * s);
+      g.poly(cross).fill(0xffffff).stroke({ color: 0xffffff, width: 5 * s, join: 'miter' });
+      g.poly(cross).fill(0x111111);
+      return;
+    }
+    case 'am':
+      g.poly(starPoints(x, y, 21 * s)).fill(0xffffff).stroke({ color: 0x111111, width: 2 * s, join: 'round' });
+      return;
+    case 'ru':
+      g.poly(starPoints(x, y, 21 * s)).fill(0xd22d26).stroke({ color: 0x111111, width: 1.5 * s, join: 'round' });
+      return;
+    case 'br':
+      g.circle(x, y, 21 * s).fill(0x2a4b9b).stroke({ color: 0x111111, width: 1.5 * s });
+      g.circle(x, y, 14 * s).fill(0xffffff);
+      g.circle(x, y, 7 * s).fill(0xd22d26);
+      return;
+    case 'it':
+      for (const dx of [-12, 0, 12]) {
+        g.rect(x + (dx - 2.5) * s, y - 20 * s, 5 * s, 40 * s).fill(0x4a3a48).stroke({ color: 0x111111, width: s });
+        g.poly([2.5, 4, 8.5, 0, 7.5, 9, 2.5, 10].map((v, i) => (i % 2 ? y + v * s : x + (dx + v) * s))).fill(0x4a3a48).stroke({ color: 0x111111, width: s });
+      }
+      return;
+    case 'ja':
+      g.circle(x, y, 19 * s).fill(0xc8102e).stroke({ color: 0x111111, width: 1.5 * s });
+      return;
+    default:
+      g.circle(x, y, 18 * s).fill(NATION_COLOR[nat] ?? 0x888888).stroke({ color: 0xf2e8c8, width: 1.5 * s, alpha: 0.9 });
+  }
+}
+
+/**
+ * Control chits: the controlling nationality's emblem in the centre of each Controlled hex, drawn under the counters
+ * so an occupied hex still shows who holds it.
  */
 function drawControl(g: Graphics, control: Record<HexId, SideId>, statics: Statics, hexOf: (id: HexId) => MapHex | undefined, center: (h: MapHex) => { x: number; y: number }) {
   g.clear();
-  const half = CONTROL_CHIT / 2;
   for (const [hex, side] of Object.entries(control)) {
     const h = hexOf(hex as HexId);
     if (!h) continue;
     const nat = statics.scenario.sides.find((x) => x.side === side)?.nationality ?? side;
     const c = center(h);
-    g.roundRect(c.x - half + 1, c.y - half + 1, CONTROL_CHIT, CONTROL_CHIT, 1.5).fill({ color: 0x000000, alpha: 0.4 });
-    g.roundRect(c.x - half, c.y - half, CONTROL_CHIT, CONTROL_CHIT, 1.5)
-      .fill({ color: NATION_COLOR[nat] ?? 0x888888 })
-      .stroke({ color: 0xf2e8c8, width: 1, alpha: 0.9 });
+    g.circle(c.x + 1, c.y + 1.5, CONTROL_CHIT * 0.45).fill({ color: 0x000000, alpha: 0.28 });
+    drawEmblem(g, nat, c.x, c.y, CONTROL_CHIT);
   }
 }
 

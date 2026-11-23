@@ -186,6 +186,36 @@ describe('Demolition Charges (SK1 4.3)', () => {
     const g1 = t.state.pieces['g1']!;
     expect(g1.loc.kind === 'eliminated' || g1.tags['broken'] === true).toBe(true);
   });
+
+  it('a placer broken by First Fire in the Placement Hex as its move ends has not placed the DC (ASLRB A23.3)', () => {
+    // The defender passes the shot at the placement, then takes the last one as the move ends: 8 FP (4 x2 PBF) on a DR
+    // of 4+5 -1 FFNAM -1 FFMO = 7, then the MC of 4+3 breaks the squad. The DC stays with it and never attacks.
+    const { engine, s: placed } = place([4, 5, 4, 3]);
+    expect(placed.pieces['aDC']!.tags['dcPlaced']).toBe(true);
+    let s = act(engine, placed, { type: 'move.end' }).state;
+    expect(engine.currentDecision(s)?.kind).toBe('firstFire');
+    s = act(engine, s, { type: 'defFire', decl: { units: ['g1'], sw: [], target: 'yN4' } }).state;
+    expect(s.pieces['a1']!.tags['broken']).toBe(true);
+    expect(s.pieces['aDC']!.loc).toEqual({ kind: 'held', by: 'a1' });
+    expect(s.pieces['aDC']!.tags['dcPlaced']).toBeUndefined();
+    s = settle(engine, s);
+    s = act(engine, s, { type: 'endPhase' }).state;
+    expect(s.phase).toBe('DFPh');
+    const t = act(engine, s, { type: 'endPhase' });
+    expect(t.state.phase).toBe('AFPh');
+    expect(t.events.some((e) => e.type === 'sk1.fire.attack')).toBe(false);
+    expect(t.state.pieces['aDC']!.loc).toEqual({ kind: 'held', by: 'a1' });
+  });
+
+  it('once the placer moves away the DC stays placed whatever befalls it (ASLRB A23.3)', () => {
+    // Placed from N4, the squad steps to N3 (no fire), and is broken there: the DC in O5 is untouched.
+    const { engine, s: placed } = place([4, 5, 4, 3]);
+    let s = settle(engine, act(engine, placed, { type: 'move.step', to: 'yN3' }).state);
+    s = act(engine, s, { type: 'move.end' }).state;
+    if (engine.currentDecision(s)?.kind === 'firstFire') s = act(engine, s, { type: 'defFire', decl: { units: ['g1'], sw: [], target: 'yN3' } }).state;
+    expect(s.pieces['aDC']!.loc).toEqual({ kind: 'hex', hex: 'yO5' });
+    expect(s.pieces['aDC']!.tags).toMatchObject({ dcPlaced: true, dcPlacer: 'a1' });
+  });
 });
 
 describe('Voluntary SW destruction (SK1 4.0)', () => {

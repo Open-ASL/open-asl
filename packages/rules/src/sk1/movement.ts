@@ -201,6 +201,11 @@ export interface MoveState {
    * hex, the placer's own; never set in the Starter Kit.
    */
   dcPending?: { dc: PieceId; placer: PieceId; target: LocId; vehicle?: PieceId; breach?: HexId };
+  /**
+   * A DC placed from the stack's Location this move, still undone if its placer is broken, pinned or eliminated by fire
+   * there before the stack moves on or its move ends (ASLRB A23.3). Dropped when the stack enters another Location.
+   */
+  dcPlacedHere?: { dc: PieceId; placer: PieceId };
   /** Every MF/MP expenditure this move, by the map hex it was made in (SK3: "MP spent in the firer's LOS"). */
   trail?: { hex: HexId; mp: number }[];
   /** A vehicle on the move (SK3 3.3.2): its start/stop state; `allowance`/`spent` are MP. */
@@ -1338,6 +1343,10 @@ function stepIllegal(env: QueryEnv, ms: MoveState, to: LocId, pushing = false, d
   const toHex = hexOfLoc(to);
   const offTo = map.offboardHex(toHex);
   if (!map.hex(toHex) && !offTo) return 'No such hex';
+  // A Gun moves only by manhandling (SK4 4.0, 6.5), declared as the move starts: a unit that picks one up on the way
+  // may keep it where it stands or drop it, but goes no further with it.
+  const gunHolder = !pushing && !ms.manhandle && !ms.vehicle ? ms.units.find((u) => swHeldBy(env.state, u).some((w) => gun(env, w))) : undefined;
+  if (gunHolder) return `${gunHolder} possesses a Gun, which moves only by manhandling (SK4 6.5): drop it to go on`;
   if (ms.hex) {
     // Stepping off the map is exiting it: the scenario's exit rules decide, for the whole stack (they check the MF too).
     if (offTo) return ms.halted ? 'The stack has ended its movement' : env.query('move.exitIllegal', { ms, to: toHex }, 'Units may not leave the map');
@@ -1585,7 +1594,7 @@ function enterHex(ctx: Ctx, ms: MoveState, toLoc: LocId, cost: number, woods = f
   // A new Location: its MF and First Fire counts start afresh (ASLRB A8.12). `level` only above ground, never 0.
   // Units stopped in the old one stay behind: their MPh ends as the others move on (SK1 3.3.1).
   // A Bypass (full ASL) ends with its hex: the stack is out of it, or (`extra`) in Bypass of the next.
-  const { level: _was, sub: _in, stopped: _left, bypass: _round, stoppedBypass: _strand, ent: _ent, trenchMove: _trench, tb: _tb, noTb: _noTb, assaultVoided: _voided, mineEntry: _mineEntry, mineSides: _mineSides, mineTbIn: _mineTbIn, ...rest } = ms;
+  const { level: _was, sub: _in, stopped: _left, bypass: _round, stoppedBypass: _strand, ent: _ent, trenchMove: _trench, tb: _tb, noTb: _noTb, assaultVoided: _voided, mineEntry: _mineEntry, mineSides: _mineSides, mineTbIn: _mineTbIn, dcPlacedHere: _placed, ...rest } = ms;
   // Full ASL: units broken, pinned or stranded in Bypass stay in the open part of that hex until the end of their MPh
   // (ASLRB A4.32, A4.33), still targets there. The Starter Kit never sets `stoppedBypass`.
   const leftBypass = leftInBypassAfter(ctx, ms);
@@ -1646,8 +1655,9 @@ function strand(ctx: Ctx, units: PieceId[]) {
 
 /** Units still able to move: drop broken/pinned/eliminated units from the moving stack. */
 function pruneMovers(ctx: Ctx) {
-  const ms = moveState(ctx);
-  if (!ms) return;
+  const current = moveState(ctx);
+  if (!current) return;
+  let ms: MoveState = current;
   const alive = ms.units.filter((u) => {
     const p = ctx.state.pieces[u];
     return p && p.loc.kind !== 'eliminated';
@@ -1672,15 +1682,22 @@ function pruneMovers(ctx: Ctx) {
     for (const sw of swHeldBy(ctx.state, u)) setTags(ctx, sw.id, { [T.moved]: true });
     return false;
   });
+  if (ms.dcPlacedHere && !placerStands(ctx, ms.dcPlacedHere.placer)) {
+    undoDcPlacement(ctx, ms);
+    ms = { ...ms, dcPlacedHere: undefined };
+  }
   // A leader pinned, broken, killed or stopped by a wound on the way takes the leader bonus with him.
   const { units: going, allowance } = withoutLeaderBonus(ctx, ms, walking, capped);
-  // A broken/pinned DC placer cancels the placement.
-  const dcPending = ms.dcPending && going.includes(ms.dcPending.placer) ? ms.dcPending : undefined;
+  // A broken/pinned DC placer cancels the placement (SK1 4.3, ASLRB A23.3). One that has only run out of MF (its
+  // leader's bonus lost after the MF for the placement was spent) still places it.
+  const dcPending = ms.dcPending && movers.includes(ms.dcPending.placer) ? ms.dcPending : undefined;
   // Units broken or pinned by Defensive First Fire move no further, but "can be fired upon again in [their]
   // current location by other Defensive First Fire attacks" (SK1 3.3.1, ASLRB A8.14) until another unit moves.
   // Full ASL: units stranded by the loss of the leader bonus stay targets there too (A4.33; `move.strandedStay`).
+  // A placer stopped that way stays one, as the placement is made at that expenditure.
   const stranded = ctx.query('move.strandedStay', {}, false) ? walking.filter((u) => !going.includes(u)) : [];
-  const halt = [...alive.filter((u) => !movers.includes(u)), ...stranded];
+  const placerStays = dcPending && !going.includes(dcPending.placer) ? [dcPending.placer] : [];
+  const halt = [...alive.filter((u) => !movers.includes(u)), ...stranded, ...placerStays];
   const stopped = [...(ms.stopped ?? []), ...halt].filter((u, i, all) => all.indexOf(u) === i && ctx.state.pieces[u]?.loc.kind === 'hex');
   // Full ASL: a unit broken or pinned in Bypass stays in the open part of the hex for the rest of its MPh, open to fire
   // traced to the hexsides it went along (ASLRB A4.32, A4.33).
@@ -1689,7 +1706,7 @@ function pruneMovers(ctx: Ctx) {
     : undefined;
   if (going.length === 0) {
     // Nobody left to move on: the move ends here once the defender has had his follow-up shots (`halted`).
-    const halted = ms.hex && stopped.length ? { ...ms, units: [], allowance, stopped, ...(stoppedBypass ? { stoppedBypass } : {}), halted: true, ending: true, dcPending: undefined } : null;
+    const halted = ms.hex && stopped.length ? { ...ms, units: [], allowance, stopped, ...(stoppedBypass ? { stoppedBypass } : {}), halted: true, ending: true, dcPending } : null;
     ctx.emit('sk1.move.state', { state: halted });
     return;
   }
@@ -2039,7 +2056,27 @@ function completeDcPlacement(ctx: Ctx) {
     const v = vehicle ? ctx.state.pieces[vehicle] : undefined;
     setTags(ctx, dc, { dcPlaced: true, dcPlacer: placer, dcCx: isCx(p), dcX, ...(v ? { dcVehicle: vehicle, dcFrom: p.loc.hex, dcVca: (v.tags['vca'] as number | undefined) ?? 0 } : {}), ...(breach ? { dcBreach: breach } : {}) });
   }
-  ctx.emit('sk1.move.state', { state: { ...ms, dcPending: undefined } });
+  ctx.emit('sk1.move.state', { state: { ...ms, dcPending: undefined, ...(p && pieceOf(ctx, dc).loc.kind === 'hex' ? { dcPlacedHere: { dc, placer } } : {}) } });
 }
+
+/**
+ * The placer of a DC placed from here was broken, pinned or eliminated by fire in the Placement Hex before its move there
+ * was over: the DC is not operably placed. It stays with the placer, or in its Location if the placer was eliminated
+ * (ASLRB A23.3; SK1 4.3: the placer must survive "all resultant" First Fire).
+ */
+function undoDcPlacement(ctx: Ctx, ms: MoveState) {
+  const { dc, placer } = ms.dcPlacedHere!;
+  const p = ctx.state.pieces[placer];
+  const d = ctx.state.pieces[dc];
+  if (d && d.tags['dcPlaced'] === true) {
+    ctx.emit('piece.moved', { id: dc, loc: p && p.loc.kind !== 'eliminated' ? { kind: 'held', by: placer } : locationAt(moveLoc(ms)!) });
+    setTags(ctx, dc, { dcPlaced: null, dcPlacer: null, dcCx: null, dcX: null, dcVehicle: null, dcFrom: null, dcVca: null, dcBreach: null });
+  }
+}
+
+const placerStands = (env: QueryEnv, id: PieceId) => {
+  const p = env.state.pieces[id];
+  return !!p && p.loc.kind !== 'eliminated' && !isBroken(p) && !isPinned(p);
+};
 
 export const _test = { attackFp, buildAttack };

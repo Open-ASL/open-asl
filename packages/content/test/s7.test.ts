@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Action } from '@asl/engine';
-import type { ScenarioDef } from '@asl/rules';
+import type { Action, GameState } from '@asl/engine';
+import { achieved, type ScenarioDef } from '@asl/rules';
 import { newSk1Game } from '../src';
 import { hexesWhere } from '../src/scenarios/areas';
 import { SK_S7 } from '../src/scenarios/skFree';
@@ -39,5 +39,25 @@ describe('S7 Prelude to Festung Brest', () => {
     const amUnit = Object.keys(placements)[0]!;
     expect(engine.validate(state, { ...am, placements: { ...placements, [amUnit]: 'zT5' } } as Action)).toBeNull();
     expect(engine.validate(state, { ...am, placements: { ...placements, [amUnit]: held } } as Action)).toBe('zS5 is held by the enemy');
+  });
+
+  it('VC: an unbroken German MMC in a stone building denies the "no unbroken German MMC" win, even in Melee', () => {
+    // The card asks for no *unbroken* German MMC in stone building hexes, not no Good Order one: a 5-4-8 locked in
+    // Melee in R1 at game end is unbroken and still holds the building for the Germans.
+    const { engine, state: s0 } = newSk1Game(SK_S7, 's7-vc');
+    const ge = Object.keys(s0.pieces).filter((id) => s0.pieces[id]!.side === 'ge' && s0.pieces[id]!.defId === 'ge.548');
+    const am = Object.keys(s0.pieces).find((id) => s0.pieces[id]!.side === 'am' && s0.pieces[id]!.defId === 'am.666')!;
+    const pieces = Object.fromEntries(
+      Object.entries(s0.pieces).map(([id, p]) => {
+        if (id === ge[0] || id === am) return [id, { ...p, loc: { kind: 'hex' as const, hex: 'zR1' } }];
+        return [id, p.side === 'ge' ? { ...p, loc: { kind: 'eliminated' as const } } : p];
+      }),
+    );
+    const melee: GameState = { ...s0, pieces, hexMarkers: { ...s0.hexMarkers, zR1: { ...s0.hexMarkers['zR1'], melee: true } } };
+    const anyOf = (SK_S7.victory[0] as { of: ScenarioDef['victory'] }).of[1] as { of: ScenarioDef['victory'] };
+    const noUnbroken = anyOf.of[1]!;
+    expect(achieved(engine.env(melee), noUnbroken)).toBe(false);
+    const broken: GameState = { ...melee, pieces: { ...pieces, [ge[0]!]: { ...pieces[ge[0]!]!, tags: { ...pieces[ge[0]!]!.tags, broken: true } } } };
+    expect(achieved(engine.env(broken), noUnbroken)).toBe(true);
   });
 });

@@ -250,7 +250,8 @@ export function counterNotes(d: CounterDef): string[] {
     const n = [`${d.type} To Hit Table ${d.latw.th.map((th, r) => `${r}:${th}`).join(' ')}`, `a hit on Infantry in a building on the ${d.fp} FP column`, `range ${d.range}`, `${d.pp} PP`];
     if (d.x) n.push(`X${d.x}: removed on an original TH DR ≥ ${d.x}`);
     if (d.latw.tk) n.push(`HEAT To Kill ${d.latw.tk}`);
-    n.push('Backblast from inside a building: +2 To Hit or a 1 FP attack on the hex');
+    // Only a BAZ or PSK brings Backblast (SK4 4.4.3): a PIAT fires from inside a building with no penalty.
+    n.push(d.type === 'PIAT' ? 'No Backblast: fires from inside a building with no penalty' : 'Backblast from inside a building: +2 To Hit or a 1 FP attack on the hex');
     return n;
   }
   if (d.kind === 'sw') {

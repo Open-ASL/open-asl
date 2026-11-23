@@ -140,3 +140,44 @@ describe('a Flamethrower is no Subsequent First Fire weapon (ASLRB A8.3, A8.31, 
     expect(why).toBeNull();
   });
 });
+
+describe('a leader holding a FT is asked to First Fire it (SK1 4.2, 3.3.1)', () => {
+  // A German 9-1 in zK5 holds the stack's only weapon, a FT; a Russian squad moves from zI4 to zJ4, adjacent, while
+  // another waits in zL5.
+  const game = (dice: number[] = [4, 3, ...Array(60).fill(6)]) =>
+    makeEngine({
+      board: 'z',
+      scenario: RU_VS_GE,
+      startPhase: 'MPh',
+      dice,
+      pieces: [
+        { id: 'r1', def: 'ru.447', side: 'ru', hex: 'zI4' },
+        { id: 'r2', def: 'ru.447', side: 'ru', hex: 'zL5' },
+        { id: 'L', def: 'ge.L91', side: 'ge', hex: 'zK5' },
+        { id: 'ft', def: 'ge.FT', side: 'ge', heldBy: 'L' },
+      ],
+    });
+  const step = (engine: Engine, state: GameState) => act(engine, act(engine, state, { type: 'move.start', units: ['r1'] }).state, { type: 'move.step', to: 'zJ4' }).state;
+
+  it('the move into range stops for him, and the FT attack is among the shots offered', () => {
+    const { engine, state } = game();
+    const s = step(engine, state);
+    expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', owner: 'ge' });
+    expect(engine.legalActions(s, 'ge')).toContainEqual(expect.objectContaining({ type: 'defFire', decl: { units: [], sw: ['ft'], target: 'zJ4' } }));
+  });
+
+  it('he fires it, the FT is marked First Fire, and in his own Player Turn the mark is gone and the FT is offered in the PFPh', () => {
+    const { engine, state } = game();
+    let s = act(engine, step(engine, state), { type: 'defFire', decl: { units: [], sw: ['ft'], target: 'zJ4' } }).state;
+    expect(s.pieces['ft']!.tags['fire']).toBe('first');
+    for (let i = 0; i < 80 && !(s.attacker === 'ge' && s.phase === 'PFPh'); i++) {
+      const d = engine.currentDecision(s)!;
+      const options = engine.legalActions(s, d.owner);
+      const a = options.find((x) => x.type === 'endPhase') ?? options.find((x) => x.type === 'defPass') ?? options.find((x) => x.type === 'move.end') ?? options[0]!;
+      s = engine.submit(s, a).state;
+    }
+    expect([s.attacker, s.phase]).toEqual(['ge', 'PFPh']);
+    expect(s.pieces['ft']!.tags['fire']).toBeUndefined();
+    expect(engine.legalActions(s, 'ge')).toContainEqual(expect.objectContaining({ type: 'fire', decl: { units: [], sw: ['ft'], target: 'zL5' } }));
+  });
+});

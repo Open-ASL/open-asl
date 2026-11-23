@@ -1,7 +1,7 @@
 import type { Action, Ctx, Decision, HexId, PieceId, QueryEnv, RuleModule, SideId } from '@asl/engine';
 import { defOf, isVehicleDef, statics } from '../common/pieces';
 import { hexOfLoc, isGroundLoc, levelOfLoc, locId, locationsOf, parseLoc, type LocId } from '../common/location';
-import { controlState } from './scenario';
+import { storedControl } from './scenario';
 import { mmc, pieceOf, smc } from './status';
 
 declare module '@asl/engine' {
@@ -286,7 +286,7 @@ export const fortifiedModule: RuleModule = {
         });
         if (p.control && buildings.length) {
           // "The Free French control this building at start": Control before anyone has set up.
-          const prev = controlState(ctx);
+          const prev = storedControl(ctx);
           const next = { hexes: { ...prev.hexes }, buildings: { ...prev.buildings } };
           for (const b of buildings) {
             next.buildings[b] = st.side;

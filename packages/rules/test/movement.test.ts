@@ -299,6 +299,33 @@ describe('Movement Phase', () => {
     expect(v(['g4'])).toBeNull();
   });
 
+  it('a multi-hex Fire Group that fired on the first MF of a building entry may fire again as that FG on the second', () => {
+    // Each hex's units fired together, so each may fire again with the same fellows (SK1 3.3.1, ASLRB A7.55): the units of
+    // the other hex are no newcomers to it.
+    const { engine, state } = makeEngine({
+      board: 'z',
+      terrain,
+      scenario: RU_VS_GE,
+      startPhase: 'MPh',
+      dice: [5, 6, 5, 6, 5, 6, 5, 6],
+      pieces: [
+        { id: 'r1', def: 'ru.447', side: 'ru', hex: 'zI4' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'zK5' },
+        { id: 'g2', def: 'ge.467', side: 'ge', hex: 'zK5' },
+        { id: 'g4', def: 'ge.467', side: 'ge', hex: 'zL4' },
+      ],
+    });
+    let s = act(engine, state, { type: 'move.start', units: ['r1'] }).state;
+    s = act(engine, s, { type: 'move.step', to: 'zJ3' }).state;
+    const v = (units: string[]) => engine.validate(s, { type: 'defFire', decl: { units, sw: [], target: 'zJ3' }, side: 'ge', decisionId: engine.currentDecision(s)!.id } as never);
+    s = act(engine, s, { type: 'defFire', decl: { units: ['g1', 'g4'], sw: [], target: 'zJ3' } }).state;
+    expect(v(['g1', 'g4'])).toBeNull();
+    expect(v(['g1', 'g2', 'g4'])).toMatch(/without g2 .*one Fire Group/);
+    s = act(engine, s, { type: 'defFire', decl: { units: ['g1', 'g4'], sw: [], target: 'zJ3' } }).state;
+    expect(s.pieces['g1']!.tags['fire']).toBe('final');
+    expect(s.pieces['g4']!.tags['fire']).toBe('final');
+  });
+
   it('a unit using FPF fires all its FP and usable MG in one attack, never its MG and its own FP apart on one MF (SK1 3.3.1, 4.1)', () => {
     // A HS marked Final Fire with its LMG, adjacent to the hex the Russian squad enters for one MF.
     const game = (lmg: Record<string, unknown> = {}) =>
@@ -669,6 +696,41 @@ describe('Movement Phase', () => {
     expect(ms.units).toEqual(['r2']);
     expect(ms.allowance['r2']).toBe(4);
     expect(ms.spent['r2']).toBe(2);
+  });
+
+  it('a DC placer that spent its last MF on the placement still places it when its leader is pinned there (SK1 4.3, ASLRB A23.3)', () => {
+    // The 4-4-7 with an 8-1 has 6 MF: 2 into the J3 building, 2 more to place the DC into the K3 building. The
+    // First Fire at that expenditure pins the leader (as in the test above), so the squad falls back to its own
+    // 4 MF, all spent. It is neither broken nor pinned, so the placement stands; it just moves no further.
+    const { engine, state } = makeEngine({
+      board: 'z',
+      terrain: { ...terrain, zK3: { terrain: 'building-stone' } },
+      scenario: RU_VS_GE,
+      startPhase: 'MPh',
+      dice: [1, 2, 3, 5, 1, 2],
+      pieces: [
+        { id: 'r2', def: 'ru.447', side: 'ru', hex: 'zI4' },
+        { id: 'rL', def: 'ru.L81', side: 'ru', hex: 'zI4' },
+        { id: 'rDC', def: 'ge.DC', side: 'ru', heldBy: 'r2' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'zK5' },
+      ],
+    });
+    const pass = (st: typeof state) => (engine.currentDecision(st)?.kind === 'firstFire' ? act(engine, st, { type: 'defPass' }).state : st);
+    let s = act(engine, state, { type: 'move.start', units: ['r2', 'rL'] }).state;
+    s = pass(act(engine, s, { type: 'move.step', to: 'zJ3' }).state);
+    s = act(engine, s, { type: 'move.placeDc', dc: 'rDC', target: 'zK3' }).state;
+    expect(moveState({ state: s } as never)!.spent['r2']).toBe(4);
+    s = act(engine, s, { type: 'defFire', decl: { units: ['g1'], sw: [], target: 'zJ3' } }).state;
+    expect(s.pieces['rL']!.tags['pinned']).toBe(true);
+    expect(s.pieces['r2']!.tags['pinned']).toBeFalsy();
+    s = pass(s);
+    expect(s.pieces['rDC']!.loc).toEqual({ kind: 'hex', hex: 'zK3' });
+    expect(s.pieces['rDC']!.tags).toMatchObject({ dcPlaced: true, dcPlacer: 'r2' });
+    // The stack's move is over; the phase goes on and ends normally.
+    expect(moveState({ state: s } as never)).toBeFalsy();
+    expect(engine.currentDecision(s)).toMatchObject({ kind: 'phase', owner: 'ru' });
+    s = act(engine, s, { type: 'endPhase' }).state;
+    expect(s.phase).toBe('DFPh');
   });
 
   it('Smoke grenades: once per unit per MPh, so each squad of a moving stack may try (SK1 3.3)', () => {

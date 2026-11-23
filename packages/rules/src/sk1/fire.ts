@@ -190,6 +190,17 @@ declare module '@asl/engine' {
     'fire.breakdown': { ctx: { attack: FireAttackCtx; sw: PieceId }; value: number | null };
     /** Whether a unit may fire into its own Location at the enemy there: Infantry only at a vehicle (SK4 3.2.2.1), unless a rule opens it (SK4 8.1.8.7). */
     'fire.ownHexAllowed': { ctx: { firer: PieceId; target: LocId }; value: boolean };
+    /**
+     * Full ASL: whether `side` may fire at Location `target` whatever is there, for it cannot rule out that it holds an enemy
+     * Location it has not been shown (a hidden pillbox, ASLRB B30.7 and the Q&A to A7 and B30). False in the Starter Kit.
+     */
+    'fire.unseenTarget': { ctx: { target: LocId; side: SideId }; value: boolean };
+    /**
+     * Full ASL: the Location an attack declared at `target` by `side` is really made at. A unit seen on the ground of a hex
+     * may in fact be inside a pillbox the firer has not been shown (ASLRB A12.33: entering one costs nothing while it stays
+     * hidden); fire at it claims the pillbox's TEM. The declared Location in the Starter Kit.
+     */
+    'fire.targetAs': { ctx: { target: LocId; side: SideId }; value: LocId };
     /** Reason a declaration is illegal, or null. Contributions return the first problem found. */
     'fire.illegal': { ctx: { decl: FireDeclaration; mode: FireMode; side: SideId; moving?: PieceId[] }; value: string | null };
     /** The LOS of a firing Location to a declaration's target (see `firerLos`); the default is the centre-to-centre trace. */
@@ -304,7 +315,10 @@ export type ResolveFireFn = (
 
 const FIRE_LOG = 'sk1.fireLog';
 interface FireLog {
-  /** "firer Location>target Location[@stack#expenditure]" pairs fired this phase (`pairKey`), with the units involved. */
+  /**
+   * "firer Location>target Location[@stack#expenditure]" pairs fired this phase (`pairKey`), with the units involved: against a
+   * moving stack once per attack each made on that expenditure.
+   */
   pairs: Record<string, PieceId[]>;
   /** Leader → firers he directed this Player Turn (defensive reuse rule). */
   directed: Record<PieceId, PieceId[]>;
@@ -324,8 +338,9 @@ const pairKey = (loc: LocId, target: LocId, expenditure?: string) => `${loc}>${t
  */
 const fgTarget = (decl: Pick<FireDeclaration, 'target' | 'snap'>): string => (decl.snap ? `${decl.target}|snap` : decl.target);
 /** The pieces that have attacked `target` from `loc` this phase on the IFT (a moving target: on this MF/MP expenditure). */
-export const firedAt = (env: QueryEnv, loc: LocId, target: LocId, moving: boolean): PieceId[] =>
-  fireLog(env).pairs[pairKey(loc, target, moving ? expenditureKey(env) : undefined)] ?? [];
+export const firedAt = (env: QueryEnv, loc: LocId, target: LocId, moving: boolean): PieceId[] => [
+  ...new Set(fireLog(env).pairs[pairKey(loc, target, moving ? expenditureKey(env) : undefined)] ?? []),
+];
 /** A vehicle's own IFT armament, its MA's IFE or a vehicular MG: these form Fire Groups only with each other (SK4 7.8). */
 const vehicleArmament = (env: QueryEnv, id: PieceId): boolean => {
   const p = env.state.pieces[id];
@@ -337,6 +352,20 @@ const firerLoc = (env: QueryEnv, id: PieceId): LocId => locOf(env.state, pieceOf
  * included; a SW's or Gun's is its possessor's). The hex itself in the Starter Kit.
  */
 export const partLoc = (env: QueryEnv, part: FirePart): LocId => firerLoc(env, part.firer);
+
+/**
+ * The units an attack by `side` on Location `loc` affects: "Fire attacks ordinarily affect all units in the target hex"
+ * (SK1 3.2). In a Melee, every unit of both sides held in it and the enemy's vehicles ("all friendly and enemy units in
+ * the hex must be attacked", SK1 3.8). Otherwise the enemy's units, and the firer's own Infantry still there, as the
+ * broken units of both sides left when a Melee ends ("Remove the Melee counter as soon as no unbroken unit remains",
+ * SK1 3.8) [EXC: fire from inside the Location (`fromInside`, TPBF: ASLRB A7.21 "vs units in the same Location") attacks
+ * only the enemy there].
+ */
+export function fireTargetsAt(env: QueryEnv, loc: LocId, side: SideId, fromInside = false): Piece[] {
+  const enemy = otherSide(env.state, side);
+  if (inMelee(env, loc)) return [...personnelAt(env, loc), ...vehiclesAt(env, loc, enemy, true)];
+  return [...unitsAt(env, loc, enemy), ...(fromInside ? [] : personnelAt(env, loc, side))];
+}
 /** The SW a unit holds that have already fired this phase, in attacks before this one (the fire log is per phase). */
 /** Whether a unit fired its own (inherent) FP in this phase: the fire log names it, as it names each SW it fires. */
 export const firedOwnFpThisPhase = (env: QueryEnv, unit: PieceId): boolean => Object.values(fireLog(env).pairs).some((ids) => ids.includes(unit));
@@ -525,14 +554,10 @@ export function buildAttack(
     const hex = hexOf(env.state, s)!;
     parts.push({ piece: id, firer: holder, kind: 'sw', hex, range: weaponRange(env, id), dist: map.distance(hex, targetHex) });
   }
-  // Everyone in the target Location (every enemy unit, vehicles included; both sides' Infantry in Melee there).
-  // Another Location of the same hex is not attacked (ASLRB A2.8).
+  // Everyone in the target Location (`fireTargetsAt`). Another Location of the same hex is not attacked (ASLRB A2.8).
   // A mover wrecked on its way is no longer a unit: the rest of the moving stack is the target.
-  const targets =
-    moving?.filter((id) => env.state.pieces[id]?.tags['wreck'] !== true) ??
-    (inMelee(env, decl.target)
-      ? [...personnelAt(env, decl.target), ...vehiclesAt(env, decl.target, otherSide(env.state, side), true)].map((p) => p.id)
-      : unitsAt(env, decl.target, otherSide(env.state, side)).map((p) => p.id));
+  const fromInside = parts.some((p) => partLoc(env, p) === decl.target);
+  const targets = moving?.filter((id) => env.state.pieces[id]?.tags['wreck'] !== true) ?? fireTargetsAt(env, decl.target, side, fromInside).map((p) => p.id);
   let hindrance = 0;
   for (const from of new Set(parts.map((p) => partLoc(env, p)))) {
     const los = firerLos(env, from, decl);
@@ -935,7 +960,9 @@ export type RofLoss = 'exceeded' | 'cowered' | 'pinned' | 'fpf' | 'afph';
 function basicIllegal(env: QueryEnv, decl: FireDeclaration, mode: FireMode, side: SideId, moving = false): string | null {
   const map = statics(env).map;
   if (decl.units.length + decl.sw.length === 0) return 'No firers';
-  if (!locExists(env, decl.target)) return 'Unknown target hex';
+  // A Location the firer cannot rule out may be fired at though it may not be there (full ASL: a possible hidden pillbox,
+  // ASLRB B30.7 and its Q&A); never in the Starter Kit.
+  if (!locExists(env, decl.target) && !env.query('fire.unseenTarget', { target: decl.target, side }, false)) return 'Unknown target hex';
   // A Snap Shot only where a rule offers one (full ASL, ASLRB A8.15): the hexside the moving stack just crossed.
   if (decl.snap) {
     const side = env.query('fire.snapSide', { target: decl.target }, null);
@@ -987,10 +1014,14 @@ function basicIllegal(env: QueryEnv, decl: FireDeclaration, mode: FireMode, side
     if (m?.kind === 'squad' && list.length + destroyed > 2) return 'A squad may use at most two SW per phase';
     if (list.filter((id) => isFt(env, id)).length > 1) return 'A unit may not use two FT';
     if (list.some((id) => isDc(env, id))) return 'DC attack in the AFPh only via DC placement';
-    if (m?.kind === 'squad' && list.length + destroyed === 2 && decl.units.includes(holder)) {
+    // The forfeit is lifted for SFF, FPF and Final Fire vs an adjacent hex (SK1 4.0), where the unit fires its own FP
+    // with the SW: in FPF it must (SK1 3.3.1 "must use all its FP and useable MG").
+    const hAt = hexOf(env.state, h);
+    const lifted = mode === 'subsequentFirst' || mode === 'fpf' || (mode === 'final' && !!hAt && statics(env).map.distance(hAt, targetHex) === 1);
+    if (!lifted && m?.kind === 'squad' && list.length + destroyed === 2 && decl.units.includes(holder)) {
       return 'A squad firing two SW forfeits its own FP';
     }
-    if ((m?.kind === 'hs' || m?.kind === 'crew') && decl.units.includes(holder)) return `A ${m.kind === 'hs' ? 'half-squad' : 'crew'} firing a weapon forfeits its own FP`;
+    if (!lifted && (m?.kind === 'hs' || m?.kind === 'crew') && decl.units.includes(holder)) return `A ${m.kind === 'hs' ? 'half-squad' : 'crew'} firing a weapon forfeits its own FP`;
     // The same forfeit the other way round: a unit that already used its own FP (its fire marker; a SW firing
     // alone leaves none on its holder) may no longer pay for the SW with it, but for SFF, FPF or Final Fire vs an
     // adjacent hex as above. A squad may still fire one SW in a separate attack (SK1 3.2).
@@ -1166,6 +1197,18 @@ function basicIllegal(env: QueryEnv, decl: FireDeclaration, mode: FireMode, side
     // A vehicle's IFE and MGs never join the other units in their hex, so their attacks bind only each other (sk3.vehicleMg).
     const used = log.pairs[pairKey(hex, fgTarget(decl), exp)]?.filter((id) => !(env.state.pieces[id] && isFt(env, id)) && !vehicleArmament(env, id));
     if (used?.length === 0) continue;
+    if (used && exp && !hasFt) {
+      // Defensive First Fire, Subsequent First Fire and FPF alike: MF spent at once (two to enter a building) are one
+      // expenditure, so a unit may fire on it again only as often as MF were spent (`firedHere`), and only with the units
+      // of its Location that fired with it each time before. A unit that sat out an attack from its Location on this
+      // expenditure may not attack it separately afterwards (A7.55: "they may not attack separately"; Perry Sez A7.55:
+      // after one unit fires on the first MF, two units of that Location may not form a FG on the second).
+      const times = (id: PieceId) => used.filter((u) => u === id).length;
+      const most = Math.max(...used.map(times));
+      const late = [...decl.units, ...decl.sw].filter((id) => !(env.state.pieces[id] && isFt(env, id)) && !vehicleArmament(env, id) && times(id) < most);
+      if (late.length) return `Units in ${hex} already fired at this stack on this MF expenditure without ${late.join(', ')} (must form one Fire Group)`;
+      continue;
+    }
     if (used && mode !== 'subsequentFirst' && mode !== 'fpf' && !hasFt) {
       const allSwRof = decl.units.length === 0;
       if (!allSwRof) {
@@ -1325,9 +1368,10 @@ function resolveFire(
   const log = fireLog(ctx);
   const pairs = { ...log.pairs };
   const exp = opts.moving ? expenditureKey(ctx) : undefined;
-  for (const p of attack.parts) {
+  // Against a moving stack each attack adds its pieces again, so the log counts how often each fired on the expenditure.
+  for (const p of new Map(attack.parts.map((p) => [p.piece, p])).values()) {
     const k = pairKey(firerLoc(ctx, p.firer), fgTarget(decl), exp);
-    pairs[k] = [...new Set([...(pairs[k] ?? []), p.piece])];
+    pairs[k] = exp ? [...(pairs[k] ?? []), p.piece] : [...new Set([...(pairs[k] ?? []), p.piece])];
   }
   const directed = { ...log.directed };
   for (const d of attack.directors ?? []) directed[d] = [...new Set([...(directed[d] ?? []), ...attack.parts.map((p) => p.firer)])];
@@ -1530,12 +1574,16 @@ export function markFirers(ctx: Ctx, attack: FireAttackCtx, mode: FireMode, cowe
   // marked First Fire flips: one already marked Final there has nothing to flip, and its MG that kept ROF stays
   // unmarked and may fire again (SK1 1.2.4).
   const flips = (id: PieceId) => (mode === 'final' ? fireMarker(pieceOf(ctx, id)) === 'first' : again(id));
+  // In the DFPh the markers are per unit and per MG (SK1 3.4 "units/MG ... marked with a First Fire counter may also fire
+  // again"): a holder marked First Fire whose unmarked MG alone fires (one that maintained ROF in the MPh) has not fired
+  // again, so it does not flip; and a MG that keeps ROF stays unmarked while it may fire again (SK1 1.2.4).
+  const firesAgain = (p: (typeof attack.parts)[number]) => (mode === 'final' ? flips(p.kind === 'inherent' ? p.firer : p.piece) : flips(p.firer) || flips(p.piece));
   if (mode === 'subsequentFirst' || mode === 'fpf' || mode === 'final') {
     for (const p of attack.parts) {
-      if (!flips(p.firer) && !flips(p.piece)) continue;
+      if (!firesAgain(p)) continue;
       flipped.add(p.firer);
       for (const s of swHeldBy(ctx.state, p.firer)) flipped.add(s.id);
-      for (const id of flipped) pieces.add(id);
+      for (const id of flipped) if (mode !== 'final' || !rofKept.includes(id)) pieces.add(id);
     }
   }
   // Squads firing two SW (or HS firing one) forfeit own FP for the Player Turn.
@@ -1684,6 +1732,8 @@ export function simpleDeclarations(env: QueryEnv, side: SideId, targets: LocId[]
       // rather than make the whole attack illegal (or a HS holding an LMG is
       // never offered Defensive First Fire).
       const forfeits = (id: PieceId) => {
+        // Not in SFF or FPF, where the forfeit is lifted (SK1 4.0) and a unit using FPF fires all its FP and MG (3.3.1).
+        if (mode === 'subsequentFirst' || mode === 'fpf') return false;
         const held = iftSw.filter((s) => { const l = pieceOf(env, s).loc; return l.kind === 'held' && l.by === id; }).length;
         const kind = mmc(env, pieceOf(env, id))?.kind;
         return held > 0 && (kind === 'hs' || kind === 'crew' || (kind === 'squad' && held > 1));

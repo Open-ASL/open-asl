@@ -1,5 +1,6 @@
 import type { Action, Ctx, HexId, PieceId, QueryEnv, RuleModule, SideId } from '@asl/engine';
 import { defOf, hexOf, otherSide, personnelAt, statics } from '../common/pieces';
+import { hexOfLoc, locExists, locOf, type LocId } from '../common/location';
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
 import { firedOwnFpThisPhase, type FireMode } from '../sk1/fire';
 import { PHASE_FIRE_MODE, fireTargets, phaseOwner, swUsedThisPhase } from '../sk1/firePhases';
@@ -153,7 +154,7 @@ declare module '@asl/engine' {
      * Full ASL: whether `firer`'s Panzerfaust may aim at the Infantry `units` in `target` for a cover the Starter Kit has
      * no counter for: HEAT may fire at Infantry receiving a wall/building/rubble/pillbox TEM (ASLRB C8.31). False in the Starter Kit.
      */
-    'pf.infantryCover': { ctx: { firer: PieceId; target: HexId; units: PieceId[] }; value: boolean };
+    'pf.infantryCover': { ctx: { firer: PieceId; target: LocId; units: PieceId[] }; value: boolean };
   }
 }
 
@@ -195,11 +196,13 @@ export function pfIllegal(env: QueryEnv, side: SideId, pf: PfShot, mode: FireMod
   const p = pieceOf(env, pf.unit);
   const map = statics(env).map;
   const from = hexOf(env.state, p)!;
-  if (!map.hex(pf.target)) return 'Unknown target hex';
-  const range = map.distance(from, pf.target);
+  // The target is a Location (a hex id at ground level; full ASL: a pillbox, ASLRB C8.31).
+  const toHex = hexOfLoc(pf.target);
+  if (!map.hex(toHex) || !locExists(env, pf.target)) return 'Unknown target hex';
+  const range = map.distance(from, toHex);
   const max = pfMaxRange(env);
   if (range > max) return `A Panzerfaust reaches ${max} hex${max > 1 ? 'es' : ''} at this date`;
-  if (moving && mode === 'first' && !moving.some((u) => hexOf(env.state, pieceOf(env, u)) === pf.target)) return 'Defensive First Fire must target the moving stack';
+  if (moving && mode === 'first' && !moving.some((u) => locOf(env.state, pieceOf(env, u)) === pf.target)) return 'Defensive First Fire must target the moving stack';
   // A leader in the hex may modify the PF's To Hit DR like any ordnance SW's (ASL A7.531); never its PF check.
   if (pf.director !== undefined) {
     const why = swDirectorIllegal(env, pf.director, side, from, pf.unit);
@@ -214,8 +217,8 @@ export function pfIllegal(env: QueryEnv, side: SideId, pf: PfShot, mode: FireMod
   if (range === 0) return 'Cannot fire into own hex';
   // Infantry in a building must be Known (SK4 8.3: a concealed stack is no Infantry Target Type target).
   const enemy = personnelAt(env, pf.target, otherSide(env.state, side)).filter((u) => env.query('piece.knownTo', { piece: u.id, viewer: side }, true));
-  const gunThere = Object.values(env.state.pieces).some((g) => g.side !== side && gun(env, g) && hexOf(env.state, g) === pf.target);
-  if (!gunThere && !(enemy.length && (map.hex(pf.target)?.buildingId || env.query('pf.infantryCover', { firer: pf.unit, target: pf.target, units: enemy.map((u) => u.id) }, false)))) return 'A Panzerfaust fires only at a vehicle, a Gun, or Infantry in a building';
+  const gunThere = Object.values(env.state.pieces).some((g) => g.side !== side && gun(env, g) && locOf(env.state, g) === pf.target);
+  if (!gunThere && !(enemy.length && (map.hex(toHex)?.buildingId || env.query('pf.infantryCover', { firer: pf.unit, target: pf.target, units: enemy.map((u) => u.id) }, false)))) return 'A Panzerfaust fires only at a vehicle, a Gun, or Infantry in a building';
   return null;
 }
 

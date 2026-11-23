@@ -12,6 +12,7 @@ import { seatNames } from './seatNames';
 import { useOnlineGame } from '../game/onlineSession';
 import { matchScenario } from './scenarios';
 import { ReplayBoard } from './ReplayBoard';
+import { SsSettings } from '../superSpectator/SsSettings';
 
 export function PublicReplay() {
   const { id } = useParams<{ id: string }>();
@@ -55,5 +56,5 @@ function LiveBoard({ matchId, match, scenario }: { matchId: string; match: Match
   if (live.loadError) return <div className="gate"><div className="gate-card"><h1>Replay unavailable</h1><p>{live.loadError}</p></div></div>;
   if (!live.ready) return <div className="gate"><div className="gate-card"><p>Reading the position…</p></div></div>;
   const session = { ...live, act: () => 'You are watching this match', check: () => 'You are watching this match' };
-  return <><GameScreen scenario={scenario} players={seatNames(match)} session={session} matchId={undefined} viewKey={`watch.${matchId}`} onQuit={() => navigate(-1)} /><div className="replay-controls"><div className="replay-head"><div className="replay-title"><b>{match.scenarioTitle}</b><span>Live · what both players can see</span></div></div></div></>;
+  return <><GameScreen scenario={scenario} players={seatNames(match)} session={session} matchId={undefined} viewKey={`watch.${matchId}`} onQuit={() => navigate(-1)} settingsExtra={<SsSettings matchId={matchId} match={match} on={false} />} /><div className="replay-controls"><div className="replay-head"><div className="replay-title"><b>{match.scenarioTitle}</b><span>Live · what both players can see</span></div></div></div></>;
 }

@@ -66,6 +66,26 @@ describe('Manhandling a Gun (SK4 6.5, the Emplacement and Manhandling example)',
     expect(s.pieces['c1']!.tags['moved']).toBe(true);
   });
 
+  it('a push that stops or fails spends its MF where the stack stands: the defender may First Fire on them before the move ends (SK1 3.3.1)', () => {
+    const open = { yL5: { terrain: 'open' } };
+    for (const [dice, outcome, hex] of [[[6, 5], 'failed', 'yK5'], [[5, 5], 'stopped', 'yL5']] as const) {
+      const { engine, state } = makeEngine({ scenario: GE_VS_BR, extra, terrain: open, startPhase: 'MPh', dice: [...dice, 3, 4], pieces });
+      let s = act(engine, state, { type: 'move.start', units: ['c1', 'sq'], manhandle: 'g75' }).state;
+      const t = act(engine, s, { type: 'move.manhandle', to: 'yL5' });
+      expect(t.events.find((e) => e.type === 'sk2.gun.manhandle')!.payload).toMatchObject({ outcome });
+      s = t.state;
+      // The defender is asked, and the question is the one awaited: not left behind the mover's next phase decision.
+      expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', owner: 'br', data: { hex } });
+      expect(s.decisions.filter((d) => d.kind === 'phase')).toEqual([]);
+      const fired = act(engine, s, { type: 'defFire', decl: { units: ['b1'], sw: [], target: hex } });
+      expect(fired.events.some((e) => e.type === 'sk1.fire.attack')).toBe(true);
+      // Once the defender has had its say, the stack's move is over and the mover is asked again.
+      s = settle(engine, fired.state);
+      expect(s.pieces['sq']!.tags['moved']).toBe(true);
+      expect(engine.currentDecision(s)).toMatchObject({ kind: 'phase', owner: 'ge' });
+    }
+  });
+
   it('is Hazardous Movement: -2 to fire against the manhandlers, no FFMO/FFNAM; they may not advance afterwards', () => {
     const open = { yL5: { terrain: 'open' } };
     // Push DR 2+2 = 4 (moved); the British 4-5-7 fires: DR 3+3 (cowering would need doubles... it is a squad: directed? no) — use 3+4.

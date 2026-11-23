@@ -16,6 +16,7 @@ import {
   locationsOf,
   piecesModule,
   pillboxCaHexsides,
+  pillboxGray,
   redactState,
   roadblockExtension,
   seenByEnemy,
@@ -175,7 +176,7 @@ describe('where each counter may go', () => {
     expect(fortPlaceIllegal(two, 'ru', [{ kind: 'roadblock', hex: 'uM5', hidden: true, hexside: 1 }, { kind: 'roadblock', hex: 'uM6', hidden: true, hexside: 4 }])).toMatch(/One roadblock per hexside \(uM5-uM6/);
     expect(fortPlaceIllegal(two, 'ru', [{ kind: 'roadblock', hex: 'uM5', hidden: true, hexside: 1 }, { kind: 'roadblock', hex: 'uM5', hidden: true, hexside: 4 }])).toBeNull();
   });
-  it('a pillbox only in Open Ground, brush, orchard, grain or woods, with a Covered Arc; one per hex, not with an entrenchment (B30.1)', () => {
+  it('a pillbox only in Open Ground, brush, orchard, grain or woods, with a Covered Arc, its factors as printed; one per hex, with or without an entrenchment (B30.1, B30.11, B30.8)', () => {
     const { engine, state } = game(far);
     const env = engine.env(state);
     const pb = (hex: string, ca?: number): FortPlacement => ({ kind: 'pillbox', hex, hidden: true, ...(ca !== undefined ? { ca } : {}), pillbox: { capacity: 1, ca: 3, nca: 5 } });
@@ -185,7 +186,15 @@ describe('where each counter may go', () => {
     for (const hex of ['uL4', 'uN4', 'uM4', 'uK5']) expect(counterTerrainIllegal(env, pb(hex, 2)), hex).toBeNull();
     expect(pillboxCaHexsides(0)).toEqual([5, 0]);
     expect(pillboxCaHexsides(3)).toEqual([2, 3]);
-    expect(fortPlaceIllegal(env, 'ru', [pb('uL4', 0), fox('uL4')])).toMatch(/pillbox hex takes no foxhole or trench/);
+    // A trench (or A-T Ditch) in the pillbox's hex makes it a bunker (B30.8); a foxhole may share it too (B27.1 lists no pillbox).
+    expect(fortPlaceIllegal(env, 'ru', [pb('uL4', 0), fox('uL4')])).toBeNull();
+    expect(fortPlaceIllegal(env, 'ru', [pb('uL4', 0), { kind: 'trench', hex: 'uL4', hidden: true }])).toBeNull();
+    expect(fortPlaceIllegal(env, 'ru', [pb('uL4', 0), { kind: 'ditch', hex: 'uL4', hidden: true }])).toBeNull();
+    // The counters pair the Defense Modifications 3+5, 4+6, 5+7 (B30.11).
+    expect(counterTerrainIllegal(env, { ...pb('uL4', 0), pillbox: { capacity: 1, ca: 3, nca: 7 } })).toMatch(/No pillbox counter is 1\+3\+7/);
+    expect(counterTerrainIllegal(env, { ...pb('uL4', 0), pillbox: { capacity: 2, ca: 4, nca: 6 } })).toBeNull();
+    expect(pillboxGray({ capacity: 3, ca: 5, nca: 7 })).toBe(true);
+    expect(pillboxGray({ capacity: 1, ca: 3, nca: 5 })).toBe(false);
     expect(fortPlaceIllegal(env, 'ru', [{ ...pb('uL4', 0), pillbox: { capacity: 2, ca: 3, nca: 5 } }])).toMatch(/No pillbox 2\+3\+5/);
     // Mines and Wire may share its hex.
     expect(fortPlaceIllegal(env, 'ru', [pb('uL4', 0), { kind: 'wire', hex: 'uL4', hidden: true }, { kind: 'mines', hex: 'uL4', hidden: true, mines: { ap: 6 } }])).toBeNull();

@@ -16,6 +16,8 @@ import { MemberPresence } from './lobby-v2/Presence';
 import { AdminAnnouncements } from './lobby-v2/AdminAnnouncements';
 import { PublicReplay } from './match/PublicReplay';
 import { ProfileRedirect } from './profile/ProfileRedirect';
+import { SsBoardRoute } from './superSpectator/SsBoard';
+import { SsControlsWindow } from './superSpectator/SsControlsWindow';
 
 const ScenarioExplorer = lazy(() => import('./lobby-v2/ScenarioExplorer').then((m) => ({ default: m.ScenarioExplorer })));
 const PublicProfilePage = lazy(() => import('./profile/PublicProfilePage').then((m) => ({ default: m.PublicProfilePage })));
@@ -66,6 +68,8 @@ export function App() {
           </Route>
           <Route path="profile/:uid" element={<ProfileRedirect />} />
           <Route path="match/:id" element={<MatchRoute />} />
+          <Route path="match/:id/ss" element={<SsBoardRoute />} />
+          <Route path="match/:id/ss/controls" element={<SsControlsWindow />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

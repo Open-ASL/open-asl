@@ -9,7 +9,7 @@ import { clearAreasTally, squadEquivalentsLost } from './clearAreas';
 import { OPEN_STACK_LIMIT, stackLimit } from './movement';
 import { MOVE_EXIT, exitMf, moveState, type MoveExitFn, type MoveState } from './movement';
 import { AP, type AdvanceExitFn } from './advance';
-import type { GameMap, ScenarioDef, ScenarioForce, VictoryCondition, SetupConstraint } from '../common/statics';
+import type { CounterDef, GameMap, ScenarioDef, ScenarioForce, VictoryCondition, SetupConstraint } from '../common/statics';
 import { isBroken, isGoodOrder, mmc, pieceOf, setTags, smc, squadEquivalents } from './status';
 import { isRoadHex, terrainOf } from './terrain';
 
@@ -45,6 +45,16 @@ declare module '@asl/engine' {
      */
     'setup.reserve': { ctx: { side: SideId; force: number }; value: ReserveRule | null };
   }
+}
+
+
+/**
+ * What an entering unit has already expended per its force's card: a vehicle its MP (`mpSpent`, a number or "half"), else
+ * the force's MF; anything else only MF (`mfSpent`), a number.
+ */
+export function entrySpentOf(def: CounterDef | undefined, setup: { mfSpent?: number; mpSpent?: number | 'half' }): number | 'half' | undefined {
+  if (def && isVehicleDef(def)) return setup.mpSpent ?? setup.mfSpent;
+  return setup.mfSpent;
 }
 
 export const SETUP_DECISION = 'setup';
@@ -1023,8 +1033,9 @@ export const scenarioModule: RuleModule = {
                   tags['entryEdge'] = force.setup.edge;
                   if (force.setup.hexes) tags['entryHexes'] = force.setup.hexes.join(',');
                 }
-                // Infantry enter with MF, vehicles with MP (or half their allowance), already expended per the card.
-                const spent = force.setup.mfSpent ?? force.setup.mpSpent;
+                // Infantry enter with MF, vehicles with MP (or half their allowance), already expended per the card: a
+                // force's MP ("with AFV having expended half of their MP") never reach its Infantry.
+                const spent = entrySpentOf(statics(ctx).counters[u.def], force.setup);
                 if (spent) tags['entryMfSpent'] = spent;
                 if (force.setup.provisional) {
                   // Provisional reinforcements are not due until the RPh dr releases them (below).

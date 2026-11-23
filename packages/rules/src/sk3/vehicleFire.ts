@@ -123,14 +123,40 @@ export function boundingDrm(sc: ShotCtx, env: QueryEnv): number {
 const targetVehicleOf = (sc: ShotCtx, env: QueryEnv): Piece | null => (sc.targetVehicle ? (env.state.pieces[sc.targetVehicle] ?? null) : null);
 const firerVehicleOf = (sc: ShotCtx, env: QueryEnv): Piece | null => (sc.firerVehicle ? (env.state.pieces[sc.firerVehicle] ?? null) : null);
 
-/** Case 24 vs a Motion or moving vehicle: +2 in Motion or more than 3 MP in the firer's LOS, +3 for ≤ 3, +4 for ≤ 1. */
+const DEFENSIVE_FIRST_FIRE: FireMode[] = ['first', 'subsequentFirst', 'fpf'];
+
+/**
+ * The MP a moving vehicle has just spent in the firer's continuous LOS, for Restricted (≤ 3) and Limited (≤ 1) Aim, or
+ * null when neither may apply: only Defensive First Fire takes them (ASLRB C6.11, C6.12), and only for MP spent since
+ * the vehicle's last hex out of that LOS; one that began its MPh in view and has not left it is spared (C6.15). The
+ * vehicle now moving reads its move; a pose (`mpTrail`, the computer opponent's estimates) its trail alone. A preview
+ * before the shot (`blind`) may not trace the LOS (ASLRB A6.11): it counts every MP spent on the map, as if the vehicle
+ * had come from out of view, and the shot itself settles the rest.
+ */
+function continuousMpInLos(env: QueryEnv, sc: ShotCtx, v: Piece): number | null {
+  if (!DEFENSIVE_FIRST_FIRE.includes(sc.mode)) return null;
+  const ms = moveState(env);
+  const moving = !!ms && ms.units[0] === v.id;
+  const trail: { hex: HexId; mp: number }[] = moving ? (ms.trail ?? []) : JSON.parse((v.tags[T3.mpTrail] as string | undefined) ?? '[]');
+  const seen = (hex: HexId) => !!statics(env).map.hex(hex) && (!!sc.losBlind || hasLos(env, sc.hex, hex));
+  const origin = moving && !sc.losBlind ? ms.vehicle?.origin : undefined;
+  let mp: number | null = origin && seen(origin) ? null : 0;
+  for (const t of trail) {
+    if (!seen(t.hex)) mp = 0;
+    else if (mp !== null) mp += t.mp;
+  }
+  return mp;
+}
+
+/**
+ * Case 24 vs a Motion or moving vehicle (ASLRB C6.1 Case J): +2, or in Defensive First Fire +3 at ≤ 3 MP spent in the
+ * firer's continuous LOS and +4 at ≤ 1 (C6.11 J1, C6.12 J2; a Motion vehicle on the move included).
+ */
 function movingTargetDrm(sc: ShotCtx, env: QueryEnv): number {
   const t = targetVehicleOf(sc, env);
-  if (!t || isWreck(t)) return 0;
-  if (inMotion(t)) return 2;
-  if (!isMovingTarget(t)) return 0;
-  const mp = mpInLosOf(env, t, sc.hex, !!sc.losBlind);
-  return mp <= 1 ? 4 : mp <= 3 ? 3 : 2;
+  if (!t || isWreck(t) || (!inMotion(t) && !isMovingTarget(t))) return 0;
+  const mp = continuousMpInLos(env, sc, t);
+  return mp === null ? 2 : mp <= 1 ? 4 : mp <= 3 ? 3 : 2;
 }
 /** Case 22 for a vehicle target: its printed size. */
 function vehicleSizeDrm(sc: ShotCtx, env: QueryEnv): number {
@@ -252,7 +278,9 @@ export const vehicleFireModule: RuleModule = {
       'case 24',
       (sc, env) => {
         const t = targetVehicleOf(sc, env)!;
-        return inMotion(t) ? '+2 target in Motion' : sc.losBlind ? `+${movingTargetDrm(sc, env)} moving vehicle (${mpInLosOf(env, t, sc.hex, true)} MP spent; those in your LOS count when you fire)` : `+${movingTargetDrm(sc, env)} moving vehicle (${mpInLosOf(env, t, sc.hex)} MP in your LOS)`;
+        const mp = continuousMpInLos(env, sc, t);
+        if (mp === null) return inMotion(t) ? '+2 target in Motion' : '+2 moving vehicle';
+        return sc.losBlind ? `+${movingTargetDrm(sc, env)} moving vehicle (${mp} MP spent; those in your LOS count when you fire)` : `+${movingTargetDrm(sc, env)} moving vehicle (${mp} MP in your LOS)`;
       },
       (sc, env) => sc.shot.targetType === 'VTT' && movingTargetDrm(sc, env) > 0,
       movingTargetDrm,
@@ -418,7 +446,8 @@ export const vehicleFireModule: RuleModule = {
     });
 
     // ---------------------------------------------------------------- the moving-target trail
-    // When a vehicle's move ends, its trail stays on it for the Defensive Fire Phase's case 24.
+    // When a vehicle's move ends, its trail stays on it: the record of where it spent its MP, read by poses (`mpTrail`).
+    // The Defensive Fire Phase's case 24 is +2 whatever the trail (Restricted/Limited Aim are Defensive First Fire only).
     r.on<{ vehicle: PieceId; kind: string }>({
       id: 'sk3.vehicleFire.trail',
       event: 'sk3.vehicle.move',

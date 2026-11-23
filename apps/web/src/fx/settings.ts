@@ -61,6 +61,28 @@ export function useYourCallStrip(): [boolean, (on: boolean) => void] {
   return [on, set];
 }
 
+const STACK_CARD_KEY = 'asl.stackCard';
+
+/** Whether lingering over a hex opens the stack card beside the pointer. On by default; the orders panel lists the stack either way. */
+export function useStackCard(): [boolean, (on: boolean) => void] {
+  const [on, setOn] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(STACK_CARD_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const set = useCallback((v: boolean) => {
+    setOn(v);
+    try {
+      localStorage.setItem(STACK_CARD_KEY, v ? 'on' : 'off');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  return [on, set];
+}
+
 const WEATHER_KEY = 'asl.weatherFx';
 
 /** Whether the map shows the weather (falling snow, rain, fog) as a visual effect. On by default. */

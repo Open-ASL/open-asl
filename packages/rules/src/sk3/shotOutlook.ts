@@ -1,6 +1,7 @@
 import type { PieceId, QueryEnv, SideId } from '@asl/engine';
 import type { FireMode } from '../sk1/fire';
 import { withoutSecrets } from '../sk1/fire';
+import { firstFireView, moveState, movingInfo } from '../sk1/movement';
 import { shotContext, toHitNumber, type OrdnanceShot } from '../sk2/ordnance';
 import { vehicle } from './status';
 import { toKillNumbers } from './toKill';
@@ -36,7 +37,12 @@ export function shotOutlook(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, s
   if (shot.targetType === 'IFE') return none;
   try {
     // Before the shot is declared nothing that needs the LOS is worked out (ASLRB A6.11, SK4 3.2.1).
-    const sc = { ...shotContext(env, shot, mode, side, moving ? { moving } : {}), hindrance: 0, losBlind: true };
+    // At a moving stack the DRM of its move count as they will when it is fired (FFNAM, FFMO: SK4 To Hit case 19), so
+    // the shot is read with the move the resolution reads (`movingInfo` of the stack's view in the target Location).
+    const ms = moving ? moveState(env) : null;
+    const view = ms ? firstFireView(env, ms, shot.target) : null;
+    const opts = moving ? { moving, ...(view ? { movingInfo: movingInfo(env, view) } : {}) } : {};
+    const sc = { ...shotContext(env, shot, mode, side, opts), hindrance: 0, losBlind: true };
     const thn = toHitNumber(env, sc);
     const drm = withoutSecrets(env.explain('ordnance.thDrm', sc, 0));
     // Case 16 shows as an extra on the dice: with a 1 and a 1 the extra is the lower die, 1.

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
-import { entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, lastMineAttacks, roadblockObstacles } from '@asl/rules';
+import { bunkerTrenches, controlState, pillboxLoc, entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, lastMineAttacks, roadblockObstacles } from '@asl/rules';
 import { AMMO_NAME, acquisitionsAt, ammoOut, defOf, fireAt, fireMarker, fireNumbers, fortCounters, fortKindName, gunIdent, isWeaponDef, locationsOf, moveState, parseLabor, rubbleAt, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, terrainOf, windOf, type Statics, type VehicleDef } from '@asl/rules';
 import { counterImage, cxMarker, markerImage } from '../game/assets';
 import { fortMarker } from '../panels/FortTray';
@@ -31,6 +31,8 @@ interface Props {
     onChitContextMenu(p: Piece, at: { x: number; y: number }): void;
     onEnter(): void;
     onLeave(): void;
+    /** Close the card (its ✕, or Esc): it stays away until the pointer moves to another hex. */
+    onClose?(): void;
   };
 }
 
@@ -246,13 +248,28 @@ function fortLines(env: QueryEnv, hex: HexId): { marker: string; label: string; 
       const extra =
         c.kind === 'foxhole' ? ` · room for ${c.capacity ?? 1} squad${(c.capacity ?? 1) === 1 ? '' : 's'} and four SMC (ASLRB B27.12)`
         : c.kind === 'trench' || c.kind === 'ditch' ? ' · room for three squads (ASLRB B27.51)'
-        : c.kind === 'pillbox' ? ` · ${c.pillbox?.capacity ?? 1} squad${(c.pillbox?.capacity ?? 1) === 1 ? '' : 's'}, +${c.pillbox?.ca} in its arc, +${c.pillbox?.nca} outside (ASLRB B30.11)`
+        : c.kind === 'pillbox' ? ` · ${c.pillbox?.capacity ?? 1} squad${(c.pillbox?.capacity ?? 1) === 1 ? '' : 's'}, +${c.pillbox?.ca} in its arc, +${c.pillbox?.nca} outside (ASLRB B30.11)${pillboxNotes(env, c)}`
         : c.kind === 'roadblock' ? wallText(c.id)
         : c.kind === 'mines' && !c.mines?.ap && !c.mines?.at && !c.mines?.dummy ? ' · strength unknown' : '';
       const status = c.hidden && !c.revealed ? (c.kind === 'mines' ? ' · recorded (ASLRB B28.1)' : ' · hidden (ASLRB A12.33)') : c.revealed ? ' · revealed' : '';
       return { marker: fortMarker(c), label: `${what}${extra}${status}`, hidden: !!c.hidden && !c.revealed };
     })
     .concat(across);
+}
+
+/**
+ * What else the card says of a pillbox (full ASL): a bunker (B30.8); occupied, its contents not inspectable (B30.7) or Known
+ * once an attack came from within; who Controls it (B30.91), and that the hex's Control needs it (A26.132).
+ */
+function pillboxNotes(env: QueryEnv, c: { hex: HexId; side: string; occupied?: true; known?: true }): string {
+  const out: string[] = [];
+  if (bunkerTrenches(env, c.hex).length) out.push('a bunker: moves to and from its trench as if a trench (ASLRB B30.8)');
+  if (c.occupied) out.push('occupied: contents not inspectable (ASLRB B30.7)');
+  else if (c.known) out.push('contents Known: an attack was made from within (ASLRB B30.7)');
+  const ctl = controlState(env).locations?.[pillboxLoc(c.hex)];
+  const name = (side: string) => (env.statics as Statics).scenario.sides.find((x) => x.side === side)?.name ?? side;
+  if (ctl) out.push(`Pillbox: Controlled by ${name(ctl)}; hex Control needs the pillbox (ASLRB A26.132)`);
+  return out.length ? ` · ${out.join(' · ')}` : '';
 }
 
 /** Markers on the hex itself (Smoke, CC, Melee, Residual FP, Acquired Target counters). */
@@ -424,6 +441,11 @@ export function StackPeek({ env, hex, at, bounds, placements, rotation, interact
       onPointerEnter={interactive?.onEnter}
       onPointerLeave={interactive?.onLeave}
     >
+      {interactive?.onClose && (
+        <button className="peek-close ghost" onClick={interactive.onClose} aria-label="Close the stack card" title="Close (Esc)">
+          ✕
+        </button>
+      )}
       <div className="peek-top">
         {placements && <HexArt env={env} hex={hex} placements={placements} rotation={rotation ?? 0} />}
         <div className="peek-top-text">
@@ -471,8 +493,8 @@ export function StackPeek({ env, hex, at, bounds, placements, rotation, interact
               ...stack.filter((e) => levelOfPiece(e.piece) === lv && !inPillbox(e.piece)).map((e) => [...[...e.held].reverse().map((h) => row(h, true)), row(e.piece, false)]),
             ])}
       </ul>
-      {interactive && stack.some((e) => interactive.selectable(e.piece)) && (
-        <div className="peek-hint">click a chit to select · right-click it for actions</div>
+      {interactive && (stack.some((e) => interactive.selectable(e.piece)) || interactive.onClose) && (
+        <div className="peek-hint">{[stack.some((e) => interactive.selectable(e.piece)) && 'click a chit to select · right-click it for actions', interactive.onClose && 'Esc closes'].filter(Boolean).join(' · ')}</div>
       )}
     </div>
   );

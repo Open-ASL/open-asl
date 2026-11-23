@@ -26,7 +26,7 @@ import {
   ppOf,
 } from './status';
 import { MOVE, firstFireTargets, moveLoc, moveState } from './moveState';
-import { LEVEL_CHANGE_MF, adjacentLocs, hexOfLoc, isGroundLoc, levelOfLoc, locKey, locOf, locationAt, parseLoc, type LocId, type SubLoc } from '../common/location';
+import { LEVEL_CHANGE_MF, adjacentFor, adjacentLocs, hexOfLoc, isGroundLoc, levelOfLoc, locKey, locOf, locationAt, parseLoc, type LocId, type SubLoc } from '../common/location';
 import { inPlay, isOrchardRoad, isRoadHex, isWoodsRoad, smokeDrm, smokeGrenades, smokeIn, terrainOf } from './terrain';
 
 declare module '@asl/engine' {
@@ -53,6 +53,16 @@ declare module '@asl/engine' {
     'move.startState': { ctx: { units: PieceId[] }; value: Partial<MoveState> };
     /** Full ASL: why a unit may not Recover a weapon (ASLRB B27.13: not across a foxhole's rim); null in the Starter Kit. */
     'recover.illegal': { ctx: { unit: PieceId; sw: PieceId }; value: string | null };
+    /** Full ASL: why `from` may not Transfer `sw` to `to` (ASLRB B26.4: not from on top of Wire to beneath it); null in the Starter Kit. */
+    'transfer.illegal': { ctx: { sw: PieceId; from: PieceId; to: PieceId }; value: string | null };
+    /**
+     * Whether a Smoke grenade attempt by the moving stack into `target` places SMOKE in an ADJACENT Location (two MF) rather
+     * than its own (one MF; ASLRB A24.1, SK1 3.3): the default is any hex but its own. Full ASL: from inside a pillbox its
+     * own hex is the ADJACENT Location outside it (B30.34: a pillbox never holds SMOKE).
+     */
+    'move.smokeAdjacent': { ctx: { ms: MoveState; target: HexId }; value: boolean };
+    /** Why the moving stack may not attempt Smoke grenades into `target` beyond the base rules, or null (full ASL: B30.2 from a pillbox). */
+    'move.smokeIllegal': { ctx: { ms: MoveState; target: HexId }; value: string | null };
     /** Why a moving stack may not step into Location `to` beyond the base rules, or null (PTO: a Gun manhandled into bamboo). */
     'move.stepIllegal': { ctx: { ms: MoveState; to: LocId; beneath?: boolean; mines?: MineEntry; hexsides?: [number, number] }; value: string | null };
     /**
@@ -266,6 +276,8 @@ export interface VehicleMoveState {
   ending?: boolean;
   /** Changed its VCA this move: the one-hex minimum move at all its MP is no longer available (3.3.2). */
   turned?: boolean;
+  /** The map hex it began its MPh in (null offboard): a firer that saw it there gives no Restricted/Limited Aim (ASLRB C6.15). */
+  origin?: HexId | null;
 }
 
 export { firstFireTargets, moveLoc, moveState } from './moveState';
@@ -650,7 +662,9 @@ export const movementModule: RuleModule = {
         const spent = Object.fromEntries(
           units.map((u) => {
             const p = pieceOf(ctx, u);
-            return [u, p.loc.kind === 'offboard' ? ((p.tags['entryMfSpent'] as number | undefined) ?? 0) : 0];
+            // Only a number of MF counts: "half" is a vehicle's MP (sk3 entrySpent), never an Infantry unit's MF.
+            const mf = p.tags['entryMfSpent'];
+            return [u, p.loc.kind === 'offboard' && typeof mf === 'number' ? mf : 0];
           }),
         );
         const first = pieceOf(ctx, units[0]!);
@@ -814,12 +828,14 @@ export const movementModule: RuleModule = {
         if (new Set(throws.map((t) => t.unit)).size !== throws.length) return 'A unit may attempt Smoke only once per MPh';
         // Units moving as a stack spend each MF together, and "need not spend MF for the same purpose": every attempt
         // declared at once is one expenditure of the costliest of them (ASLRB A4.2; SK1 3.3 is silent on stacks).
-        const cost = smokeCost(ms, throws);
+        const cost = smokeCost(env, ms, throws);
         for (const t of throws) {
           if (!ms.units.includes(t.unit)) return 'Unit is not moving';
           if (!env.query('unit.smoke', { unit: t.unit }, 0)) return 'Unit has no Smoke exponent';
           if (ms.smokeTriedBy?.includes(t.unit)) return 'This unit has already attempted Smoke this MPh';
           if (t.target !== ms.hex && !statics(env).map.neighbors(ms.hex).includes(t.target)) return 'Smoke target must be own or adjacent hex';
+          const why = env.query('move.smokeIllegal', { ms, target: t.target }, null);
+          if (why) return why;
           if (remaining(env, ms, t.unit) < cost) return 'Not enough MF';
         }
         return inPlaceIllegal(env, ms, cost);
@@ -838,7 +854,7 @@ export const movementModule: RuleModule = {
           if (final <= exponent) ctx.emit('hex.marker', { hex: t.target, key: 'smoke', value: smokeGrenades(ctx.state.hexMarkers[t.target]) + 1 });
           if (dr === 6) sixes.push(t.unit);
         }
-        spendInPlace(ctx, ms, smokeCost(ms, throws), { smokeTried: true, smokeTriedBy: [...(ms.smokeTriedBy ?? []), ...throws.map((t) => t.unit)] });
+        spendInPlace(ctx, ms, smokeCost(ctx, ms, throws), { smokeTried: true, smokeTriedBy: [...(ms.smokeTriedBy ?? []), ...throws.map((t) => t.unit)] });
         // A placement dr of 6 ends that unit's MPh where it stands (SK1 3.3); the rest of the stack may go on.
         if (sixes.length && ctx.query('move.strandedStay', {}, false)) {
           // Full ASL: stranded there, still a target of First Fire at that expenditure and, in Bypass, in the open part of
@@ -953,7 +969,8 @@ export const movementModule: RuleModule = {
         if (!ms || !ms.hex) return 'No stack is moving on the map';
         const dc = env.state.pieces[a.dc];
         if (!dc || dc.loc.kind !== 'held' || !ms.units.includes(dc.loc.by) || sw(env, dc)?.type !== 'DC') return 'No DC carried by the moving stack';
-        if (!adjacentLocs(env, moveLoc(ms)!).includes(a.target)) return 'DC target must be adjacent';
+        // ADJACENT for DC Placement (ASLRB A23.3; in full ASL a pillbox from any adjacent hex and its own, B30.2, B30.31).
+        if (!adjacentFor(env, moveLoc(ms)!, a.target, 'dc')) return 'DC target must be adjacent';
         const cost = env.query('move.cost', { unit: dc.loc.by, from: ms.hex, to: hexOfLoc(a.target), viaRoad: false, ...(isGroundLoc(a.target) ? {} : { loc: a.target }) }, 0);
         if (remaining(env, ms, dc.loc.by) < cost) return 'Not enough MF to place the DC';
         if (ms.dcPending) return 'A DC placement is already in progress';
@@ -1033,12 +1050,17 @@ export const movementModule: RuleModule = {
       validate(env, a) {
         const ms = moveState(env);
         if (!ms || !ms.hex) return 'Nothing is moving';
-        const view = firstFireView(env, ms, a.decl.target);
+        // Full ASL: a stack seen on the ground may be inside a pillbox the firer has not been shown (`fire.targetAs`).
+        const target = env.query('fire.targetAs', { target: a.decl.target, side: a.side }, a.decl.target);
+        const decl = target === a.decl.target ? a.decl : { ...a.decl, target };
+        const view = firstFireView(env, ms, decl.target);
         if (!view) return 'Defensive First Fire must target the moving stack';
-        return firstFireIllegal(env, view, a.decl, a.side);
+        return firstFireIllegal(env, view, decl, a.side);
       },
-      resolve(ctx, a) {
+      resolve(ctx, a0) {
         const ms = moveState(ctx)!;
+        const target = ctx.query('fire.targetAs', { target: a0.decl.target, side: a0.side }, a0.decl.target);
+        const a = target === a0.decl.target ? a0 : { ...a0, decl: { ...a0.decl, target } };
         const view = firstFireView(ctx, ms, a.decl.target) ?? ms;
         const mode = firstFireMode(ctx, a.decl);
         const targets = firstFireTargets(ctx, view);
@@ -1332,14 +1354,14 @@ function stepIllegal(env: QueryEnv, ms: MoveState, to: LocId, pushing = false, d
   if (!offTo && !inPlay(env, toHex)) return 'That hex is not in play';
   // A vehicle (SK3) has rules of its own: its Vehicle Covered Arc, MP costs, Bog, one vehicle per hex.
   if (woods && !woodsRoadChoice(env, ms, to)) return 'Only Infantry entering a Woods-Road (or Orchard-Road) hex along the road choose its woods (or orchard)';
-  if (ms.vehicle && !isGroundLoc(to)) return parseLoc(to).sub === 'cave' ? 'A vehicle may not enter a Cave' : 'A vehicle may never occupy an upper building level (ASLRB B23.4)';
+  if (ms.vehicle && !isGroundLoc(to)) return parseLoc(to).sub === 'cave' ? 'A vehicle may not enter a Cave' : parseLoc(to).sub === 'pb' ? 'No vehicle may occupy a pillbox (ASLRB B30.111)' : 'A vehicle may never occupy an upper building level (ASLRB B23.4)';
   if (ms.vehicle) return env.query('vehicle.stepIllegal', { ms, to: toHex, ...(declared !== undefined ? { declared } : {}) }, null) ?? (mines ? env.query('move.stepIllegal', { ms, to, mines }, mines ? 'No minefield Trail Break in the Starter Kit' : null) : null);
   if (ms.dcPending) return 'Finish the DC placement first';
-  if (ms.manhandle && !isGroundLoc(to)) return parseLoc(to).sub === 'cave' ? 'A Gun may not enter a Cave' : 'A Gun may not occupy an upper building level (ASLRB B23.423)';
+  if (ms.manhandle && !isGroundLoc(to)) return parseLoc(to).sub === 'cave' ? 'A Gun may not enter a Cave' : parseLoc(to).sub === 'pb' ? 'No Gun may enter or leave a pillbox during play (ASLRB B30.45)' : 'A Gun may not occupy an upper building level (ASLRB B23.423)';
   if (ms.manhandle && !pushing) return 'The stack is manhandling a Gun: push it (double MF, manhandling DR)';
   // Per Location (ASLRB A4.14): in full ASL an enemy on another level of the hex does not bar this one. A Location
   // holding only a concealed enemy stack may be *attempted* (SK4 8.3.2: both "?" come off and the mover stops short).
-  if (knownEnemyAt(env, to, env.state.attacker).length > 0) return isGroundLoc(to) && !ms.level ? 'Cannot enter an enemy-occupied hex in the MPh' : 'Cannot enter an enemy-occupied Location in the MPh (ASLRB A4.14)';
+  if (knownEnemyAt(env, to, env.state.attacker).length > 0) return isGroundLoc(to) && !ms.level ? (ms.sub === 'pb' && hexOfLoc(to) === ms.hex ? 'An enemy unit is in the hex outside the pillbox: a unit inside may only advance out (ASLRB B30.6)' : 'Cannot enter an enemy-occupied hex in the MPh') : parseLoc(to).sub === 'pb' ? 'Enemy Infantry hold the pillbox: no unit may enter it (ASLRB B30.44)' : 'Cannot enter an enemy-occupied Location in the MPh (ASLRB A4.14)';
   if (ms.assault && ms.hexesEntered >= 1) return 'Assault Movement is limited to one hex';
   const extra = env.query('move.stepIllegal', { ms, to, ...(beneath ? { beneath: true } : {}), ...(mines ? { mines } : {}), ...(hexsides ? { hexsides } : {}) }, mines || hexsides ? 'No minefields in the Starter Kit' : null);
   if (extra) return extra;
@@ -1417,9 +1439,9 @@ function afterInPlace(env: QueryEnv, ms: MoveState, cost: number): MoveState {
   return { ...ms, spent: Object.fromEntries(ms.units.map((u) => [u, (ms.spent[u] ?? 0) + cost])), ...(voidsAssault(env, ms, cost) ? { assault: false } : {}) };
 }
 
-/** SK1 3.3: one MF to place Smoke in the stack's own hex, two in an adjacent one. */
-function smokeCost(ms: MoveState, throws: SmokeThrow[]): number {
-  return throws.some((t) => t.target !== ms.hex) ? 2 : 1;
+/** SK1 3.3, ASLRB A24.1: one MF to place Smoke in the stack's own hex (Location), two in an adjacent (ADJACENT) one. */
+function smokeCost(env: QueryEnv, ms: MoveState, throws: SmokeThrow[]): number {
+  return throws.some((t) => env.query('move.smokeAdjacent', { ms, target: t.target }, t.target !== ms.hex)) ? 2 : 1;
 }
 
 export function spendInPlace(ctx: Ctx, ms: MoveState, cost: number, patch: Partial<MoveState>) {
@@ -1851,6 +1873,9 @@ export function firstFireMode(env: QueryEnv, decl: FireDeclaration): FireMode {
   return 'first';
 }
 
+/** An Infantry machine gun (SK1 4.1): the weapons a unit using FPF must fire with its own FP. */
+const isMgPiece = (env: QueryEnv, p: Piece) => ['LMG', 'MMG', 'HMG'].includes(sw(env, p)?.type ?? '');
+
 export function firstFireIllegal(env: QueryEnv, ms: MoveState, decl: FireDeclaration, side: SideId): string | null {
   if (!ms.hex) return 'Moving units are offboard';
   const mode = firstFireMode(env, decl);
@@ -1861,6 +1886,29 @@ export function firstFireIllegal(env: QueryEnv, ms: MoveState, decl: FireDeclara
   // A unit/SW may not fire on the moving stack in this location more times than MF expended here.
   for (const id of [...firers, ...directorsOf(decl)]) {
     if ((ms.firedHere[id] ?? 0) >= ms.mfHere) return `${id} cannot fire again at this location`;
+  }
+  // "A unit using FPF must use all its FP and useable MG" (SK1 3.3.1): its own FP and its MG in one attack, never split
+  // into separate FPF attacks on the same MF (SK1 4.1: a squad's own FP and its MG at the same target form a FG). A unit
+  // is using FPF when it, or a SW of its own firing with it, is marked Final Fire, as for the FPF NMC.
+  if (mode === 'fpf') {
+    const fresh = (id: PieceId) => (ms.firedHere[id] ?? 0) < ms.mfHere;
+    const holders = new Set<PieceId>(decl.units);
+    for (const id of decl.sw) {
+      const at = pieceOf(env, id).loc;
+      if (at.kind === 'held') holders.add(at.by);
+    }
+    for (const h of holders) {
+      const unit = pieceOf(env, h);
+      if (!mmc(env, unit) && !smc(env, unit)) continue;
+      const own = swHeldBy(env.state, h);
+      const using = fireMarker(unit) === 'final' || own.some((s) => decl.sw.includes(s.id) && fireMarker(s) === 'final');
+      if (!using) continue;
+      const missing = [
+        ...(mmc(env, unit) && !isBroken(unit) && fresh(h) && !decl.units.includes(h) ? [h] : []),
+        ...own.filter((s) => isMgPiece(env, s) && !s.tags[T.malf] && !s.tags['mgDisabled'] && fresh(s.id) && !decl.sw.includes(s.id)).map((s) => s.id),
+      ];
+      if (missing.length) return `${h} is using FPF: it must fire all its FP and usable MG in one attack (${missing.join(', ')} missing)`;
+    }
   }
   // Units using Subsequent First Fire (marked First Fire, in a FPF group too) fire only within normal
   // range and no further than the closest Known Enemy Unit (SK1 3.3.1); units firing for the first

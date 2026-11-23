@@ -21,6 +21,7 @@
     "test:e2e:focus": "node apps/web/e2e/onlineFocus.mjs",
     "test:e2e:opponent": "node apps/web/e2e/opponentView.mjs",
     "test:e2e:undo": "node apps/web/e2e/undo.mjs",
+    "test:e2e:ss": "node apps/web/e2e/superSpectator.mjs",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
     "format": "prettier --write .",

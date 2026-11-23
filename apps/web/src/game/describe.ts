@@ -542,6 +542,10 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
       case 'asl.boobyTrap.ptc':
         out.push({ seq: e.seq, kind: 'check', text: `  ${name(p['unit'] as string)} takes the PTC for Booby Traps only: DR ${p['dr']} (ASLRB B28.9)` });
         break;
+      case 'asl.pb.eliminated': {
+        out.push({ seq: e.seq, kind: 'info', text: `  ✸ Pillbox in ${hexLabel(p['hex'] as string)} eliminated, with all its contents: ${String(p['reason'] ?? '')}` });
+        break;
+      }
       case 'asl.fort.removed': {
         const reason = String(p['reason'] ?? '');
         out.push({ seq: e.seq, kind: 'info', text: `  ▣ ${p['kind'] === 'mines' ? (/Dummy/.test(reason) ? 'Dummy minefield' : 'minefield') : String(p['kind'])} in ${hexLabel(p['hex'] as string)} removed: ${reason}` });
@@ -901,6 +905,11 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
       }
       case 'asl.fort.revealed': {
         const c = shownCounter(p['counter'] as FortRecord, viewer) ?? (p['counter'] as FortRecord);
+        // Full ASL: an attack (or SMOKE) from within a pillbox makes its contents Known (ASLRB B30.7).
+        if (c.kind === 'pillbox' && c.known && (p['reason'] === 'attack' || p['reason'] === 'smoke')) {
+          out.push({ seq: e.seq, kind: 'info', text: `  ▣ Pillbox in ${hexLabel(c.hex)}: ${p['reason'] === 'smoke' ? 'SMOKE placed' : 'an attack made'} from within makes its contents Known to the enemy within 16 hexes with a LOS to it (ASLRB B30.7)` });
+          break;
+        }
         const how = { los: 'a Good Order enemy unit in LOS', tem: 'its TEM being claimed', concealment: 'a unit in it losing concealment', entry: 'a unit entering it', attempt: 'an enemy move it bars', attack: 'its attack', search: 'a Search', grown: 'a new foxhole dug there replacing its counter (ASLRB B27.12)', rout: 'a routing unit going beneath it, out of reach of Interdiction (ASLRB B27.41)', strength: (p['counter'] as FortRecord).hidden ? 'a minefield attack whose result had to be verified: its strength is shown (ASLRB B28.41)' : 'its strength being shown (ASLRB B28.41, B28.53)', mineAttack: 'its attack on a unit entering or leaving: a Known Minefield counter, strength down (ASLRB B28.1, B28.48)', dummyFound: 'a unit entering it: an unmined hex of the belt, marked with a Dummy (ASLRB B28.47)' }[p['reason'] as string] ?? String(p['reason']);
         out.push({ seq: e.seq, kind: 'info', text: `  ▣ ${fortKindName(c)} in ${hexLabel(c.hex)} revealed by ${how} (ASLRB A12.33)` });
         break;
@@ -919,17 +928,45 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         out.push({ seq: e.seq, kind: 'info', text: `  ▣ ${what} (+1 TEM): revealed by ${how} ${hexLabel(p['hex'] as string)}` });
         break;
       }
+      case 'sk1.cc.state': {
+        // The Ambush drs of a new CC with their drm (SK1 3.8: a final dr 3 or more lower than the other side's ambushes).
+        const amb = p['ambush'] as { rolls: { side: string; dr: number; drm: number; final: number; notes: string[] }[]; ambusher: string | null } | undefined;
+        const st = p['state'] as { hex?: string; declared?: Record<string, unknown[]> } | null;
+        if (amb && st?.hex) {
+          // Every part of the drm, even ones that cancel out (-1 Japanese, +1 ATTACKER in jungle).
+          const roll = (r: (typeof amb.rolls)[number]) =>
+            `${sideNameOf(env, r.side)} ${r.dr}${r.drm || r.notes.length ? ` (${r.notes.length ? r.notes.join(', ') : `${r.drm > 0 ? '+' : ''}${r.drm}`}) = ${r.final}` : ''}`;
+          const outcome = amb.ambusher ? `${sideNameOf(env, amb.ambusher)} ambush` : 'no ambush';
+          out.push({ seq: e.seq, kind: 'cc', text: `Ambush dr in ${hexLabel(st.hex)}: ${amb.rolls.map(roll).join(', ')} → ${outcome}` });
+        }
+        // A side declaring no attack in a CC hex leaves no roll behind: say so, or the other side's attack seems to come
+        // out of turn (CC with a vehicle is one side at a time, SK4 3.8).
+        if (!st?.hex || !st.declared) break;
+        let prior: Record<string, unknown[]> = {};
+        for (let j = i - 1; j >= 0; j--) {
+          const f = events[j]!;
+          if (f.type !== 'sk1.cc.state') continue;
+          const ps = (f.payload as { state: { hex?: string; declared?: Record<string, unknown[]> } | null }).state;
+          prior = ps?.hex === st.hex ? (ps.declared ?? {}) : {};
+          break;
+        }
+        for (const [side, attacks] of Object.entries(st.declared)) {
+          if (attacks.length === 0 && prior[side] === undefined) out.push({ seq: e.seq, kind: 'cc', text: `CC in ${st.hex} (${sideNameOf(env, side)}): no attack declared` });
+        }
+        break;
+      }
       case 'sk1.cc.attack': {
         // The strengths behind the odds, unit by unit (a pinned unit's FP halved), where the rules recorded them.
-        const fp = p['fp'] as { attack: [string, number][]; defense: [string, number][] } | undefined;
-        const side = (xs: [string, number][]) => {
+        const fp = p['fp'] as { attack: [string, number][]; defense: [string, number][]; notes?: Record<string, string> } | undefined;
+        const side = (xs: [string, number][], attacking: boolean) => {
           const total = xs.reduce((n, [, v]) => n + v, 0);
-          // A strength that is not the printed FP says why (a Reduced Japanese unit's full CCV, SK4 8.1.8.4).
-          const why = (id: string) => (hiddenFrom(id) || !env.state.pieces[id] ? null : env.query('cc.fpNote', { unit: id }, null));
+          // A strength that is not the printed FP says why (a pinned attacker's halved FP, SK1 3.2.3): as the attack
+          // recorded it, the state then (a recording without notes is asked about the unit as it stands now).
+          const why = (id: string) => (hiddenFrom(id) ? null : fp?.notes ? (fp.notes[id] ?? null) : env.state.pieces[id] ? env.query('cc.fpNote', { unit: id, attacking }, null) : null);
           const each = xs.map(([id, v]) => `${hiddenFrom(id) ? '?' : name(id)} ${v}${why(id) ? ` [${why(id)}]` : ''}`).join(' + ');
           return xs.length > 1 ? `${each} = ${total}` : each;
         };
-        const strength = fp ? `${side(fp.attack)} vs ${side(fp.defense)} → ` : '';
+        const strength = fp ? `${side(fp.attack, true)} vs ${side(fp.defense, false)} → ` : '';
         // A DRM for some targets only (ASLRB A4.8 EX: the -1 for TI defenders applies to the TI units alone).
         const per = Object.entries((p['targetDrm'] as Record<string, number> | undefined) ?? {});
         const perText = per.length ? ` (${per.map(([id, v]) => `${v > 0 ? '+' : ''}${v} vs ${hiddenFrom(id) ? '?' : name(id)}`).join(', ')})` : '';

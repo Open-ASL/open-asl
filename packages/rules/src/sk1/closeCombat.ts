@@ -25,8 +25,11 @@ declare module '@asl/engine' {
     'cc.attackFp': { ctx: { unit: PieceId }; value: number };
     /** CC defense strength of one target unit (`attackers`: who is attacking it; a vehicle's CC attack faces the unit's CCV, SK3). */
     'cc.defenseFp': { ctx: { unit: PieceId; attackers?: PieceId[] }; value: number };
-    /** Why a unit's CC strength is not its printed FP, for the player to read (a Reduced Japanese unit's full CCV), or null. */
-    'cc.fpNote': { ctx: { unit: PieceId }; value: string | null };
+    /**
+     * Why a unit's CC strength is not its printed FP, for the player to read, or null: `attacking` its attack strength,
+     * else its defense (a pinned unit's FP is halved in its attack only, ASLRB A7.8).
+     */
+    'cc.fpNote': { ctx: { unit: PieceId; attacking: boolean }; value: string | null };
     /**
      * An attack on a vehicle is not an odds attack (SK3+): the attackers' Close Combat Value it must roll under, with what
      * makes it up. Null for an attack on personnel.
@@ -43,6 +46,11 @@ declare module '@asl/engine' {
     'cc.ambushDrm': { ctx: { hex: HexId; side: SideId; units: PieceId[] }; value: number };
     /** The units a side has in a hex for Close Combat purposes (personnel; the vehicle rules add non-wreck vehicles). */
     'cc.units': { ctx: { hex: HexId; side: SideId }; value: PieceId[] };
+    /**
+     * Full ASL: whether `unit`, in another Location of the hex, takes part in the CC of Location `hex` (ASLRB B30.6: CC between
+     * Infantry in and outside a pillbox, A11.1 EXC). False in the Starter Kit: CC is within one Location.
+     */
+    'cc.across': { ctx: { hex: HexId; unit: PieceId }; value: boolean };
     /** Whether the hex's CC attacks are declared and resolved one at a time, alternating (a vehicle is present, SK4 3.8). */
     'cc.sequential': { ctx: { hex: HexId }; value: boolean };
     /** Whether a Melee holds in the hex after its CC (both sides still there with someone to hold them). */
@@ -71,6 +79,13 @@ export const CCP = {
 export type ResolveCcAttackFn = (ctx: Ctx, side: SideId, attack: CcAttack, plan?: CcAttackPlan | null) => void;
 
 /** A CC attack worked out before its roll: the units in it, their strengths, the odds column and the DRM. */
+/** Each unit's CC strength behind an attack's odds, and why one is not its printed FP (`cc.fpNote`, as it stood then). */
+export interface CcFpBreakdown {
+  attack: [PieceId, number][];
+  defense: [PieceId, number][];
+  notes?: Record<PieceId, string>;
+}
+
 export interface CcAttackPlan {
   attackers: PieceId[];
   targets: PieceId[];
@@ -78,8 +93,8 @@ export interface CcAttackPlan {
   defenseFp: number;
   odds: string;
   drm: number;
-  /** Each unit's CC FP behind the totals (a pinned unit's halved), for the log. */
-  fp?: { attack: [PieceId, number][]; defense: [PieceId, number][] };
+  /** Each unit's CC FP behind the totals (a pinned unit's halved), for the log, and why a strength is not its printed FP (`notes`). */
+  fp?: CcFpBreakdown;
   /** Targets with a DRM of their own on top of `drm` (`cc.targetDrm`); absent when there is none. */
   targetDrm?: Record<PieceId, number>;
 }
@@ -115,6 +130,14 @@ interface CcState {
   passed?: SideId[];
   attacked?: PieceId[];
 }
+/** One side's Ambush dr in a new CC (SK1 3.8): the roll, its drm with what makes it up, and the final dr. */
+export interface AmbushRoll {
+  side: SideId;
+  dr: number;
+  drm: number;
+  final: number;
+  notes: string[];
+}
 const ccState = (env: QueryEnv) => env.state.ext[CC] as CcState | undefined;
 export const ccStateOf = ccState;
 
@@ -127,7 +150,7 @@ export function ccUnits(env: QueryEnv, hex: LocId, side: SideId): Piece[] {
   return env
     .query('cc.units', { hex, side }, base)
     .map((id) => env.state.pieces[id])
-    .filter((p): p is Piece => !!p && isAt(p, hex))
+    .filter((p): p is Piece => !!p && (isAt(p, hex) || env.query('cc.across', { hex, unit: p.id }, false)))
     .sort(byId);
 }
 
@@ -298,15 +321,16 @@ export const closeCombatModule: RuleModule = {
   summary: 'Close Combat: odds, ambush, simultaneous resolution, Melee, field promotion.',
   requires: ['sk1.morale', 'sk1.rally', 'common.turn'],
   install(r) {
-    r.event<{ state: CcState | null }>({
+    // `ambush`: the Ambush drs just rolled for a new CC, with their drm, for the log (never part of the state).
+    r.event<{ state: CcState | null; ambush?: { rolls: AmbushRoll[]; ambusher: SideId | null } }>({
       type: 'sk1.cc.state',
       apply(d, p) {
         if (p.state) d.ext[CC] = p.state;
         else delete d.ext[CC];
       },
     });
-    // `fp`: each attacker's and target's CC FP as the odds were worked out (a pinned unit's halved, SK4 Pin), for the log.
-    r.event<{ hex: HexId; side: SideId; attack: CcAttack; odds: string; drm: number; dr: number; kill: number; result: string; fp?: { attack: [PieceId, number][]; defense: [PieceId, number][] }; targetDrm?: Record<PieceId, number> }>({
+    // `fp`: each attacker's and target's CC FP as the odds were worked out (a pinned unit's halved, SK1 3.2.3), for the log.
+    r.event<{ hex: HexId; side: SideId; attack: CcAttack; odds: string; drm: number; dr: number; kill: number; result: string; fp?: CcFpBreakdown; targetDrm?: Record<PieceId, number> }>({
       type: 'sk1.cc.attack',
       apply() {},
     });
@@ -331,6 +355,14 @@ export const closeCombatModule: RuleModule = {
       label: '½ pinned',
       when: ({ unit }, env) => isPinned(pieceOf(env, unit)) && !!mmc(env, pieceOf(env, unit)),
       apply: (v) => v / 2,
+    });
+    // Said where the strength is shown: a pinned unit's FP is halved (SK1 3.2.3), in its CC attack only (ASLRB A7.8).
+    r.contribute({
+      id: 'sk1.cc.pinned-note',
+      query: 'cc.fpNote',
+      ref: 'SK1 3.2.3',
+      when: ({ unit, attacking }, env) => attacking && isPinned(pieceOf(env, unit)) && !!mmc(env, pieceOf(env, unit)),
+      apply: (v) => (v ? `${v}; pinned: FP halved` : 'pinned: FP halved'),
     });
     r.contribute({
       id: 'sk1.cc.leader',
@@ -542,6 +574,7 @@ function startDeclarations(ctx: Ctx, hex: HexId) {
   const attacker = ctx.state.attacker;
   const defender = otherSide(ctx.state, attacker);
   let ambusher: SideId | null = null;
+  let ambush: { rolls: AmbushRoll[]; ambusher: SideId | null } | undefined;
   const newCc = !inMelee(ctx, hex);
   const advancedIn = personnelAt(ctx, hex, attacker).some((p) => p.tags[T.advancedInto] === hex);
   // An ambush can occur in woods/buildings (SK1 3.8) and rubble (ASLRB B24), or wherever a hidden Gun was walked into (SK2, SK4 6.4).
@@ -549,10 +582,16 @@ function startDeclarations(ctx: Ctx, hex: HexId) {
   const terrain = terrainOf(ctx, hex);
   if (newCc && advancedIn && ctx.query('cc.ambushPossible', { hex }, terrain.rallyCover || terrain.ambush || hipAmbush)) {
     const units = (side: SideId) => personnelAt(ctx, hex, side).map((p) => p.id);
-    const drA = ctx.roll(`Ambush dr (${attacker}) in ${hex}`, 1).total + ctx.query('cc.ambushDrm', { hex, side: attacker, units: units(attacker) }, 0);
-    const drD = ctx.roll(`Ambush dr (${defender}) in ${hex}`, 1).total + ctx.query('cc.ambushDrm', { hex, side: defender, units: units(defender) }, 0);
-    if (drA <= drD - 3) ambusher = attacker;
-    else if (drD <= drA - 3) ambusher = defender;
+    const roll = (side: SideId): AmbushRoll => {
+      const dr = ctx.roll(`Ambush dr (${side}) in ${hex}`, 1).total;
+      const drm = ctx.explain('cc.ambushDrm', { hex, side, units: units(side) }, 0);
+      return { side, dr, drm: drm.value, final: dr + drm.value, notes: drmNotes(drm).flatMap((n) => (n.label ? [n.label] : [])) };
+    };
+    const a = roll(attacker);
+    const d = roll(defender);
+    if (a.final <= d.final - 3) ambusher = attacker;
+    else if (d.final <= a.final - 3) ambusher = defender;
+    ambush = { rolls: [a, d], ambusher };
   }
   if (hipAmbush) ctx.emit('hex.marker', { hex, key: 'hipAmbush', value: null });
   // A vehicle in the hex: one attack at a time, the non-vehicular player first (the ATTACKER when both have one; SK4 3.8).
@@ -560,11 +599,11 @@ function startDeclarations(ctx: Ctx, hex: HexId) {
   if (sequential) {
     const hasVehicle = (side: SideId) => ccUnits(ctx, hex, side).some((p) => isVehicleDef(defOf(ctx, p)));
     const first = hasVehicle(attacker) && !hasVehicle(defender) ? defender : attacker;
-    ctx.emit('sk1.cc.state', { state: { ...st, ambusher: null, step: 'sequential', arranged: undefined, turn: first, passed: [], attacked: [] } });
+    ctx.emit('sk1.cc.state', { state: { ...st, ambusher: null, step: 'sequential', arranged: undefined, turn: first, passed: [], attacked: [] }, ...(ambush ? { ambush } : {}) });
     askDeclare(ctx, first);
     return;
   }
-  ctx.emit('sk1.cc.state', { state: { ...st, ambusher, step: ambusher ? 'ambusher' : 'simultaneous-attacker', arranged: undefined } });
+  ctx.emit('sk1.cc.state', { state: { ...st, ambusher, step: ambusher ? 'ambusher' : 'simultaneous-attacker', arranged: undefined }, ...(ambush ? { ambush } : {}) });
   askDeclare(ctx, ambusher ?? attacker);
 }
 
@@ -642,9 +681,11 @@ export function planAttack(env: QueryEnv, side: SideId, at: CcAttack): CcAttackP
   if (attackers.length === 0) return null;
   const targets = at.targets.filter((t) => env.state.pieces[t]?.loc.kind === 'hex');
   if (targets.length === 0) return null;
-  const fp = {
+  const notes = ccFpNotes(env, attackers, targets);
+  const fp: CcFpBreakdown = {
     attack: attackers.map((id) => [id, fpForCc(env, id, 'attack')] as [PieceId, number]),
     defense: targets.map((id) => [id, fpForCc(env, id, 'defense', attackers)] as [PieceId, number]),
+    ...(notes.length ? { notes: Object.fromEntries(notes.map((n) => [n.unit, n.note])) } : {}),
   };
   const attackFp = fp.attack.reduce((x, [, n]) => x + n, 0);
   const defenseFp = fp.defense.reduce((x, [, n]) => x + n, 0);
@@ -821,11 +862,16 @@ export function ccAttackPreview(env: QueryEnv, hex: HexId, side: SideId, attack:
     drm: res?.value ?? 0,
     drmNotes: res ? [...drmNotes(res), ...targetDrmNotes(env, hex, side, attackers, targets)] : [],
     illegal: declarationIllegal(env, side, hex, [attack]),
-    fpNotes: [...attackers, ...targets].flatMap((unit) => {
-      const note = env.query('cc.fpNote', { unit }, null);
-      return note ? [{ unit, note }] : [];
-    }),
+    fpNotes: ccFpNotes(env, attackers, targets),
   };
+}
+
+/** Why each attacker's and target's CC strength is not its printed FP (`cc.fpNote`): the attackers' as they attack. */
+function ccFpNotes(env: QueryEnv, attackers: PieceId[], targets: PieceId[]): { unit: PieceId; note: string }[] {
+  return [...attackers.map((unit) => ({ unit, attacking: true })), ...targets.map((unit) => ({ unit, attacking: false }))].flatMap(({ unit, attacking }) => {
+    const note = env.query('cc.fpNote', { unit, attacking }, null);
+    return note ? [{ unit, note }] : [];
+  });
 }
 
 /** A note for each target DRM of a prospective attack (`cc.targetDrm`): what it is and whom it applies to. */

@@ -7,6 +7,7 @@ import type { AmmoKind, GunDef, IftResult, Mount } from '../common/statics';
 import {
   FP,
   discloseDrm,
+  fireTargetsAt,
   firedOwnFpThisPhase,
   fpfCheck,
   iftColumn,
@@ -155,6 +156,17 @@ export interface OrdnanceOutcome {
 
 declare module '@asl/engine' {
   interface QueryCatalog {
+    /**
+     * Whether a BAZ, PSK or PF fired from Location `loc` brings its Backblast (SK4 4.4.3; ASLRB C13.8): 'choice' (inside a
+     * building: the Backblast attack or the +2 To Hit DRM), 'desperation' (only the Backblast attack, C13.81: full ASL, from
+     * inside a pillbox) or null.
+     */
+    'ordnance.backblastAt': { ctx: { loc: LocId }; value: 'choice' | 'desperation' | null };
+    /**
+     * Whether HEAT may fire at the Infantry in `target` for a cover other than a building (ASLRB C8.31: "Infantry/Cavalry
+     * receiving a wall/building/rubble/pillbox TEM"); false in the Starter Kit.
+     */
+    'ordnance.heatTarget': { ctx: { target: LocId; side: SideId }; value: boolean };
     /** Why an ordnance shot is illegal, or null. */
     'ordnance.illegal': { ctx: { shot: OrdnanceShot; mode: FireMode; side: SideId; moving?: PieceId[] }; value: string | null };
     /** To Hit DRM of a shot (chart cases 1–25 as they apply). */
@@ -284,13 +296,19 @@ export function toHitNumber(env: QueryEnv, sc: ShotCtx): { th: number; ch: numbe
   return { th: red ? (entry.red ?? entry.black) : entry.black, ch: noCh ? 0 : red ? (entry.chRed ?? entry.ch) : entry.ch, red };
 }
 
-/** Targets of a shot at a hex: the moving stack during the MPh, otherwise the enemy personnel there (everyone in a Melee hex). */
-function shotTargets(env: QueryEnv, side: SideId, target: HexId, moving?: PieceId[], targetVehicle?: PieceId): PieceId[] {
+/**
+ * Targets of a shot at a hex: the moving stack during the MPh, otherwise the personnel there (`fireTargetsAt`: everyone in a
+ * Melee hex; the firer's own Infantry too unless the shot comes from inside that Location).
+ */
+function shotTargets(env: QueryEnv, side: SideId, target: HexId, moving?: PieceId[], targetVehicle?: PieceId, from?: LocId): PieceId[] {
   // A Vehicle Target Type hit affects that vehicle alone (SK4 3.2.4).
   if (targetVehicle) return env.state.pieces[targetVehicle]?.loc.kind === 'hex' ? [targetVehicle] : [];
   // A mover wrecked on its way is no longer a target (sk1 buildAttack).
   if (moving) return moving.filter((u) => env.state.pieces[u]?.loc.kind === 'hex' && env.state.pieces[u]?.tags['wreck'] !== true);
-  return (inMelee(env, target) ? personnelAt(env, target) : personnelAt(env, target, otherSide(env.state, side))).map((p) => p.id).sort();
+  return fireTargetsAt(env, target, side, from === target)
+    .filter((p) => isPersonnelDef(defOf(env, p)))
+    .map((p) => p.id)
+    .sort();
 }
 
 /**
@@ -314,15 +332,17 @@ const directorDrm = (env: QueryEnv, leader: PieceId, firer: PieceId) => env.quer
 const hasBackblast = (def: GunDef) => !!def.latw && def.type !== 'PIAT';
 /** A building a BAZ/PSK fired from has Backblast (SK4 4.4.3), except a PTO hut (SK4 8.2.1: "no Backblast penalty for firing from a hut"). */
 const backblastHex = (env: QueryEnv, hex: HexId) => isBuildingHex(env, hex) && !terrainOf(env, hex).building;
-/** Whether a BAZ/PSK/PF fired from `hex` chooses between Backblast and the +2 To Hit DRM (SK4 4.4.3, 8.2.1). */
-export const backblastFrom = backblastHex;
-/** Whether firing this weapon where it is now brings the Backblast choice: a BAZ or PSK in a building (not a PIAT, not a hut). */
-export function latwBackblast(env: QueryEnv, weapon: PieceId): boolean {
+/** The Backblast a BAZ/PSK/PF fired from Location `loc` brings (`'ordnance.backblastAt'`): in a building the choice (SK4 4.4.3, 8.2.1). */
+export const backblastFrom = (env: QueryEnv, loc: LocId): 'choice' | 'desperation' | null => env.query('ordnance.backblastAt', { loc }, backblastHex(env, hexOfLoc(loc)) ? 'choice' : null);
+/** The Backblast firing this weapon where it is now brings: a BAZ or PSK (not a PIAT) in a building (not a hut), or full ASL's Desperation (C13.81). */
+export function latwBackblast(env: QueryEnv, weapon: PieceId): 'choice' | 'desperation' | null {
   const w = env.state.pieces[weapon];
   const d = w ? ordnanceOf(env, w) : null;
-  const at = w ? hexOf(env.state, w) : undefined;
-  return !!d && !!at && hasBackblast(d) && backblastHex(env, at);
+  const at = w ? locOf(env.state, w) : null;
+  return !!d && !!at && hasBackblast(d) ? backblastFrom(env, at) : null;
 }
+/** The Backblast of a shot (`backblastFrom` of its firer's Location), null for a weapon without one. */
+const shotBackblast = (env: QueryEnv, sc: ShotCtx) => (hasBackblast(sc.def) ? backblastFrom(env, locOf(env.state, pieceOf(env, sc.firer)) ?? sc.hex) : null);
 /** A Light Anti-Tank Weapon (SK4 4.4): a BAZ/PSK/PIAT on its own To Hit Table, or an ATR (4.4.4) on the chart's ATR row. */
 const isLatw = (def: GunDef) => !!def.latw || def.type === 'ATR';
 
@@ -509,8 +529,10 @@ function ordnanceIllegal(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, side
   if (sc.def.type === 'MTR' && isBuildingHex(env, sc.hex)) return 'A Mortar may not fire from a building';
   if (sc.def.type === 'MTR' && shot.targetType !== 'ATT') return 'A Mortar must use the Area Target Type';
   if (sc.def.latw && shot.targetType !== 'ITT' && shot.targetType !== 'VTT') return `A ${sc.def.type} fires on its own To Hit Table at units (Infantry Target Type) or at a vehicle`;
-  if (shot.backblast !== undefined && !(hasBackblast(sc.def) && backblastHex(env, sc.hex))) return 'Backblast only arises firing a BAZ or PSK from inside a building';
-  if (hasBackblast(sc.def) && backblastHex(env, sc.hex) && isPinned(manner) && shot.backblast === false) return 'A pinned firer cannot take the +2 to avoid Backblast';
+  const bb = shotBackblast(env, sc);
+  if (shot.backblast !== undefined && !bb) return 'Backblast only arises firing a BAZ or PSK from inside a building';
+  if (bb === 'choice' && isPinned(manner) && shot.backblast === false) return 'A pinned firer cannot take the +2 to avoid Backblast';
+  if (bb === 'desperation' && shot.backblast !== true) return 'Fired from here only with the Desperation penalty: the Backblast attack on everyone in the firing Location (ASLRB C13.8, C13.81)';
   // SK4 4.4.5: "A PIAT may not fire at a unit one level lower and in an adjacent hex."
   if (sc.def.type === 'PIAT' && sc.range === 1 && (map.hex(hexOfLoc(shot.target))!.elevation ?? 0) === (map.hex(sc.hex)!.elevation ?? 0) - 1) return 'A PIAT may not fire at an adjacent unit one level lower';
   // In Final Fire a Gun fires under its manning unit's First or Final Fire marker as well as its own (SK4 3.3.3), so a
@@ -635,7 +657,7 @@ function firerFiredNonSmoke(env: QueryEnv, g: Piece): boolean {
 function ammoIllegal(env: QueryEnv, g: Piece, sc: ShotCtx, mode: FireMode, side: SideId): string | null {
   const why = ammoUseIllegal(env, g, sc.def, sc.ammo, sc.shot.targetType, mode);
   if (why) return why;
-  if (sc.ammo === 'HEAT' && sc.shot.targetType !== 'VTT' && !isBuildingHex(env, hexOfLoc(sc.shot.target)) && !enemyGunAt(env, sc.shot.target, side)) return 'HEAT may only be fired at Infantry in a building or at a Gun (or at a vehicle)';
+  if (sc.ammo === 'HEAT' && sc.shot.targetType !== 'VTT' && !isBuildingHex(env, hexOfLoc(sc.shot.target)) && !enemyGunAt(env, sc.shot.target, side) && !env.query('ordnance.heatTarget', { target: sc.shot.target, side }, false)) return 'HEAT may only be fired at Infantry in a building or at a Gun (or at a vehicle)';
   // SK4 8.2.1: "HEAT cannot be used against Infantry in a hut."
   if (sc.ammo === 'HEAT' && sc.shot.targetType === 'ITT' && terrainOf(env, sc.shot.target).building && !enemyGunAt(env, sc.shot.target, side)) return 'HEAT cannot be used against Infantry in a hut';
   return null;
@@ -756,7 +778,7 @@ function fireOrdnance(ctx: Ctx, shot: OrdnanceShot, mode: FireMode, opts: { movi
   const drm = drmRes.value;
   const final = original + drm + extra;
   const ammo = sc.ammo;
-  const targets = blind ? [] : pfTarget(ctx, sc, shotTargets(ctx, side, shot.target, opts.moving, sc.targetVehicle));
+  const targets = blind ? [] : pfTarget(ctx, sc, shotTargets(ctx, side, shot.target, opts.moving, sc.targetVehicle, sc.loc ?? sc.hex));
 
   // Breakdown (SK4 6.12): on the original TH DR.
   const b = ctx.query('ordnance.breakdown', sc, 12);
@@ -886,7 +908,7 @@ function fireOrdnance(ctx: Ctx, shot: OrdnanceShot, mode: FireMode, opts: { movi
     else ctx.emit('piece.eliminated', { id: g.id, reason: sc.def.latw ? `${sc.def.type} removed (X#)` : 'Gun removed (breakdown)' });
   }
   // Backblast (SK4 4.4.3): everyone in the firer's building hex takes a 1 FP attack on the colored dr, no TEM.
-  if (hasBackblast(sc.def) && shot.backblast && backblastHex(ctx, sc.hex)) {
+  if (shot.backblast && shotBackblast(ctx, sc)) {
     const occupants = personnelAt(ctx, locOf(ctx.state, pieceOf(ctx, sc.firer)) ?? sc.hex).map((p) => p.id).sort();
     const attack: FireAttackCtx = { mode, side, target: sc.hex, parts: [], targets: occupants, hindrance: 0 };
     ctx.emit('sk1.fire.attack', {
@@ -935,7 +957,7 @@ function resolveHitBase(ctx: Ctx, sc: ShotCtx, h: HitInfo, targets: PieceId[], r
   const hitLocs = shot.targetType === 'ATT' && !h.movingInfo ? ctx.query('fire.areaLocations', { target: shot.target, from: sc.loc ?? sc.hex }, indirectLocs) : indirectLocs;
   const groups = [
     ...hitGroups.filter((g) => hitLocs.includes(g.loc)),
-    ...hitLocs.filter((l) => l !== shot.target).map((loc) => ({ ch: false, units: shotTargets(ctx, side, loc), loc })),
+    ...hitLocs.filter((l) => l !== shot.target).map((loc) => ({ ch: false, units: shotTargets(ctx, side, loc, undefined, undefined, sc.loc ?? sc.hex), loc })),
   ].filter((g) => g.units.length > 0 || g.loc === shot.target);
   const planned = groups.flatMap((grp) => {
     const column = ammoColumn(ctx, sc.def, ammo as Exclude<AmmoKind, 'SMOKE' | 'WP'>, shot.targetType as 'ITT' | 'ATT', grp.ch);
@@ -1043,7 +1065,8 @@ export function simpleShots(env: QueryEnv, side: SideId, targets: HexId[], mode:
       }
       if (vehicleThere && def.type !== 'MTR') types.push('VTT');
       // From inside a building a LATW chooses the +2 DRM or the Backblast (SK4 4.4.3).
-      const backblasts: (boolean | undefined)[] = hasBackblast(def) && backblastHex(env, hex) ? [false, true] : [undefined];
+      const bbMode = hasBackblast(def) ? backblastFrom(env, locOf(env.state, g) ?? hex) : null;
+      const backblasts: (boolean | undefined)[] = bbMode === 'choice' ? [false, true] : bbMode === 'desperation' ? [true] : [undefined];
       // The default ammunition, then each other kind the Gun could announce (SK4 6.2).
       const dflt = defaultAmmo(env, g, def);
       const ammos: (AmmoKind | undefined)[] = [undefined, ...ammoKinds(def).filter((k) => k !== dflt && ammoStatus(env, g, def, k).available)];
@@ -1168,7 +1191,7 @@ export const ordnanceModule: RuleModule = {
     th('smoke', 'case 7', '-2 Smoke at under 13 hexes', (sc) => isSmokeAmmo(sc.ammo) && sc.range < 13, () => -2);
     th('apcr-range', 'case 11', (sc) => `+1 ${AMMO_NAME[sc.ammo]} at 13 hexes or more`, (sc) => (sc.ammo === 'APCR' || sc.ammo === 'APDS') && sc.range >= 13, () => 1);
     th('intensive', 'case 9', '+2 Intensive Fire', (sc) => !!sc.shot.intensive, () => 2);
-    th('backblast', 'SK4 4.4.3', '+2 firing from a building (no Backblast)', (sc, env) => hasBackblast(sc.def) && !sc.shot.backblast && backblastHex(env, sc.hex), () => 2);
+    th('backblast', 'SK4 4.4.3', '+2 firing from a building (no Backblast)', (sc, env) => !sc.shot.backblast && shotBackblast(env, sc) === 'choice', () => 2);
     th('tem', 'case 17', (sc, env) => `+${env.query('hex.tem', { hex: sc.target }, 0)} TEM (${terrainOf(env, sc.target).name})`, (sc, env) => temOnToHit(sc) && env.query('hex.tem', { hex: sc.target }, 0) !== 0 && !onWoodsRoad(env, woodsRoadMover(env, sc), [sc.loc ?? sc.hex], sc.target, !!sc.losBlind), (sc, env) => env.query('hex.tem', { hex: sc.target }, 0));
     th('emplacement', 'SK4 6.3', (sc, env) => `+${emplacementThDrm(env, sc.target, sc.side)} Emplacement TEM`, (sc, env) => sc.shot.targetType === 'ITT' && emplacementThDrm(env, sc.target, sc.side) > 0, (sc, env) => emplacementThDrm(env, sc.target, sc.side));
     th('hindrance', 'case 18', (sc) => `+${sc.hindrance} LOS Hindrance`, (sc) => sc.hindrance > 0, (sc) => sc.hindrance);

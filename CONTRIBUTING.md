@@ -13,7 +13,8 @@ follows. Please read it before opening a pull request.
 - **Add a feature.** For anything larger than a small fix, open an issue first so we can agree on the
   approach before you spend time on it.
 - **Add a scenario.** Only scenarios whose authors have released them for free distribution, with
-  their permission; see [rule 1](#1-no-copyrighted-commercial-material).
+  their permission; see [rule 1](#1-no-copyrighted-commercial-material). The
+  [scenario guide](docs/adding-a-scenario.md) walks through it step by step.
 
 ## Getting set up
 

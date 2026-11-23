@@ -24,6 +24,7 @@ import { BOT_VERSION, type ComputerSpeed, useComputerOpponent } from '../ai';
 import type { Session } from '../game/session';
 import { ChatDock } from '../chat/ChatDock';
 import { SUPPORT_NAME } from '../siteConfig';
+import { SsSettings } from '../superSpectator/SsSettings';
 
 type Loaded = { match: MatchDoc; scenario: ScenarioDef; actions: Action[] };
 
@@ -350,7 +351,7 @@ function OnlineMatchBody({ matchId, match, scenario, mySide, session }: { matchI
 
   return (
     <>
-      <GameScreen scenario={scenario} players={seatNames(match)} session={mySide && match.status === 'active' ? { ...session, canUndo: undo.canUndo, askUndo: undo.askUndo } : session} matchId={matchId} onQuit={() => navigate('/app')} aside={mySide ? <ChatDock variant="rail" channelId={matchId} title="Table chat" storageKey="asl.matchChat" /> : undefined} aar={aarCue(matchId, match, match.status === 'complete' && !!match.result)} />
+      <GameScreen scenario={scenario} players={seatNames(match)} session={mySide && match.status === 'active' ? { ...session, canUndo: undo.canUndo, askUndo: undo.askUndo } : session} matchId={matchId} onQuit={() => navigate('/app')} aside={mySide ? <ChatDock variant="rail" channelId={matchId} title="Table chat" storageKey="asl.matchChat" /> : undefined} aar={aarCue(matchId, match, match.status === 'complete' && !!match.result)} settingsExtra={mySide ? undefined : <SsSettings matchId={matchId} match={match} on={false} />} />
       <div className={`online-strip ${toMove && toMove === mySide && !session.sending ? 'mine' : ''}`}>
         {mySide ? (
           <span>
@@ -385,7 +386,7 @@ function OnlineMatchBody({ matchId, match, scenario, mySide, session }: { matchI
       {undo.dialogs}
       {claiming === 'ask' && (
         <Modal title="Claim the win?" kicker="Out of time" onClose={() => setClaiming(null)}>
-          <p>{opponent?.displayName ?? sideName(deadline?.side)} has run out of time. Claiming scores the match as a forfeit win for {sideName(mySide)}. Nothing happens unless you claim: you can keep waiting as long as you like.</p>
+          <p>{opponent?.displayName ?? sideName(deadline?.side)} has run out of time. {officialConcession ? `Claiming scores the match as a forfeit win for ${sideName(mySide)}.` : 'The match has not reached its halfway point, so claiming now abandons it: no winner, no rating change, no battle record and no after action report.'} Nothing happens unless you claim: you can keep waiting as long as you like.</p>
           <div className="buttons">
             <button className="ghost" onClick={() => setClaiming(null)}>
               Keep waiting
@@ -400,7 +401,7 @@ function OnlineMatchBody({ matchId, match, scenario, mySide, session }: { matchI
         <Modal title="Concede the match?" kicker="Surrender" onClose={conceding === 'ask' ? () => setConceding(null) : undefined}>
           <p>
             {!officialConcession
-              ? 'The match has not reached its halfway point, so conceding now abandons it without a result or rating change.'
+              ? 'The match has not reached its halfway point, so conceding now abandons it: no winner, no rating change, no battle record and no after action report, for either player.'
               : match.competition === 'friendly'
                 ? `The match is scored as a friendly win for ${sideName(Object.keys(match.seats).find((s) => s !== mySide))}. You still earn participation XP, but ratings and ranked records do not change.`
                 : `The match is scored as a ranked win for ${sideName(Object.keys(match.seats).find((s) => s !== mySide))}. Your rating and record take the loss.`}

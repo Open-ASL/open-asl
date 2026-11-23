@@ -6,6 +6,7 @@ import { hasLos } from '../sk1/known';
 import { SETUP_DECISION, SETUP_PLACED, type SetupAction, type SetupPlacedFn } from '../sk1/scenario';
 import { gun, isGoodOrder, mmc, smc, squadEquivalents } from '../sk1/status';
 import { hasFeature, terrainOf } from '../sk1/terrain';
+import { T2 } from '../sk2/status';
 import { interiorBuildingHex } from './levels';
 import { isRubbled } from './rubble';
 
@@ -28,6 +29,13 @@ import { isRubbled } from './rubble';
  * the `:pb` Location) are checked against the counter's capacity (B27.12, B27.51, B30.111) here; what the counters
  * do in play (entrenchment TEM, Wire entry, mine attacks, pillbox fire) is left to their own rules.
  */
+
+declare module '@asl/engine' {
+  interface QueryCatalog {
+    /** Whether the pillbox of `hex` holds units `viewer` may not inspect (B30.7; `asl/pillboxes.ts`): shown as occupied. */
+    'pillbox.occupiedUnseen': { ctx: { hex: HexId; viewer: SideId | null }; value: boolean };
+  }
+}
 
 export const FORTIFICATIONS_MODULE = 'fortifications';
 export const FORT_EXT = 'asl.fortifications';
@@ -82,6 +90,10 @@ export interface FortRecord extends FortPlacement {
   side: SideId;
   /** Shown to the other side (A12.33; never cleared, A12.31). A minefield: its presence. */
   revealed?: true;
+  /** A pillbox from within which an attack has been made or SMOKE placed: its contents are Known (B30.7); for the game. */
+  known?: true;
+  /** View only: a pillbox whose contents the viewer may not inspect holds units (B30.7). Never in the state itself. */
+  occupied?: true;
 }
 
 /**
@@ -154,6 +166,9 @@ export const roadblocks = (env: QueryEnv): FortRecord[] => fortCounters(env).fil
 /** Whether a counter of `kind` in `hex` is still hidden from the other side (A12.33: entering one costs nothing). */
 export const fortHiddenAt = (env: QueryEnv, hex: HexId, kind?: FortKind): boolean =>
   fortificationsAt(env, hex).some((c) => c.hidden && !c.revealed && (!kind || c.kind === kind));
+
+/** A "gray" pillbox, the 5+7 counters (B30.92: only a ≥ 100mm Indirect Fire CH eliminates it; C1.822). */
+export const pillboxGray = (f: PillboxFactors): boolean => f.ca === 5 && f.nca === 7;
 
 /** The pillbox Location of a hex. */
 export const pillboxLoc = (hex: HexId): LocId => locId(hex, 0, 'pb');
@@ -320,6 +335,8 @@ export function counterTerrainIllegal(env: QueryEnv, c: FortPlacement): string |
     }
     case 'pillbox': {
       if (!c.pillbox) return 'A pillbox needs its strength factors (ASLRB B30.11)';
+      // The counters pair the CA and NCA Defense Modifications as 3+5, 4+6 and 5+7 (B30.11; the 5+7 ones are "gray", B30.92).
+      if (c.pillbox.nca !== c.pillbox.ca + 2) return `No pillbox counter is ${c.pillbox.capacity}+${c.pillbox.ca}+${c.pillbox.nca}: its NCA Defense Modification is its CA one plus two (ASLRB B30.11)`;
       if (c.ca === undefined || c.ca < 0 || c.ca > 5) return 'A pillbox needs a Covered Arc: a hexspine (ASLRB B30.1)';
       const t = terrainOf(env, hex).id;
       if (rubble || !['open', 'brush', 'orchard', 'grain', 'woods', 'shellholes'].includes(t)) return `A pillbox goes only in Open Ground, brush, orchard, grain or woods (ASLRB B30.1): not in ${hex}`;
@@ -399,8 +416,9 @@ export function fortPlaceIllegal(env: QueryEnv, side: SideId, counters: FortPlac
         x.kind === 'roadblock' && x.hexside !== undefined && ((x.hex === c.hex && x.hexside === c.hexside) || (x.hex === across && mod6(x.hexside + 3) === c.hexside));
       if (counters.some((x) => x !== c && same(x)) || fortCounters(env).some(same)) return `One roadblock per hexside (${c.hex}${across ? `-${across}` : ''}; ASLRB B29.1, B29.2)`;
     }
+    // A pillbox may share its hex with a foxhole, trench or A-T Ditch (B30.8: "A Pillbox counter in the same hex with a
+    // trench ... is considered a bunker"; B27.1 does not list a pillbox hex among the terrain a foxhole may not occupy).
     if (c.kind === 'pillbox' && here.some((x) => x.kind === 'pillbox')) return `A pillbox may not be placed in the same hex as another pillbox (${c.hex}; ASLRB B30.1)`;
-    if ((c.kind === 'pillbox' && here.some((x) => ent(x.kind))) || (ent(c.kind) && here.some((x) => x.kind === 'pillbox'))) return `A pillbox hex takes no foxhole or trench (${c.hex}; ASLRB B30.1)`;
   }
   if (belts.length || counters.some((c) => c.belt)) {
     if (!p.mines?.known) return 'No Known minefield factors to lay a belt with (ASLRB B28.46)';
@@ -667,15 +685,18 @@ export const aslFortificationsModule: RuleModule = {
 
     // What the other side (or a hotseat screen, a spectator) may see: open and revealed counters, a minefield's
     // strength only once shown, nothing of the Dummy dr.
-    const shownState = (st: FortState, viewer: SideId | null): FortState => ({
-      counters: st.counters.map((c) => shownCounter(c, viewer)).filter((c): c is FortRecord => !!c),
+    // A pillbox whose contents the viewer may not inspect shows only that it is occupied (B30.7).
+    const occupancy = (c: FortRecord, viewer: SideId | null, env: QueryEnv): FortRecord =>
+      c.kind === 'pillbox' && viewer !== c.side && env.query('pillbox.occupiedUnseen', { hex: c.hex, viewer }, false) ? { ...c, occupied: true } : c;
+    const shownState = (st: FortState, viewer: SideId | null, env: QueryEnv): FortState => ({
+      counters: st.counters.map((c) => shownCounter(c, viewer)).filter((c): c is FortRecord => !!c).map((c) => occupancy(c, viewer, env)),
       ...(st.belts?.length ? { belts: st.belts } : {}),
       ...(st.extraDummies && viewer && st.extraDummies[viewer] !== undefined ? { extraDummies: { [viewer]: st.extraDummies[viewer]! } } : {}),
     });
     r.redact({
       id: 'asl.fort.redact',
       ext: FORT_EXT,
-      redactExt: (slice, viewer) => shownState(slice as FortState, viewer),
+      redactExt: (slice, viewer, env) => shownState(slice as FortState, viewer, env),
       events: ['asl.fort.placed', 'asl.fort.revealed', 'asl.fort.dummies', 'asl.fort.grown', 'asl.fort.removed'],
       redactEvent(ev, viewer, env) {
         if (ev.type === 'asl.fort.removed') {
@@ -708,7 +729,8 @@ export const aslFortificationsModule: RuleModule = {
       handler(ctx, ev) {
         const to = ev.payload.to;
         if (!ev.payload.falls || !to) return;
-        for (const c of fortificationsAt(ctx, to)) if (!ENTRENCHMENTS.includes(c.kind)) removeFortification(ctx, c.id, 'falling rubble (ASLRB B24.121)');
+        // A pillbox goes with its contents (B30.92), in `asl/pillboxes.ts`.
+        for (const c of fortificationsAt(ctx, to)) if (!ENTRENCHMENTS.includes(c.kind) && c.kind !== 'pillbox') removeFortification(ctx, c.id, 'falling rubble (ASLRB B24.121)');
       },
     });
 
@@ -859,7 +881,14 @@ export const fortificationsModule: RuleModule = {
       const beneath = new Set(action.beneath ?? []);
       for (const [id, loc] of Object.entries(action.placements).sort()) {
         const u = ctx.state.pieces[id];
-        if (!u || u.loc.kind !== 'hex' || isPillboxLoc(loc)) continue;
+        if (!u || u.loc.kind !== 'hex') continue;
+        if (isPillboxLoc(loc)) {
+          // "If a pillbox sets up hidden, so do its contents" (B30.7), with the weapons they hold (A12.3); they are in
+          // addition to any HIP allowance of the scenario, which counts only the units its rule hides.
+          const pb = pillboxAt(ctx, hexOfLoc(loc));
+          if (pb?.hidden && !pb.revealed) for (const x of [u, ...swHeldBy(ctx.state, id)]) if (x.tags[T2.hip] !== true) ctx.emit('piece.tagged', { id: x.id, tags: { [T2.hip]: true } });
+          continue;
+        }
         const hex = hexOfLoc(loc);
         const ent = fortificationsAt(ctx, hex).find((c) => c.side === side && ENTRENCHMENTS.includes(c.kind));
         const wire = wireAt(ctx, hex);

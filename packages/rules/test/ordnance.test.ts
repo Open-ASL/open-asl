@@ -10,6 +10,7 @@ import {
   type FireDeclaration,
   type FireMode,
   type ResolveFireFn,
+  shotOutlook,
 } from '../src';
 import { GE_VS_BR, act, makeEngine } from './fixtures';
 
@@ -226,6 +227,32 @@ describe('Defensive First Fire with a Gun', () => {
     expect(t.state.hexMarkers['yO5']?.['residualFp']).toBeUndefined();
     expect(t.state.pieces['g40']!.tags['fire']).toBe('first');
     expect(engine.currentDecision(t.state)?.kind).toBe('phase');
+  });
+});
+
+describe('the To Hit preview at a moving stack', () => {
+  it('lists the FFNAM and FFMO the resolution applies, and not FFNAM against Assault Movement', () => {
+    const probe = makeEngine({ scenario: GE_VS_BR, extra, startPhase: 'MPh', pieces: [{ id: 'x', def: 'ge.467', side: 'ge', hex: 'yK5' }] });
+    const ca = spineFor(probe.engine, probe.state, 'yR5', 'yO5');
+    const { engine, state } = makeEngine({
+      scenario: GE_VS_BR,
+      extra,
+      startPhase: 'MPh',
+      pieces: [
+        { id: 'c1', def: 'br.228c', side: 'br', hex: 'yR5' },
+        { id: 'g40', def: 'br.AA40L', side: 'br', heldBy: 'c1', tags: { ca } },
+        { id: 'e1', def: 'ge.467', side: 'ge', hex: 'yN5' },
+      ],
+    });
+    const shot = { weapon: 'g40', target: 'yO5', targetType: 'ITT' as const };
+    let s = act(engine, state, { type: 'move.start', units: ['e1'] }).state;
+    s = act(engine, s, { type: 'move.step', to: 'yO5' }).state;
+    const out = shotOutlook(engine.env(s), shot, 'first', 'br', ['e1']);
+    expect(out.parts).toEqual(['-1 FFNAM', '-1 FFMO']);
+    expect(out.drm).toBe(-2);
+    let a = act(engine, state, { type: 'move.start', units: ['e1'], assault: true }).state;
+    a = act(engine, a, { type: 'move.step', to: 'yO5' }).state;
+    expect(shotOutlook(engine.env(a), shot, 'first', 'br', ['e1']).parts).toEqual(['-1 FFMO']);
   });
 });
 

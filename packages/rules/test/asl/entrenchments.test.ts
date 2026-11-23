@@ -186,7 +186,7 @@ describe('Entrenching (B27.11, B27.12, A25.21, B24.8, A4.8)', () => {
     expect(check(engine, state, { type: 'entrench.attempt', loc: 'uN5', attempts: [{ unit: 'a' }, { unit: 'b' }, { unit: 'c' }, { unit: 'd' }] })).toMatch(/three squads/);
   });
 
-  it('is refused in a building, paved road, trench or pillbox hex, beneath an entrenchment, on top of Wire, after firing, broken, outside the PFPh and to the DEFENDER', () => {
+  it('is refused in a building, paved road or trench hex (allowed outside a pillbox, B30.8), beneath an entrenchment, on top of Wire, after firing, broken, outside the PFPh and to the DEFENDER', () => {
     const { engine, state } = game([ge('k', 'uK4'), ge('m', 'uM4'), ge('t', 'uO5'), ge('p', 'uO6'), ge('w', 'uN6'), ge('f', 'uN7'), ge('b', 'uN8'), ...far]);
     let s = place(engine, state, 'ge', [trench('uO5'), { kind: 'pillbox', hex: 'uO6', hidden: false, ca: 0, pillbox: { capacity: 1, ca: 3, nca: 5 } }, { kind: 'wire', hex: 'uN6', hidden: false }]);
     s = tele(engine, s, 't', 'uO5', 'trench');
@@ -197,7 +197,9 @@ describe('Entrenching (B27.11, B27.12, A25.21, B24.8, A4.8)', () => {
     expect(refuse('k', 'uK4')).toMatch(/building/);
     expect(refuse('m', 'uM4')).toMatch(/paved road/);
     expect(refuse('t', 'uO5')).toMatch(/trench/);
-    expect(refuse('p', 'uO6')).toMatch(/pillbox/);
+    expect(refuse('p', 'uO6')).toBeNull();
+    // Never inside the pillbox: a foxhole is dug at ground level, outside it.
+    expect(check(engine, s, { type: 'entrench.attempt', loc: 'uO6:pb', attempts: [{ unit: 'p' }] })).toMatch(/ground level|not in/);
     expect(refuse('w', 'uN6')).toMatch(/Wire/);
     expect(refuse('f', 'uN7')).toMatch(/already attempted/);
     expect(refuse('b', 'uN8')).toMatch(/broken/);

@@ -46,6 +46,10 @@ export function describeVictory(v: ScenarioDef['victory'][number], sc: ScenarioD
   const name = (s: string) => sc.sides.find((x) => x.side === s)?.name ?? s;
   const hexes = (h: string[]) => (h.length > 12 ? `${h.length} hexes` : h.map(hex).join(', '));
   const list = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs.join(''));
+  const compound = (c: ScenarioDef['victory'][number]) => c.kind === 'all' || c.kind === 'any';
+  // A nested compound's parts joined plainly, so they read as one condition beside the outer one's other parts.
+  const part = (c: ScenarioDef['victory'][number]): string =>
+    c.kind === 'all' ? c.of.map(clause).join(' and ') : c.kind === 'any' ? c.of.map(clause).join(' or ') : clause(c);
   const clause = (c: ScenarioDef['victory'][number]): string => {
     switch (c.kind) {
       case 'noGoodOrderEnemyIn':
@@ -87,10 +91,12 @@ export function describeVictory(v: ScenarioDef['victory'][number], sc: ScenarioD
         return `they have a unit of each of ${list(c.groups.map((g) => g.label))} in the same building`;
       case 'fewerMmcLost':
         return `they have lost fewer MMC than the ${people(name(sc.sides.find((x) => x.side !== c.side)?.side ?? c.side))}`;
+      // A compound inside another reads as one unit ("B and C"), the outer joins set apart ("A; or if B and C"), so the
+      // grouping is never ambiguous ("A, or B, and C" reads as "(A or B) and C").
       case 'all':
-        return c.of.map(clause).join(', and ');
+        return c.of.some(compound) ? c.of.map(part).join('; and ') : c.of.map(clause).join(', and ');
       case 'any':
-        return c.of.map(clause).join(', or ');
+        return c.of.some(compound) ? c.of.map(part).join('; or if ') : c.of.map(clause).join(', or ');
       case 'gunsEliminatedOrCaptured':
         return `every ${name(c.of)} Gun${c.defs ? ` (${c.defs.map((d) => (COUNTERS[d] ? defLabel(COUNTERS[d]!) : d)).join(', ')})` : ''} is eliminated${c.eliminatedOnly ? '' : ' or captured'}`;
       case 'occupyGunHexes':

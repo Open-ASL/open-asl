@@ -1,5 +1,6 @@
 import type { TerrainDef } from '../../common/statics';
 import { SK1_TERRAIN } from '../../sk1/data/terrain';
+import { PILLBOX_TERRAIN } from '../../asl/pillboxTerrain';
 
 /**
  * PTO Terrain (SK4 8.2, 8.2.1; the PTO Terrain Effects Chart). When PTO Terrain is in effect the map's woods are jungle,
@@ -28,4 +29,6 @@ export const PTO_TERRAIN: Record<string, TerrainDef> = {
 export const SK4_TERRAIN: Record<string, TerrainDef> = {
   ...Object.fromEntries(Object.entries(SK1_TERRAIN).map(([k, t]) => [k, k === 'building-stone' || k === 'building-wood' ? { ...t, concealment: true as const } : t])),
   ...PTO_TERRAIN,
+  // Full ASL: the Location inside a pillbox counter (ASLRB B30); only a pillbox's own Location ever has it.
+  pillbox: PILLBOX_TERRAIN,
 };

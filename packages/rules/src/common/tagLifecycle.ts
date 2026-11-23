@@ -109,6 +109,8 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   dcVsConcealed: 'playerTurn',
   // Full ASL (asl/fortified): a Placed DC declared as a Breach attempt, gone with the DC in the AFPh.
   dcBreach: 'playerTurn',
+  // Full ASL (asl/pillboxes): where the placer of a DC Placed against a pillbox stood (ASLRB B30.31), gone with the DC in the AFPh.
+  pbDcFrom: 'playerTurn',
   // Full ASL (asl/fire): Task Indicator for the Player Turn (ASLRB B24.7: Flame clearance; no fire, movement or advance).
   ti: 'playerTurn',
   // Full ASL (asl/fire): the Location and the Flames a unit has fought there this Player Turn (ASLRB B24.72); off at the CCPh end.

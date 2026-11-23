@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ASL_TESTBED_SCENARIO, BPV, COUNTERS, DEV_FIXTURES, SK1_COUNTER_IDS, SK2_COUNTER_IDS, SK3_COUNTER_IDS, TESTBED_FORTIFIED, TESTBED_HILL_HEXES, TESTBED_VC_BUILDINGS, buildingAt, fixtureActions, fixturesFor, newGame, scenarioById, staticsFor } from '../src';
 import type { Action } from '@asl/engine';
-import { breachIllegal, fortificationView, mineTbThrough, trailBreaksAt, fortifiableBuildings, fortifiableLocations, fortifiedKnownTo, fortifiedState, fortifyIllegal, moveState, ordnanceWeaponIllegal } from '@asl/rules';
+import { breachIllegal, ccHexes, controlState, fortificationView, mineTbThrough, redactState, routRequirement, shotContext, trailBreaksAt, fortifiableBuildings, fortifiableLocations, fortifiedKnownTo, fortifiedState, fortifyIllegal, moveState, ordnanceWeaponIllegal } from '@asl/rules';
 
 /** A fresh test bed game with a fixture's actions applied, as the dev UI does. */
 function load(id: string) {
@@ -94,9 +94,10 @@ describe('BPV (A./G. National Capabilities Chart)', () => {
 
 describe('Dev fixtures', () => {
   it('lists the test bed fixtures', () => {
-    expect(fixturesFor('asl-testbed').map((f) => f.id)).toEqual(['kindling', 'start', 'melee', 'building-assault', 'two-story-house', 'los-heights', 'orchard-road', 'bypass', 'fortified-breach', 'breach-unknown', 'fortified-hidden', 'fort-setup', 'fort-owner', 'fort-placed', 'entrench', 'foxhole-fight', 'trench-move', 'foxhole-hidden', 'snap-shot', 'mines-walk', 'mines-leave', 'mines-own', 'mines-advance', 'mines-clear', 'mines-hip']);
-    expect(fixturesFor('asl-testbed-fire').map((f) => f.id)).toEqual(['blaze-spread', 'flame-clearance']);
+    expect(fixturesFor('asl-testbed').map((f) => f.id)).toEqual(['kindling', 'start', 'melee', 'building-assault', 'two-story-house', 'los-heights', 'orchard-road', 'bypass', 'fortified-breach', 'breach-unknown', 'fortified-hidden', 'fort-setup', 'fort-owner', 'fort-placed', 'entrench', 'foxhole-fight', 'trench-move', 'foxhole-hidden', 'snap-shot', 'mines-walk', 'mines-leave', 'mines-own', 'mines-advance', 'mines-clear', 'mines-hip', 'pb-hidden']);
+    expect(fixturesFor('asl-testbed-fire').map((f) => f.id)).toEqual(['blaze-spread', 'flame-clearance', 'pb-blaze']);
     expect(fixturesFor('asl-testbed-mines').map((f) => f.id)).toEqual(['mines-tb', 'mines-armor', 'mines-belt', 'booby-traps', 'mines-rout']);
+    expect(fixturesFor('asl-testbed-pillbox').map((f) => f.id)).toEqual(['pb-enter', 'pb-assault', 'pb-armor', 'pb-rout', 'pb-cc', 'pb-control', 'pb-bunker', 'pb-gun']);
     expect(DEV_FIXTURES.every((f) => f.title && f.description)).toBe(true);
   });
 
@@ -393,5 +394,127 @@ describe('minefield fixtures (B28, B24.74)', () => {
     expect(loadOn('mines-belt').state.phase).toBe('setup');
     const bt = loadOn('booby-traps');
     expect([bt.state.phase, bt.state.attacker]).toEqual(['MPh', 'ge']);
+  });
+});
+
+describe('pillbox fixtures (ASLRB B30)', () => {
+  const loadOn = (id: string) => {
+    const fx = DEV_FIXTURES.find((f) => f.id === id)!;
+    const g = newGame(scenarioById(fx.scenarioId)!, 'fixture-test');
+    let state = g.state;
+    for (const a of fixtureActions(g.engine, g.state, id)) state = g.engine.submit(state, a).state;
+    return { engine: g.engine, state, env: g.engine.env(state) };
+  };
+  const unitAt = (state: { pieces: Record<string, { defId: string; side: string; loc: { kind: string; hex?: string; sub?: string } }> }, def: string, n = 1) =>
+    Object.entries(state.pieces).filter(([, p]) => p.defId === def).sort(([a], [b]) => (a < b ? -1 : 1))[n - 1]![0];
+  const act = (engine: ReturnType<typeof loadOn>['engine'], s: ReturnType<typeof loadOn>['state'], a: Record<string, unknown>) => {
+    const d = engine.currentDecision(s)!;
+    return engine.submit(s, { ...a, side: d.owner, decisionId: d.id } as never).state;
+  };
+  const settle = (engine: ReturnType<typeof loadOn>['engine'], s: ReturnType<typeof loadOn>['state'], side: string) => {
+    let x = s;
+    for (let i = 0; i < 20 && engine.currentDecision(x)?.owner !== side; i++) x = act(engine, x, { type: 'defPass' });
+    return x;
+  };
+
+  it('pb-enter: the Russian 4-4-7 walks O7, P6 and into the empty pillbox, one MF each, the German in R5 offered First Fire', () => {
+    const { engine, state } = loadOn('pb-enter');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['MPh', 1, 'ru']);
+    const sq = unitAt(state, 'ru.447', 3);
+    let s = act(engine, state, { type: 'move.start', units: [sq] });
+    s = settle(engine, act(engine, s, { type: 'move.step', to: 'uO7' }), 'ru');
+    s = settle(engine, act(engine, s, { type: 'move.step', to: 'uP6' }), 'ru');
+    s = act(engine, s, { type: 'move.step', to: 'uP6:pb' });
+    expect(s.pieces[sq]!.loc).toEqual({ kind: 'hex', hex: 'uP6', sub: 'pb' });
+    expect(moveState(engine.env(s))!.spent[sq]).toBe(3);
+  });
+
+  it('pb-hidden: neither the pillbox nor the 4-5-8 inside is on the German board; the walk to P4 reveals the pillbox, not its contents', () => {
+    const { engine, state } = loadOn('pb-hidden');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['MPh', 1, 'ge']);
+    const sq = unitAt(state, 'ru.458', 1);
+    expect(redactState(engine, state, 'ge').pieces[sq]).toBeUndefined();
+    expect(fortificationView(engine.env(state), 'ge').some((c) => c.kind === 'pillbox')).toBe(false);
+    let s = act(engine, state, { type: 'move.start', units: [unitAt(state, 'ge.467', 2)] });
+    for (const h of ['uS4', 'uR4', 'uQ4', 'uP4']) s = settle(engine, act(engine, s, { type: 'move.step', to: h }), 'ge');
+    expect(fortificationView(engine.env(s), 'ge').some((c) => c.kind === 'pillbox' && c.hex === 'uO3')).toBe(true);
+    expect(redactState(engine, s, 'ge').pieces[sq]).toBeUndefined();
+  });
+
+  it('pb-assault: German Turn 2 MPh, the 9-2 stack in R6 in the Covered Arc; the German sees the pillbox occupied, not the 4-5-8', () => {
+    const { engine, state } = loadOn('pb-assault');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['MPh', 2, 'ge']);
+    expect(state.pieces[unitAt(state, 'ge.838')]!.loc).toMatchObject({ hex: 'uR6' });
+    const sq = unitAt(state, 'ru.458', 2);
+    expect(state.pieces[sq]!.loc).toEqual({ kind: 'hex', hex: 'uP6', sub: 'pb' });
+    const theirs = redactState(engine, state, 'ge');
+    expect(theirs.pieces[sq]).toBeUndefined();
+    expect((theirs.ext['asl.fortifications'] as { counters: { kind: string; occupied?: true }[] }).counters.find((c) => c.kind === 'pillbox')).toMatchObject({ occupied: true });
+  });
+
+  it('pb-armor: the PzKpfw IVF2 in T5 fires through the Covered Arc (+3), the PSW 234/1 in S9 through the NCA (+5)', () => {
+    const { engine, state, env } = loadOn('pb-armor');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['PFPh', 1, 'ge']);
+    const tk = unitAt(state, 'ge.pzivf2');
+    const ac = unitAt(state, 'ge.psw2341');
+    const labels = (weapon: string) => env.explain('ordnance.thDrm', shotContext(env, { weapon, target: 'uP6:pb', targetType: 'ITT' }, 'prep', 'ge'), 0).trace.filter((e) => !e.suppressedBy && e.before !== e.after).map((e) => e.label ?? e.id);
+    expect(labels(tk).some((l) => /\+3 pillbox CA/.test(l))).toBe(true);
+    expect(labels(ac).some((l) => /\+5 pillbox NCA/.test(l))).toBe(true);
+    void engine;
+  });
+
+  it('pb-rout: the broken 4-5-8 inside the O6 pillbox, the German beside it in the arc, is not forced to rout', () => {
+    const { state, env } = loadOn('pb-rout');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['RtPh', 1, 'ge']);
+    const sq = unitAt(state, 'ru.458', 2);
+    expect(state.pieces[sq]!.tags['broken']).toBe(true);
+    expect(routRequirement(env, state.pieces[sq]! as never)).toBeNull();
+  });
+
+  it('pb-cc: the German may advance into P6 beside the pillbox; in the CCPh the CC is across the pillbox', () => {
+    const { engine, state } = loadOn('pb-cc');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['APh', 1, 'ge']);
+    const g = unitAt(state, 'ge.467', 3);
+    const s = act(engine, state, { type: 'advance', units: [g], to: 'uP6' });
+    const cc = act(engine, s, { type: 'endPhase' });
+    expect(cc.phase).toBe('CCPh');
+    expect(ccHexes(engine.env(cc))).toEqual(['uP6']);
+  });
+
+  it('pb-control: the German on the ground of P6 does not Control the hex while the pillbox is Russian; entering it takes both', () => {
+    const { engine, state, env } = loadOn('pb-control');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['MPh', 2, 'ge']);
+    expect(controlState(env).hexes['uP6']).not.toBe('ge');
+    expect(controlState(env).locations?.['uP6:pb']).toBe('ru');
+    const g = unitAt(state, 'ge.467', 3);
+    let s = act(engine, state, { type: 'move.start', units: [g] });
+    s = settle(engine, act(engine, s, { type: 'move.step', to: 'uP6:pb' }), 'ge');
+    expect(controlState(engine.env(s)).hexes['uP6']).toBe('ge');
+  });
+
+  it('pb-bunker: the Conscripts beneath the O7 trench go straight into the bunker for one MF', () => {
+    const { engine, state } = loadOn('pb-bunker');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['MPh', 1, 'ru']);
+    const c = unitAt(state, 'ru.426', 1);
+    let s = act(engine, state, { type: 'move.start', units: [c] });
+    s = act(engine, s, { type: 'move.step', to: 'uP6:pb' });
+    expect(s.pieces[c]!.loc).toEqual({ kind: 'hex', hex: 'uP6', sub: 'pb' });
+    expect(moveState(engine.env(s))!.spent[c]).toBe(1);
+  });
+
+  it("pb-gun: the 45L AT Gun and crew inside the P6 pillbox, hidden with it, the Gun in the pillbox's Covered Arc", () => {
+    const { engine, state } = loadOn('pb-gun');
+    const gun = unitAt(state, 'ru.AT45L');
+    const crew = unitAt(state, 'ru.228c');
+    expect(state.pieces[crew]!.loc).toEqual({ kind: 'hex', hex: 'uP6', sub: 'pb' });
+    expect(state.pieces[gun]!.tags['ca']).toBe(1);
+    expect(state.pieces[crew]!.tags['hip']).toBe(true);
+    expect(redactState(engine, state, 'ge').pieces[crew]).toBeUndefined();
+  });
+
+  it('pb-blaze: the pillbox in M2 beside the M3 Blaze, the 4-4-7 inside', () => {
+    const { state } = loadOn('pb-blaze');
+    expect([state.phase, state.turn, state.attacker]).toEqual(['PFPh', 1, 'ge']);
+    expect(state.pieces[unitAt(state, 'ru.447', 2)]!.loc).toEqual({ kind: 'hex', hex: 'uM2', sub: 'pb' });
   });
 });

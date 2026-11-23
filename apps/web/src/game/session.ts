@@ -50,6 +50,13 @@ export interface Session {
    * position at once, without playing the dice, effects or phase wheel of the actions jumped over.
    */
   seek?: number;
+  /**
+   * A commentator's board (see superSpectator/): whose hidden information the screen shows. 'all' shows the game whole;
+   * a side shows what that side knows; null what both know. Absent: the seat's own view (`mySide`), as for everyone else.
+   */
+  seeAs?: string | null | 'all';
+  /** The colour this browser's own pings are drawn in, when it is not the seat's (a commentator's). */
+  pingColor?: number;
 }
 
 /** A point in map pixels: the board's own coordinates, the same on every screen whatever its zoom or turn. */
@@ -70,6 +77,8 @@ export interface Ping {
   id: number;
   side: string;
   hex: string;
+  /** The pinger's own colour (a commentator's), drawn instead of the side's. */
+  color?: number;
   /** The exact point; absent means the hex centre. */
   at?: MapPoint;
 }

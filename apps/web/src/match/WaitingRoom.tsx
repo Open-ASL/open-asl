@@ -7,6 +7,7 @@ import { api, errorOf } from '../firebase';
 import { Briefing } from '../panels/Briefing';
 import { Emblem } from '../ui/Emblem';
 import { aarPath } from '../aar/links';
+import { abandonedText } from './abandoned';
 
 /**
  * An online match without a board to show: a seat is still open, or the match ended without
@@ -36,7 +37,7 @@ export function WaitingRoom({ matchId, match, scenario }: { matchId: string; mat
   const outcome = () => {
     if (match.result) return `${match.result.winner ? `${sideName(match.result.winner)} victory` : 'Draw'} · ${match.result.reason}`;
     if (match.status === 'cancelled') return 'The open seat was withdrawn.';
-    if (match.status === 'abandoned') return 'Abandoned.';
+    if (match.status === 'abandoned') return abandonedText(match, user.uid);
     return null;
   };
 

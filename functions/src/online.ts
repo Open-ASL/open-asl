@@ -10,6 +10,7 @@ import { requireMember, requireString } from './lib/auth';
 import { otherSide, prepareScenario, replay, summaryOf } from './lib/scenarios';
 import { readUser } from './lib/users';
 import { applyMatchResult, hasReachedOfficialThreshold, matchRef } from './matches';
+import { abandonedPatch } from './lib/abandon';
 
 /**
  * Positions already replayed by this instance, keyed by match id. A position is only trusted
@@ -172,7 +173,7 @@ async function enforceTimeout(matchId: string, match: MatchDoc, uid: string, out
     const [p1, p2] = fresh.playerIds as [string, string];
     const players = { [p1]: await readUser(tx, p1), [p2]: await readUser(tx, p2) };
     if (!hasReachedOfficialThreshold(fresh, scenario)) {
-      tx.update(ref, { status: 'abandoned', official: false, result: null, summary: { ...fresh.summary, toMove: null }, deadline: null, updatedAt: now(), completedAt: now(), ...seedBack });
+      tx.update(ref, { ...abandonedPatch(fresh, { by: uid, reason: 'timeout' }, now()), ...seedBack });
       for (const player of Object.values(players)) if (player.data.activeMatchId === ref.id) tx.update(player.ref, { activeMatchId: null, updatedAt: now() });
       return null;
     }

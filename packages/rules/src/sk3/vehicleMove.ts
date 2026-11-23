@@ -451,7 +451,7 @@ export const vehicleMoveModule: RuleModule = {
             leaderBonus: [],
             from: null,
             trail: [],
-            vehicle: { started: motion, stopped: !motion, sinceTurret: 0 },
+            vehicle: { started: motion, stopped: !motion, sinceTurret: 0, origin: p.loc.kind === 'hex' ? p.loc.hex : null },
           };
           ctx.emit('sk1.move.state', { state: ms });
           if (motion) {

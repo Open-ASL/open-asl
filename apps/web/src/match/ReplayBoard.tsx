@@ -7,10 +7,12 @@ import { GameScreen } from '../GameScreen';
 import { seatNames } from './seatNames';
 import type { Session } from '../game/session';
 import { PHASE_NAME, phaseSide, sideNameOf } from '../game/describe';
-import { buildReplay, extendReplay, nextTurnStep, prevTurnStep, turnMarks, type Replay, type TurnMark } from './replayTimeline';
+import { nextTurnStep, prevTurnStep, turnMarks, type TurnMark } from './replayTimeline';
+import { useReplay } from './useReplay';
+import { SsSettings } from '../superSpectator/SsSettings';
 
 /** Autoplay: the pause after each step has finished playing, by speed. */
-const SPEEDS = [
+export const SPEEDS = [
   { label: '1×', pause: 1400 },
   { label: '2×', pause: 600 },
   { label: '4×', pause: 150 },
@@ -42,15 +44,7 @@ export function ReplayBoard({ matchId, match, scenario, actions }: { matchId: st
   // A finished match has its seed on the document (written back when it ended); the empty string never reaches a live one.
   const seed = match.seed ?? '';
   // The recording is replayed once; actions recorded later (a match still being played) carry it on.
-  const built = useRef<{ actions: Action[]; replay: Replay } | null>(null);
-  const replay = useMemo(() => {
-    const prev = built.current;
-    const kept = prev ? prev.replay.frames.length - 1 : 0;
-    const same = prev && actions.length >= kept && (kept === 0 || JSON.stringify(actions[kept - 1]) === JSON.stringify(prev.actions[kept - 1]));
-    const next = prev && same ? extendReplay(prev.replay, actions) : buildReplay(scenario, seed, actions);
-    built.current = { actions, replay: next };
-    return next;
-  }, [scenario, seed, actions]);
+  const replay = useReplay(scenario, seed, actions);
   const last = replay.frames.length - 1;
   const marks = useMemo(() => turnMarks(replay.frames), [replay]);
 
@@ -160,7 +154,7 @@ export function ReplayBoard({ matchId, match, scenario, actions }: { matchId: st
 
   return (
     <>
-      <GameScreen scenario={scenario} players={seatNames(match)} session={session} matchId={undefined} viewKey={`watch.${matchId}`} onQuit={() => navigate(-1)} onResolvingChange={setBusy} />
+      <GameScreen scenario={scenario} players={seatNames(match)} session={session} matchId={undefined} viewKey={`watch.${matchId}`} onQuit={() => navigate(-1)} onResolvingChange={setBusy} settingsExtra={<SsSettings matchId={matchId} match={match} on={false} />} />
       <div className="replay-controls" role="toolbar" aria-label="Replay">
         <div className="replay-head">
           <div className="replay-title">
@@ -195,12 +189,12 @@ export function ReplayBoard({ matchId, match, scenario, actions }: { matchId: st
   );
 }
 
-function Icon({ d }: { d: string }) {
+export function Icon({ d }: { d: string }) {
   return <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d={d} fill="currentColor" stroke="currentColor" strokeWidth="2.4" strokeLinejoin="round" /></svg>;
 }
 
 /** The scrubber: a range over every step, with a tick where each Player Turn begins and the Game Turn numbers above. */
-function Timeline({ step, last, marks, onJump, sideName }: { step: number; last: number; marks: TurnMark[]; onJump(step: number): void; sideName(side: string): string }) {
+export function Timeline({ step, last, marks, onJump, sideName }: { step: number; last: number; marks: TurnMark[]; onJump(step: number): void; sideName(side: string): string }) {
   const at = (s: number) => `${last ? (s / last) * 100 : 0}%`;
   return (
     <div className="replay-timeline">

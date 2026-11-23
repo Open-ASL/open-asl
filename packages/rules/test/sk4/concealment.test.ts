@@ -394,6 +394,26 @@ describe('Concealment (SK4 8.3.1, 8.3.2): gain and Close Combat', () => {
     expect(engine.query(state, 'cc.meleeHolds', { hex: 'yK5' }, true).value).toBe(false);
   });
 
+  it('the Ambush drs are recorded with their drm: the concealed side\'s -2 counts toward its final dr (SK4 8.3.2)', () => {
+    // German dr 4, Russian dr 4 -2 concealed = 2: no ambush (not 3 lower). German dr 5, Russian 4 - 2 = 2: Russian ambush.
+    const run = (dice: number[]) => {
+      const { engine, state } = game([ge('g', 'yK5', { advancedInto: 'yK5' }), sq('a', 'yK5', { concealed: true })], 'CCPh', { firstSide: 'ge', dice });
+      let s = state;
+      const ambush: Record<string, unknown>[] = [];
+      for (let i = 0; i < 6 && engine.currentDecision(s) && engine.currentDecision(s)!.kind !== 'ccDeclare'; i++) {
+        const d = engine.currentDecision(s)!;
+        const t = engine.submit(s, engine.legalActions(s, d.owner)[0]!);
+        ambush.push(...events(t, 'sk1.cc.state').flatMap((p) => (p['ambush'] ? [p['ambush'] as Record<string, unknown>] : [])));
+        s = t.state;
+      }
+      return ambush;
+    };
+    expect(run([4, 4])).toEqual([
+      { rolls: [{ side: 'ge', dr: 4, drm: 0, final: 4, notes: [] }, { side: 'ru', dr: 4, drm: -2, final: 2, notes: ['-2 concealed'] }], ambusher: null },
+    ]);
+    expect(run([5, 4])).toMatchObject([{ rolls: [{ final: 5 }, { final: 2 }], ambusher: 'ru' }]);
+  });
+
   it('a concealed stack that advanced into a Melee drops its "?" for CC: the enemy it engages sees it, though in Melee he is not Good Order', () => {
     // A Russian squad and a German one are locked in Melee; concealed Germans advanced in to reinforce it.
     const g0 = game([ge('f', 'yK5'), ge('g', 'yK5', { advancedInto: 'yK5', concealed: true }), ge('h', 'yK5', { advancedInto: 'yK5', concealed: true }), sq('a', 'yK5')], 'CCPh', { firstSide: 'ge', dice: [3, 3, 3, 3] });

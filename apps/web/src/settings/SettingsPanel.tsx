@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { playSfx } from '../audio/engine';
 import { useAudioSettings, useSampleStatus } from '../audio/useAudio';
@@ -13,11 +13,16 @@ interface Props {
   /** The "your call" strip over the board while a decision waits on this player. */
   callStrip: boolean;
   onCallStrip(on: boolean): void;
+  /** The stack card that opens beside the pointer when it lingers over a hex. */
+  stackCard: boolean;
+  onStackCard(on: boolean): void;
+  /** Settings of this screen alone, shown last (a commentator's switch for the match). */
+  extra?: ReactNode;
   onClose(): void;
 }
 
 /** Settings: sound volumes and mute, how much motion the interface plays, and the weather on the map. */
-export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, callStrip, onCallStrip, onClose }: Props) {
+export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, callStrip, onCallStrip, stackCard, onStackCard, extra, onClose }: Props) {
   const [audio, setAudio] = useAudioSettings();
   const samples = useSampleStatus();
   useEffect(() => {
@@ -116,7 +121,16 @@ export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, callStrip, onC
             </label>
           </div>
           <p className="muted small">The strip over the board when the game waits on you mid-phase (Defensive First Fire, a ROF choice). Off, the board edge still glows and Pass waits in the top bar, on the action wheel and in the orders panel.</p>
+          <div className="set-row toggle">
+            <span className="set-label">Stack card on hover</span>
+            <label className="switch">
+              <input type="checkbox" checked={stackCard} onChange={(e) => onStackCard(e.target.checked)} aria-label="Stack card on hover" />
+              <span className="knob" />
+            </label>
+          </div>
+          <p className="muted small">The card that opens beside the pointer when it rests on a hex. Esc or its ✕ closes it until you move to another hex. Off, the orders panel still lists the stack under the pointer.</p>
         </section>
+        {extra}
       </div>
     </div>,
     document.body,

@@ -290,6 +290,8 @@ export function makeEngine(opts: {
   tables?: Partial<Tables>;
   /** Hex markers in place at the start (e.g. `{ zQ3: { smoke: true } }`). */
   hexMarkers?: Record<string, Record<string, unknown>>;
+  /** The game's dice seed (the rolls when no `dice` are forced). */
+  seed?: string;
 }) {
   const statics: Statics = {
     map: testMap(opts.terrain, opts.board, opts.roadHexsides, opts.pathHexsides),
@@ -306,7 +308,7 @@ export function makeEngine(opts: {
     opts.dice ? { forcedDice: opts.dice } : {},
   );
   const sc = statics.scenario;
-  const { state } = engine.createGame({ scenarioId: 'test', sides: sc.sides.map((x) => x.side), attacker: sc.firstSide, seed: 'test' });
+  const { state } = engine.createGame({ scenarioId: 'test', sides: sc.sides.map((x) => x.side), attacker: sc.firstSide, seed: opts.seed ?? 'test' });
   return { engine, state };
 }
 

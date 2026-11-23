@@ -371,6 +371,80 @@ describe('catalogued scenarios', () => {
     expect(counts['task:rolled'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
   }, 120_000);
 
+  it('asl-testbed-pillbox: weighted random play goes into and out of the pillbox, fires at it and routs into it, and every Player Turn boundary is clean', () => {
+    const scenario = scenarioById('asl-testbed-pillbox')!;
+    const counts: Record<string, number> = {};
+    const bump = (k: string, n = 1) => (counts[k] = (counts[k] ?? 0) + n);
+    // The pillbox in P6 facing east, open; stacks steered toward it, into and out of it, fire at it and routs into it.
+    const near = ['uP6'];
+    const weigh = weightedPicker((a, _legal, state, engine) => {
+      if (a.type === 'fort.place') return 400;
+      if (a.type === 'move.start' || a.type === 'vmove.start') return 20;
+      if (a.type === 'move.step' || a.type === 'rout.step' || a.type === 'advance') {
+        const to = String(a['to']);
+        if (to.endsWith(':pb')) return 80;
+        if (near.includes(to)) return 40;
+        if (a.type !== 'move.step') return 1;
+        if (to.includes(':')) return 1;
+        const env = engine.env(state);
+        const from = moveState(env)?.hex;
+        const map = statics(env).map;
+        return from && map.hex(to) && map.distance(to, 'uP6') < map.distance(from, 'uP6') ? 20 : 1;
+      }
+      if ((a.type === 'fire' || a.type === 'defFire') && String((a['decl'] as { target: string }).target).endsWith(':pb')) return 40;
+      if ((a.type === 'fire.ordnance' || a.type === 'defFire.ordnance') && String((a['shot'] as { target: string }).target).endsWith(':pb')) return 40;
+      if (a.type === 'endPhase') return state.phase === 'MPh' ? 1 : 4;
+      return 1;
+    });
+    const pick: typeof weigh = (legal, state, engine, rand) => {
+      const a = weigh(legal, state, engine, rand);
+      const bad = engine.validate(state, a);
+      if (bad) throw new Error(`listed but refused: ${JSON.stringify(a)}: ${bad}`);
+      // A Russian squad set up inside it, for the Germans to fire at and assault.
+      if (a.type === 'setup.place' && a.side === 'ru') {
+        const placements = { ...(a['placements'] as Record<string, string>) };
+        const squad = Object.keys(placements).sort().find((id) => state.pieces[id]?.defId === 'ru.447');
+        if (squad) placements[squad] = 'uP6:pb';
+        const moved = { ...a, placements };
+        return engine.validate(state, moved as never) ? a : (moved as typeof a);
+      }
+      if (a.type !== 'fort.place') return a;
+      const counters = (a['counters'] as { kind: string; hex: string; hidden: boolean; ca?: number }[]).map((c) => (c.kind === 'pillbox' ? { ...c, hex: 'uP6', hidden: false, ca: 0 } : c));
+      const moved = { ...a, counters };
+      return engine.validate(state, moved as never) ? a : (moved as typeof a);
+    };
+    for (const seed of [41, 42, 43]) {
+      const check = turnBoundaryCheck(`asl-testbed-pillbox seed ${seed}`);
+      const { state, steps } = playRandom(scenario, `pillbox-${seed}`, {
+        rand: mulberry(seed),
+        maxSteps: 9000,
+        pick,
+        onStep: (st, events, a) => {
+          bump(a.type);
+          const to = String(a['to'] ?? '');
+          if (a.type === 'move.step' && to.endsWith(':pb')) bump('pb:in');
+          if (a.type === 'rout.step' && to.endsWith(':pb')) bump('pb:rout');
+          if (a.type === 'advance' && to.endsWith(':pb')) bump('pb:advance');
+          for (const ev of events) {
+            if (ev.type === 'sk1.fire.attack' && String((ev.payload as { attack: { target: string } }).attack.target).endsWith(':pb')) bump('pb:fired');
+            if (ev.type === 'sk2.ordnance.shot' && String((ev.payload as { target: string }).target).endsWith(':pb')) bump('pb:ordnance');
+            if (ev.type === 'asl.pb.eliminated') bump('pb:eliminated');
+          }
+          check(st, events);
+          // Units in a pillbox Location are in a pillbox that is there (B30.92: its contents go with it).
+          for (const p of Object.values(st.pieces)) {
+            if (p.loc.kind !== 'hex' || p.loc.sub !== 'pb') continue;
+            const forts = (st.ext['asl.fortifications'] as { counters: { kind: string; hex: string }[] } | undefined)?.counters ?? [];
+            expect(forts.some((c) => c.kind === 'pillbox' && c.hex === (p.loc as { hex: string }).hex), `${p.id} in a pillbox that is gone`).toBe(true);
+          }
+        },
+      });
+      expect(state.result, `seed ${seed} reached no result in ${steps} steps`).not.toBeNull();
+    }
+    expect(counts['pb:in'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
+    expect(counts['pb:fired'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
+  }, 180_000);
+
   for (const s of PLAYABLE_SCENARIOS) {
     it(`${s.id}: builds, applies every balance option, and plays through at random`, () => {
       expect(() => sk1Ruleset(s)).not.toThrow();

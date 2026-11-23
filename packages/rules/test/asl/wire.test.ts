@@ -335,6 +335,24 @@ describe('On top of the Wire (B26.4, B26.31, B26.45)', () => {
     expect(s.pieces['a']!.loc).toEqual({ kind: 'hex', hex: 'uN5', pos: { wire: 'on' } });
   });
 
+  it('a unit on top cannot Transfer a SW beneath the Wire; on top, or from beneath, it may (B26.4)', () => {
+    const { engine, state } = game([ge('a', 'uN5'), ge('b', 'uN5'), ge('c', 'uN5'), { id: 'lmg', def: 'ge.LMG', side: 'ge', heldBy: 'a' }, { id: 'mmg', def: 'ge.MMG', side: 'ge', heldBy: 'b' }, ...far], { phase: 'RPh' });
+    let s = place(engine, state, 'ru', [wire('uN5')]);
+    s = tele(engine, s, 'a', 'uN5', 'on');
+    s = tele(engine, s, 'c', 'uN5', 'on');
+    s = tele(engine, s, 'b', 'uN5', 'beneath');
+    expect(check(engine, s, { type: 'rally.transfer', sw: 'lmg', to: 'b' })).toMatch(/a is on top of the Wire: no Transfer to a unit beneath it/);
+    expect(legal(engine, s, 'rally.transfer').some((x) => x['sw'] === 'lmg' && x['to'] === 'b')).toBe(false);
+    expect(check(engine, s, { type: 'rally.transfer', sw: 'lmg', to: 'c' })).toBeNull();
+    expect(check(engine, s, { type: 'rally.transfer', sw: 'mmg', to: 'a' })).toBeNull();
+    s = act(engine, s, { type: 'rally.transfer', sw: 'mmg', to: 'a' }).state;
+    expect(s.pieces['mmg']!.loc).toEqual({ kind: 'held', by: 'a' });
+    // Both sides end their rallying and play goes on into the PFPh, the MMG with the unit on top.
+    for (let i = 0; i < 4 && s.phase === 'RPh'; i++) s = act(engine, s, { type: 'endPhase' }).state;
+    expect(s.phase).toBe('PFPh');
+    expect(s.pieces['mmg']!.loc).toEqual({ kind: 'held', by: 'a' });
+  });
+
   it('a weapon on top cannot be Recovered from beneath, nor one beneath from on top (B26.4, A4.44)', () => {
     const { engine, state } = game([ge('a', 'uN5'), { id: 'lmg', def: 'ge.LMG', side: 'ge', hex: 'uN5' }, ...far]);
     let s = place(engine, state, 'ru', [wire('uN5')]);

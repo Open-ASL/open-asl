@@ -1,7 +1,7 @@
 import type { Ctx, HexId, Location, Piece, PieceId, QueryEnv, RuleModule, SideId } from '@asl/engine';
 import { byId, defOf, hexOf, isVehicleDef, otherSide, personnelAt, statics, swHeldBy, unitsAt } from '../common/pieces';
-import { locOf, type LocId } from '../common/location';
-import { FP, iftColumn, type ApplyResultFn } from '../sk1/fire';
+import { hexOfLoc, levelOfLoc, locOf, type LocId } from '../common/location';
+import { FP, iftColumn, type ApplyResultFn, type FireAttackCtx } from '../sk1/fire';
 import { hasLos, isVisibleTo } from '../sk1/known';
 import { MOVE_ENTER, moveInternals, moveState, type MoveEnterFn } from '../sk1/movement';
 import { ROUT_ENTER, type RoutEnterFn } from '../sk1/rout';
@@ -87,6 +87,13 @@ export function revealHex(ctx: Ctx, hex: HexId, side: SideId, reason: string, lo
   return guns.length + units.length > 0;
 }
 
+declare module '@asl/engine' {
+  interface QueryCatalog {
+    /** Whether an attack on a hidden unit is Area Fire (half FP; SK4 6.4, ASLRB A12.3): yes, unless a rule says otherwise (full ASL: B30.7, in a pillbox). */
+    'hip.areaFire': { ctx: { attack: FireAttackCtx; unit: PieceId }; value: boolean };
+  }
+}
+
 export const hipModule: RuleModule = {
   id: 'sk2.hip',
   ref: 'SK4 6.4',
@@ -150,7 +157,8 @@ export const hipModule: RuleModule = {
       if (ctx.state.phase === 'setup') return;
       for (const g of Object.values(ctx.state.pieces).filter((p) => gun(ctx, p) && isHidden(p)).sort(byId)) {
         const hex = hexOf(ctx.state, g);
-        if (!hex || !ctx.query('hex.openGround', { hex }, false)) continue;
+        // Open Ground by its Location (a Starter Kit hex is one; full ASL: a pillbox is Concealment Terrain, B30.7).
+        if (!hex || !ctx.query('hex.openGround', { hex: locOf(ctx.state, g) ?? hex }, false)) continue;
         if (seenInOpen(ctx, hex, g.side)) reveal(ctx, g.id, 'seen');
       }
     };
@@ -203,21 +211,25 @@ export const hipModule: RuleModule = {
         next?.(ctx, ms, to, cost, woods, extra);
         return;
       }
-      const guns = hiddenGunsAt(ctx, to, ctx.state.attacker);
-      const units = guns.length ? [] : hiddenUnitsAt(ctx, to, ctx.state.attacker);
+      // What hides in the Location entered (ASLRB A12.15: "attempts to move into a Location containing a concealed unit"): a
+      // Starter Kit hex is one Location; in full ASL another Location of the hex (a pillbox, B30.43) is not entered.
+      const here = (p: Piece) => locOf(ctx.state, p) === to;
+      const hex = hexOfLoc(to);
+      const guns = hiddenGunsAt(ctx, hex, ctx.state.attacker).filter(here);
+      const units = guns.length ? [] : hiddenUnitsAt(ctx, hex, ctx.state.attacker).filter(here);
       if (guns.length === 0 && units.length === 0) {
         next?.(ctx, ms, to, cost, woods, extra);
         return;
       }
       if (guns.length === 0 && ms.vehicle) {
         // A vehicle entering the hex of hidden Infantry finds them and goes on (S23 SSR 1: only Infantry is turned back).
-        revealHex(ctx, to, ctx.state.attacker, 'entered');
+        revealHex(ctx, hex, ctx.state.attacker, 'entered', to);
         next?.(ctx, ms, to, cost, woods, extra);
         return;
       }
       if (guns.length) for (const g of guns) reveal(ctx, g.id, 'entered');
-      else revealHex(ctx, to, ctx.state.attacker, 'entered');
-      ctx.emit('sk2.hip.bounce', { units: ms.units, hex: to, gun: guns[0]?.id ?? null });
+      else revealHex(ctx, hex, ctx.state.attacker, 'entered', to);
+      ctx.emit('sk2.hip.bounce', { units: ms.units, hex, gun: guns[0]?.id ?? null });
       // The MF are spent in the hex the stack was in; it may be fired on there (FFMO/FFNAM apply) and its move is over.
       moveInternals.spendInPlace(ctx, ms, cost, { halted: true });
       moveInternals.afterMfExpenditure(ctx);
@@ -229,12 +241,19 @@ export const hipModule: RuleModule = {
     });
 
     // ---------------------------------------------------------------- RtPh and APh
-    r.procedure<RoutEnterFn>(ROUT_ENTER, (next) => (ctx, unit, hex) => {
+    r.procedure<RoutEnterFn>(ROUT_ENTER, (next) => (ctx, unit, loc) => {
       const p = pieceOf(ctx, unit);
-      const guns = hiddenGunsAt(ctx, hex, p.side);
-      if (guns.length === 0 && hiddenUnitsAt(ctx, hex, p.side).length === 0) return next?.(ctx, unit, hex) ?? true;
+      // Per Location (A12.15), as in the MPh: the rout's node (an upper building level goes with its hex there), not another
+      // Location of the hex such as a pillbox (B30.43). A Starter Kit hex is one Location.
+      const here = (x: Piece) => {
+        const l = locOf(ctx.state, x);
+        return l === loc || (!!l && levelOfLoc(l) > 0 && hexOfLoc(l) === loc);
+      };
+      const hex = hexOfLoc(loc);
+      const guns = hiddenGunsAt(ctx, hex, p.side).filter(here);
+      if (guns.length === 0 && hiddenUnitsAt(ctx, hex, p.side).filter(here).length === 0) return next?.(ctx, unit, loc) ?? true;
       if (guns.length) for (const g of guns) reveal(ctx, g.id, 'entered');
-      else revealHex(ctx, hex, p.side, 'entered');
+      else revealHex(ctx, hex, p.side, 'entered', loc);
       return false;
     });
     r.on<{ id: PieceId; loc: { kind: string; hex?: HexId } }>({
@@ -244,11 +263,14 @@ export const hipModule: RuleModule = {
         if (ctx.state.phase !== 'APh' || ev.payload.loc.kind !== 'hex' || !ev.payload.loc.hex) return;
         const p = ctx.state.pieces[ev.payload.id];
         if (!p || !(mmc(ctx, p) || smc(ctx, p))) return;
-        const guns = hiddenGunsAt(ctx, ev.payload.loc.hex, p.side);
-        const units = guns.length ? [] : hiddenUnitsAt(ctx, ev.payload.loc.hex, p.side);
+        // The Location advanced into (A12.15; a Starter Kit hex is one Location).
+        const to = locOf(ctx.state, p);
+        const here = (x: Piece) => locOf(ctx.state, x) === to;
+        const guns = hiddenGunsAt(ctx, ev.payload.loc.hex, p.side).filter(here);
+        const units = guns.length ? [] : hiddenUnitsAt(ctx, ev.payload.loc.hex, p.side).filter(here);
         if (guns.length === 0 && units.length === 0) return;
         if (guns.length) for (const g of guns) reveal(ctx, g.id, 'advanced');
-        else revealHex(ctx, ev.payload.loc.hex, p.side, 'advanced');
+        else revealHex(ctx, ev.payload.loc.hex, p.side, 'advanced', to ?? undefined);
         ctx.emit('hex.marker', { hex: ev.payload.loc.hex, key: 'hipAmbush', value: (guns[0] ?? units[0])!.side });
       },
     });
@@ -266,7 +288,7 @@ export const hipModule: RuleModule = {
     // units: a concealed one is out of sight too, but its "?" is on the board and concealment halves that fire itself
     // (SK4 8.3.2); halving it here as well would quarter it.
     r.procedure<ApplyResultFn>(FP.applyResult, (next) => (ctx, attack, column, baseFinal, out) => {
-      const hidden = attack.targets.filter((u) => isHidden(pieceOf(ctx, u)) && !isVisibleTo(ctx, pieceOf(ctx, u), attack.side));
+      const hidden = attack.targets.filter((u) => isHidden(pieceOf(ctx, u)) && !isVisibleTo(ctx, pieceOf(ctx, u), attack.side) && ctx.query('hip.areaFire', { attack, unit: u }, true));
       if (hidden.length === 0 || attack.ordnance) {
         next?.(ctx, attack, column, baseFinal, out);
         return;

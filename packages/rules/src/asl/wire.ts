@@ -418,6 +418,13 @@ export const aslWireModule: RuleModule = {
       },
     });
     r.contribute({
+      id: 'asl.wire.transfer',
+      query: 'transfer.illegal',
+      ref: 'ASLRB B26.4',
+      // B26.4: a unit on top may not Transfer a SW/Gun beneath that Wire counter.
+      apply: (v, { from, to }, env) => v ?? (onWire(pieceOf(env, from)) && !onWire(pieceOf(env, to)) ? `${from} is on top of the Wire: no Transfer to a unit beneath it (ASLRB B26.4)` : null),
+    });
+    r.contribute({
       id: 'asl.wire.advance',
       query: 'advance.illegal',
       ref: 'ASLRB B26.4',

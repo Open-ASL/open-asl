@@ -60,7 +60,8 @@ describe('placing the counters in the setup', () => {
     expect(check(base, { beneath: [ru('ru.447', 1), ru('ru.447', 2), ru('ru.426', 1), ru('ru.458', 2)] })).toBeNull();
     // Three squads beneath a 2S foxhole: one too many; two squads inside the 1+3+5 pillbox: one too many.
     expect(check({ ...base, [ru('ru.447', 3)]: 'uO6' }, { beneath: [ru('ru.447', 1), ru('ru.447', 2), ru('ru.447', 3)] })).toMatch(/foxhole 2S in uO6 holds 2 squads/);
-    expect(check({ ...base, [ru('ru.447', 3)]: 'uO3:pb' })).toMatch(/pillbox in uO3 holds 1 squad/);
+    // The pillbox's capacity is its Location's stacking limit (B30.111).
+    expect(check({ ...base, [ru('ru.447', 3)]: 'uO3:pb' })).toMatch(/Stacking limit exceeded in uO3:pb \(1 squad-equivalents\)/);
     // Beneath nothing: no counter of the side there.
     expect(check(base, { beneath: [ru('ru.L91')] })).toMatch(/No foxhole, trench or Wire of yours in/);
     // The pillbox is a Location of the hex, listed with the ground.
@@ -87,10 +88,14 @@ describe('what each side sees', () => {
     const json = JSON.stringify(seen.ext['asl.fortifications']);
     for (const secret of ['uO6', 'uO4', 'uP10', 'uO9', 'uO3', '"ap":8', '"at":1', '"dummy"', '"ca":0']) expect(json, secret).not.toContain(secret);
     expect(locationsOf(f.engine.env(seen), 'uO3')).toEqual(['uO3']);
-    // Nor do the units give their counters away: the 4-4-7 beneath the hidden O6 foxhole shows no position, the squad in the
-    // hidden pillbox stands on the ground of O3; the Conscripts beneath the open O7 foxhole keep theirs.
+    // Nor do the units give their counters away: the 4-4-7 beneath the hidden O6 foxhole shows no position; the squad in the
+    // hidden pillbox set up hidden with it (B30.7: "If a pillbox sets up hidden, so do its contents"), so it is not in the
+    // German's snapshot at all; the Conscripts beneath the open O7 foxhole keep theirs.
     expect(seen.pieces[f.unit('ru', 'ru.447', 1)]!.loc).toEqual({ kind: 'hex', hex: 'uO6' });
-    expect(seen.pieces[f.unit('ru', 'ru.458', 1)]!.loc).toEqual({ kind: 'hex', hex: 'uO3' });
+    expect(seen.pieces[f.unit('ru', 'ru.458', 1)]).toBeUndefined();
+    expect(f.state.pieces[f.unit('ru', 'ru.458', 1)]!.tags['hip']).toBe(true);
+    expect(redactState(f.engine, f.state, null).pieces[f.unit('ru', 'ru.458', 1)]).toBeUndefined();
+    expect(redactState(f.engine, f.state, 'ru').pieces[f.unit('ru', 'ru.458', 1)]!.loc).toEqual({ kind: 'hex', hex: 'uO3', sub: 'pb' });
     expect(seen.pieces[f.unit('ru', 'ru.426', 1)]!.loc).toEqual({ kind: 'hex', hex: 'uO7', pos: { ent: 'trench' } });
     expect(redactState(f.engine, f.state, 'ru').pieces[f.unit('ru', 'ru.447', 1)]!.loc).toEqual({ kind: 'hex', hex: 'uO6', pos: { ent: 'foxhole' } });
     // A hotseat screen between the players shows what the German sees.
@@ -115,7 +120,7 @@ describe('what each side sees', () => {
 describe('across the turns', () => {
   /** Pass and end phases until `phase` of `attacker` on `turn`. */
   const until = (f: FixtureBuilder, phase: string, turn: number, attacker: string) => f.until(phase as never, { turn, attacker: attacker as never });
-  it('units beneath a foxhole and inside the pillbox fire, are fired on, move out and lose their position; the counters stay', () => {
+  it('units beneath a foxhole and inside the hidden pillbox fire, are fired on (the foxhole), move out and lose their position; the counters stay', () => {
     const f = fixture('fort-placed');
     const ge = (def: string, n = 1) => f.unit('ge', def, n);
     const ru = (def: string, n = 1) => f.unit('ru', def, n);
@@ -129,7 +134,8 @@ describe('across the turns', () => {
     const atFox = shots.find((a) => target(a) === 'uO6');
     const atPb = shots.find((a) => target(a) === 'uO3:pb');
     expect(atFox, `a shot at the foxhole hex is offered (${targets.join(' ')})`).toBeDefined();
-    expect(atPb, `a shot at the pillbox Location is offered (${targets.join(' ')})`).toBeDefined();
+    // The pillbox's contents set up hidden with it (B30.7): no Known target there to offer.
+    expect(atPb, `no shot at the pillbox Location is offered (${targets.join(' ')})`).toBeUndefined();
     const { side: _s, decisionId: _d, ...shot } = atFox!;
     f.act(shot);
     f.settle('ge');
@@ -157,6 +163,8 @@ describe('across the turns', () => {
     expect(fortCounters(f.engine.env(f.state))).toHaveLength(before);
     expect(locOf(f.state, ru('ru.458', 2))).toEqual({ kind: 'hex', hex: 'uP6', pos: { ent: 'trench' } });
     expect(locOf(f.state, ru('ru.458', 1))).toEqual({ kind: 'hex', hex: 'uO3', sub: 'pb' });
+    // It never fired or moved: still hidden with the pillbox it set up in (B30.7, A12.3).
+    expect(f.state.pieces[ru('ru.458', 1)]!.tags['hip']).toBe(true);
   });
   it('every dev fixture of the counters builds', () => {
     for (const id of ['fort-setup', 'fort-owner', 'fort-placed']) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deepEqual, type GameState, type LoggedEvent } from '@asl/engine';
 import { beltHexes, breaches, fortCounters, fortifiedKnownTo, fortifiedState, hiddenFrom, redactState, scatterState, shownCounter, type Breach, type FortRecord, type FortifiedState, type ScatterState } from '@asl/rules';
-import { ASL_TESTBED_MINES_SCENARIO, ASL_TESTBED_SCENARIO, FixtureBuilder, fixtureActions, PLAYABLE_SCENARIOS, TESTBED_FORTIFIED, mulberry, newGame, newSk1Game, testbedBreachApproach } from '../src';
+import { ASL_TESTBED_MINES_SCENARIO, ASL_TESTBED_PILLBOX_SCENARIO, ASL_TESTBED_SCENARIO, FixtureBuilder, fixtureActions, PLAYABLE_SCENARIOS, TESTBED_FORTIFIED, mulberry, newGame, newSk1Game, testbedBreachApproach, testbedForts } from '../src';
 
 /** Strings the viewer must never receive: ids of pieces hidden from them, and the other side's unrevealed secrets. */
 function secretsFrom(engine: ReturnType<typeof newSk1Game>['engine'], state: GameState, viewer: string | null): string[] {
@@ -305,4 +305,148 @@ describe('minefields: what each seat and a spectator receive (B28.1, B28.41, B28
     expect(own.counters.map((c) => c.mines)).toEqual([{ known: true, ap: 12 }, { known: true, dummy: true }]);
   });
 
+});
+
+describe('pillboxes: what each seat and a spectator receive (B30.7, A12.33)', () => {
+  const VIEWERS = ['ge', 'ru', null] as const;
+  type Trans = { from: GameState; to: GameState; events: LoggedEvent[] };
+  /** A fixture built with the builder, then `more` played on it; every transition from the first action recorded. */
+  function record(fixture: string | null, more: (f: FixtureBuilder) => void, dice: number[] = [], scenario = ASL_TESTBED_SCENARIO) {
+    const g = newGame(scenario, 'pillbox-redact');
+    const f = new FixtureBuilder(g.engine, g.state);
+    if (fixture) for (const a of fixtureActions(g.engine, g.state, fixture)) f.act(a as never);
+    if (dice.length) g.engine.forceDice(...dice);
+    const start = f.actions.length;
+    more(f);
+    const trans: Trans[] = [];
+    let s = g.state;
+    for (const [i, a] of f.actions.entries()) {
+      const t = g.engine.submit(s, a);
+      if (i >= start) trans.push({ from: s, to: t.state, events: t.events as LoggedEvent[] });
+      s = t.state;
+    }
+    return { engine: g.engine, f, trans };
+  }
+  /** Every viewer's stream folds into its snapshot, transition by transition; returns each viewer's whole stream. */
+  function streams(engine: ReturnType<typeof newGame>['engine'], trans: Trans[]) {
+    const out = new Map<string | null, LoggedEvent[]>();
+    for (const viewer of VIEWERS) {
+      const redact = (x: GameState) => redactState(engine, x, viewer);
+      const all: LoggedEvent[] = [];
+      for (const t of trans) {
+        const stream = engine.redactTransition(viewer, redact, t.from, t.events);
+        expect(deepEqual(engine.applyEvents(redact(t.from), stream), redact(t.to)), `${viewer} at seq ${t.to.seq}`).toBe(true);
+        all.push(...stream);
+      }
+      out.set(viewer, all);
+    }
+    return out;
+  }
+
+  it('the contents of a hidden pillbox set up hidden: the owner sees the squad inside, the other seat and a spectator never receive it, not even once the pillbox is revealed, into the next Player Turns', () => {
+    const { engine, f, trans } = record('fort-placed', (b) => {
+      const ge = (def: string, n = 1) => b.unit('ge', def, n);
+      b.setup('ge', { [ge('ge.L92')]: 'uT3', [ge('ge.838')]: 'uT3', [ge('ge.548')]: 'uT3', [ge('ge.467', 1)]: 'uU4', [ge('ge.467', 2)]: 'uT4', [ge('ge.467', 3)]: 'uS5', [ge('ge.L80')]: 'uS5', [ge('ge.447', 1)]: 'uS5', [ge('ge.447', 2)]: 'uV4' });
+      // German Turn 1: a 4-6-7 walks up beside the pillbox, the first German with a LOS to O3.
+      b.until('MPh', { turn: 1, attacker: 'ge' });
+      b.move([ge('ge.467', 2)], ['uS4', 'uR4', 'uQ4', 'uP4']);
+      b.until('RPh', { turn: 2, attacker: 'ge' });
+    });
+    const squad = f.unit('ru', 'ru.458', 1);
+    const all = streams(engine, trans);
+    // The setup snapshot and every turn after it: the owner sees the squad in the pillbox, hidden; no one else sees it.
+    for (const t of [trans[0]!.from, ...trans.map((x) => x.to)]) {
+      expect(redactState(engine, t, 'ru').pieces[squad]?.loc).toEqual({ kind: 'hex', hex: 'uO3', sub: 'pb' });
+      for (const viewer of ['ge', null]) expect(redactState(engine, t, viewer).pieces[squad], `${viewer} at seq ${t.seq}`).toBeUndefined();
+    }
+    expect(f.state.pieces[squad]!.tags['hip']).toBe(true);
+    for (const viewer of ['ge', null]) expect(JSON.stringify(all.get(viewer)), `${viewer}`).not.toContain(JSON.stringify(squad));
+    // The pillbox itself, in Open Ground, was revealed by that German's LOS (A12.33); its contents were not (B30.7: they
+    // set up hidden in their own right).
+    expect(fortCounters(engine.env(f.state)).find((c) => c.kind === 'pillbox')!.revealed).toBe(true);
+  });
+
+  it('fire at a possible pillbox in O3 reads alike to the German and a spectator whether the hidden pillbox is there or in L4 (Q&A to A7 and B30; B30.7)', () => {
+    // The German HMG in U4 fires at "a possible pillbox" in O3 in its PFPh; in one game the Russian pillbox (with the 4-5-8
+    // hidden inside) is in O3, in the other in L4. O3 is out of every German LOS, so nothing is revealed either way.
+    const play = (pbHex: string) => {
+      const g = newGame(ASL_TESTBED_SCENARIO, 'possible-pillbox');
+      const b = new FixtureBuilder(g.engine, g.state);
+      const ru = (def: string, n = 1) => b.unit('ru', def, n);
+      const ge = (def: string, n = 1) => b.unit('ge', def, n);
+      b.fortify(TESTBED_FORTIFIED);
+      b.fortPlace(testbedForts(b).map((c) => (c.kind === 'pillbox' ? { ...c, hex: pbHex } : c)));
+      b.setup('ru', { [ru('ru.L91')]: 'uK4', [ru('ru.458', 1)]: `${pbHex}:pb`, [ru('ru.447', 1)]: 'uK5', [ru('ru.458', 2)]: 'uI4', [ru('ru.447', 2)]: 'uM5', [ru('ru.447', 3)]: 'uN7', [ru('ru.527')]: 'uP3', [ru('ru.426', 1)]: 'uP5', [ru('ru.L70')]: 'uH5', [ru('ru.426', 2)]: 'uH5' });
+      b.setup('ge', { [ge('ge.L92')]: 'uT3', [ge('ge.838')]: 'uT3', [ge('ge.548')]: 'uT3', [ge('ge.467', 1)]: 'uU4', [ge('ge.467', 2)]: 'uT4', [ge('ge.467', 3)]: 'uS5', [ge('ge.L80')]: 'uS5', [ge('ge.447', 1)]: 'uS5', [ge('ge.447', 2)]: 'uV4' });
+      b.until('PFPh', { turn: 1, attacker: 'ge' });
+      const hmg = Object.values(b.state.pieces).find((p) => p.defId === 'ge.HMG')!.id;
+      const before = b.state;
+      g.engine.forceDice(4, 5);
+      const d = g.engine.currentDecision(before)!;
+      expect(g.engine.validate(before, { type: 'fire', decl: { units: [], sw: [hmg], target: 'uO3:pb' }, side: d.owner, decisionId: d.id } as never), pbHex).toBeNull();
+      const t = g.engine.submit(before, { type: 'fire', decl: { units: [], sw: [hmg], target: 'uO3:pb' }, side: d.owner, decisionId: d.id } as never);
+      const view = (viewer: string | null) => {
+        const redact = (x: GameState) => redactState(g.engine, x, viewer);
+        const stream = g.engine.redactTransition(viewer, redact, before, t.events as LoggedEvent[]);
+        expect(deepEqual(g.engine.applyEvents(redact(before), stream), redact(t.state)), `${pbHex} ${viewer}`).toBe(true);
+        return JSON.stringify(stream.map((e) => ({ ...e, seq: undefined }))).replace(/"d\d+"/g, '"d"');
+      };
+      expect(fortCounters(g.engine.env(t.state)).find((c) => c.kind === 'pillbox')!.revealed).toBeUndefined();
+      return { ge: view('ge'), spectator: view(null), ru: view('ru') };
+    };
+    const there = play('uO3');
+    const elsewhere = play('uL4');
+    expect(there.ge).toEqual(elsewhere.ge);
+    expect(there.spectator).toEqual(elsewhere.spectator);
+    // The owner's stream is its own business: it may differ (it knows where its pillbox is).
+    expect(there.ru.length).toBeGreaterThan(0);
+  });
+
+  /** A Russian squad, seen walking up, goes into the revealed P6 pillbox (T4). */
+  const walkIn = (b: FixtureBuilder) => {
+    const sq = b.unit('ru', 'ru.447', 3);
+    b.act({ type: 'move.start', units: [sq] });
+    for (const to of ['uO7', 'uP6', 'uP6:pb']) {
+      b.act({ type: 'move.step', to });
+      b.settle('ru');
+    }
+    b.act({ type: 'move.end' });
+    b.settle('ru');
+    return sq;
+  };
+  const occupied = (engine: ReturnType<typeof newGame>['engine'], s: GameState, viewer: string | null) =>
+    (redactState(engine, s, viewer).ext['asl.fortifications'] as { counters: (FortRecord & { occupied?: true })[] }).counters.find((c) => c.kind === 'pillbox')?.occupied;
+
+  it('a squad seen walking into a revealed pillbox vanishes from the other seat and a spectator, who see the pillbox occupied (B30.7); the owner sees it inside', () => {
+    let sq = '';
+    const { engine, f, trans } = record('pb-enter', (b) => {
+      sq = walkIn(b);
+    }, [], ASL_TESTBED_PILLBOX_SCENARIO);
+    streams(engine, trans);
+    expect(f.state.pieces[sq]!.loc).toEqual({ kind: 'hex', hex: 'uP6', sub: 'pb' });
+    for (const viewer of ['ge', null]) {
+      expect(redactState(engine, f.state, viewer).pieces[sq], `${viewer}`).toBeUndefined();
+      expect(occupied(engine, f.state, viewer), `${viewer}`).toBe(true);
+    }
+    expect(redactState(engine, f.state, 'ru').pieces[sq]!.loc).toEqual({ kind: 'hex', hex: 'uP6', sub: 'pb' });
+    expect(occupied(engine, f.state, 'ru')).toBeUndefined();
+  });
+
+  it('an attack made from within makes the contents Known: the other seat and a spectator then see the squad inside (B30.7)', () => {
+    let sq = '';
+    const { engine, f, trans } = record('pb-enter', (b) => {
+      sq = walkIn(b);
+      // The next Russian PFPh: the squad inside fires at the German 4-6-7 in R5, in the Covered Arc.
+      b.until('PFPh', { turn: 2, attacker: 'ru' });
+      const target = Object.values(b.state.pieces).find((p) => p.side === 'ge' && p.loc.kind === 'hex' && p.loc.hex === 'uR5');
+      if (target && b.state.pieces[sq]!.tags['broken'] !== true) b.act({ type: 'fire', decl: { units: [sq], sw: [], target: 'uR5' } });
+    }, [], ASL_TESTBED_PILLBOX_SCENARIO);
+    streams(engine, trans);
+    const known = fortCounters(engine.env(f.state)).find((c) => c.kind === 'pillbox')!.known;
+    if (known) for (const viewer of ['ge', null]) {
+      expect(redactState(engine, f.state, viewer).pieces[sq], `${viewer}`).toBeDefined();
+      expect(occupied(engine, f.state, viewer), `${viewer}`).toBeUndefined();
+    }
+    expect(known).toBe(true);
+  });
 });

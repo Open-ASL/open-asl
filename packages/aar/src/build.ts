@@ -1,8 +1,8 @@
 import { COUNTERS, newGame } from '@asl/content';
 import type { Action, GameEvent, GameState, Piece, QueryEnv } from '@asl/engine';
-import { PHASE_NAME, achieved, hasUnitsLeft, casualtyVp, controlState, defLabel, defOf, exitVp, hexLabel, hexOfLoc, humanize, isWeaponDef, pieceLabel, statics, vpTally, type Casualty, type ScenarioDef, type VictoryCondition } from '@asl/rules';
+import { PHASE_NAME, hasUnitsLeft, casualtyVp, controlState, defLabel, defOf, exitVp, hexLabel, hexOfLoc, humanize, isWeaponDef, pieceLabel, statics, vpTally, type Casualty, type ScenarioDef, type VictoryCondition } from '@asl/rules';
 import { AAR_VERSION, type AarCasualty, type AarControl, type AarDice, type AarDoc, type AarFire, type AarRollKind, type AarHighlight, type AarLuck, type AarPlayer, type AarRace, type AarStrength, type AarVictory, type Competition, type MatchMode, type Timestamp } from '@asl/platform';
-import { buildingLabel, conditionText, leaves, list, plural, sideName, victoryStandings, winningClause } from './vc';
+import { buildingLabel, conditionText, leaves, list, metLeaves, plural, sideName, victoryStandings, winningClause } from './vc';
 
 /** What the recording cannot tell: who played, how the match was classified, and a server-side ending. */
 export interface AarMeta {
@@ -551,7 +551,8 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
   const loser = winner ? other(winner) : null;
   const loserNick = loser ? (meta.players[loser]?.nickname ?? name(loser)) : '';
   const phaseName = PHASE_NAME[state.phase] ?? state.phase;
-  const met = leaves(scenario.victory).filter((vc) => vc.side === winner && achieved(env, vc));
+  // The conditions that carried the win: of an `any`, the branch met, not a part met inside a branch that failed.
+  const met = metLeaves(env, scenario.victory.filter((vc) => vc.side === winner));
   const offensive = leaves(scenario.victory).filter((vc) => vc.side === loser);
   let how: string;
   switch (reason) {

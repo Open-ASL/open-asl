@@ -451,4 +451,21 @@ describe('a DC in a Melee hex (SK4 3.8, ASLRB A23.1)', () => {
     const hit = t.events.filter((e) => e.type === 'sk1.fire.result').map((e) => (e.payload as { unit: string }).unit).sort();
     expect(hit).toEqual(['aL', 'g1']);
   });
+
+  it('attacks every unit in a hex whose Melee has ended with all broken (SK1 3.2, 3.8)', () => {
+    const { engine, state } = makeEngine({
+      extra: [testDc],
+      startPhase: 'PFPh',
+      dice: [4, 3, 6, 6, 6, 6, 6, 6],
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yO5' },
+        { id: 'aB', def: 'am.747', side: 'am', hex: 'yP5', tags: { broken: true } },
+        { id: 'd1', def: 'am.DC', side: 'am', hex: 'yP5', tags: { dcPlaced: true, dcPlacer: 'a1' } },
+        { id: 'gB', def: 'ge.467', side: 'ge', hex: 'yP5', tags: { broken: true } },
+      ],
+    });
+    const t = act(engine, state, { type: 'test.dc', dc: 'd1' });
+    const hit = t.events.filter((e) => e.type === 'sk1.fire.result').map((e) => (e.payload as { unit: string }).unit).sort();
+    expect(hit).toEqual(['aB', 'gB']);
+  });
 });

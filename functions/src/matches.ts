@@ -13,6 +13,7 @@ import { usesViews } from './lib/views';
 import { seedNewOnlineMatch, seedOf } from './lib/viewStore';
 import { aarPlayers } from './aar';
 import { publicResultOf } from './lib/publicResult';
+import { abandonedPatch } from './lib/abandon';
 
 export const matchRef = (id: string) => db.collection(COL.matches).doc(id) as DocumentReference<MatchDoc>;
 
@@ -213,7 +214,7 @@ export const leaveMatch = onCall(async (req) => {
       // Void: the recording cannot be continued by anyone, so nobody wins, loses or is penalised.
       // Every player is read before the first write: a transaction may not read after writing.
       const players = await Promise.all(match.playerIds.map((pid) => (pid === uid ? me : readUser(tx, pid))));
-      tx.update(ref, { status: 'abandoned', summary: { ...match.summary, toMove: null }, deadline: null, updatedAt: now(), completedAt: now(), ...seedBack });
+      tx.update(ref, { ...abandonedPatch(match, { by: uid, reason: 'ruleset' }, now()), ...seedBack });
       for (const player of players) {
         if (player.data.activeMatchId === ref.id) tx.update(player.ref, { activeMatchId: null, updatedAt: now() });
       }
@@ -224,7 +225,7 @@ export const leaveMatch = onCall(async (req) => {
     const opponent = await readUser(tx, opponentUid);
     const { scenario } = prepareScenario(match.scenarioId, match.balance);
     if (!hasReachedOfficialThreshold(match, scenario)) {
-      tx.update(ref, { status: 'abandoned', official: false, result: null, summary: { ...match.summary, toMove: null }, deadline: null, updatedAt: now(), completedAt: now(), ...seedBack });
+      tx.update(ref, { ...abandonedPatch(match, { by: uid, reason: 'concession' }, now()), ...seedBack });
       for (const player of [me, opponent]) if (player.data.activeMatchId === ref.id) tx.update(player.ref, { activeMatchId: null, updatedAt: now() });
       return 'abandoned' as const;
     }

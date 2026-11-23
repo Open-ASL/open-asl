@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { needsSk4, sk4Counters, ALL_SCENARIOS, COMMERCIAL_SCENARIOS, COUNTERS, S18_GE_SETUP, S18_RU_SETUP, applyBalance as applyBalanceS20, staticsFor as staticsForS20, SK1_NATIONALITY_CHART, SK2_NATIONALITY_CHART, SK3_COUNTER_IDS, availableBoards, buildMap, needsSk3, newGame, rulesetFor, sk1Counters, sk2Counters, sk3Counters } from '../src';
+import { needsSk4, sk4Counters, ALL_SCENARIOS, PLAYABLE_SCENARIOS, COMMERCIAL_SCENARIOS, COUNTERS, S18_GE_SETUP, S18_RU_SETUP, applyBalance as applyBalanceS20, staticsFor as staticsForS20, SK1_NATIONALITY_CHART, SK2_NATIONALITY_CHART, SK3_COUNTER_IDS, availableBoards, buildMap, needsSk3, newGame, rulesetFor, sk1Counters, sk2Counters, sk3Counters } from '../src';
 import { type CounterDef, shotContext, pfCap, pfMaxRange, afvLeadTally, buildAttack, defaultScatterPlan, entryGroupsState, isVisibleTo, losFirepower, areaVp, type AreaVpVc, scatterState, type LosFirepowerVc, type ScatterLanding, controlledHexes as controlledHexesS20, cvpGoal, evaluateVictory as evaluateVictoryS20, forceChartResult, type GunDef, type VehicleDef } from '@asl/rules';
 import { DEMO_SCENARIO, newSk1Game } from '../src';
 import { DEMO_VEHICLES_SCENARIO } from '../src';
@@ -118,8 +118,8 @@ describe('SK3 vehicles (VASL import)', () => {
     expect((c['ru.KV2'] as VehicleDef).cmgVcaOnly).toBeUndefined();
   });
   it('keeps every existing scenario on its SK1/SK2 ruleset', () => {
-    // The free download cards with vehicles (S28) play under the SK3 rules too, as do the armor and jungle demos and the minefield test bed (two German AFV).
-    const withVehicles = ['sk-s28', 'sk-s30', 'sk-s33', 'sk-s34', 'sk-s35', 'sk-s36', 'lma-10', 'lma-8', 'lma-5', 'lma-4', 'demo-armor', 'demo-jungle', 'asl-testbed-mines'];
+    // The free download cards with vehicles (S28) play under the SK3 rules too, as do the armor and jungle demos and the minefield and pillbox test beds (two German AFV).
+    const withVehicles = ['sk-s28', 'sk-s30', 'sk-s33', 'sk-s34', 'sk-s35', 'sk-s36', 'lma-10', 'lma-8', 'lma-5', 'lma-4', 'demo-armor', 'demo-jungle', 'asl-testbed-mines', 'asl-testbed-pillbox'];
     const commercial = new Set(COMMERCIAL_SCENARIOS.map((x) => x.id));
     for (const sc of ALL_SCENARIOS.filter((x) => !commercial.has(x.id) && !withVehicles.includes(x.id))) expect(needsSk3(sc), sc.id).toBe(false);
     for (const id of withVehicles) expect(needsSk3(ALL_SCENARIOS.find((x) => x.id === id)!), id).toBe(true);
@@ -1364,6 +1364,22 @@ describe('S35 The Volga Is Reached!', () => {
   });
 });
 
+describe('entering forces: what each unit has already expended', () => {
+  // A card's MP for its vehicles ("with AFV having expended half of their MP") are never an Infantry unit's MF: a non-number
+  // there made every Infantry step affordable.
+  it('in every playable scenario, a unit other than a vehicle enters with a number of MF spent or none', () => {
+    for (const sc of PLAYABLE_SCENARIOS) {
+      const { engine, state } = newGame(sc, `entry-${sc.id}`, { los: 'grid' });
+      const env = engine.env(state);
+      for (const p of Object.values(state.pieces)) {
+        const spent = p.tags['entryMfSpent'];
+        if (spent === undefined || defOf(env, p).kind === 'vehicle') continue;
+        expect(typeof spent, `${sc.id} ${p.id}`).toBe('number');
+      }
+    }
+  });
+});
+
 describe('S36 Satisfaction and Confidence', () => {
   const S36 = ALL_SCENARIOS.find((s) => s.id === 'sk-s36')!;
   const force = (sc: typeof S36, id: string) => sc.forces.find((f) => f.id === id)!;
@@ -1449,6 +1465,31 @@ describe('S36 Satisfaction and Confidence', () => {
     const above = staticsForS20(S36, { los: 'grid' }).map.neighbors(into).find((n) => !S36_AREA_45.includes(n))!;
     d = engine.currentDecision(s)!;
     expect(engine.validate(s, { type: 'move.step', to: above, side: 'ru', decisionId: d.id } as never)).toMatch(/not in play/);
+  });
+
+  it('the card: only the AFV enter having expended half their MP; the infantry enter with all their MF', () => {
+    const g = revealed(0);
+    const engine = g.engine;
+    const [off] = engine.legalActions(g.get(), 'ru') as unknown as [{ placements: Record<string, string> }];
+    let s = g.step(off as never);
+    const ru = Object.values(s.pieces).filter((p) => p.side === 'ru' && p.loc.kind === 'offboard');
+    expect(ru.find((p) => p.defId === 'ru.T3485')!.tags['entryMfSpent']).toBe('half');
+    expect(ru.filter((p) => p.defId === 'ru.447' || p.defId === 'ru.628' || p.defId === 'ru.L91').every((p) => p.tags['entryMfSpent'] === undefined)).toBe(true);
+    for (let i = 0; i < 6 && s.phase !== 'MPh'; i++) s = g.step({ type: 'endPhase' });
+    const sq = Object.values(s.pieces).find((p) => p.side === 'ru' && p.defId === 'ru.447' && p.loc.kind === 'offboard')!;
+    s = g.step({ type: 'move.start', units: [sq.id] });
+    const ms = moveState(engine.env(s))!;
+    expect([ms.allowance[sq.id], ms.spent[sq.id]]).toEqual([4, 0]);
+    // A 4-4-7 runs out of MF: at most four steps, however it goes (one MF a step at the cheapest).
+    let steps = 0;
+    for (; steps < 12; steps++) {
+      const next = engine.legalActions(s, 'ru').find((a) => a.type === 'move.step') as unknown as { to: string } | undefined;
+      if (!next) break;
+      s = g.step({ type: 'move.step', to: next.to });
+    }
+    expect(steps).toBeGreaterThan(0);
+    expect(steps).toBeLessThanOrEqual(4);
+    expect(Number.isFinite(moveState(engine.env(s))?.spent[sq.id] ?? 0)).toBe(true);
   });
 
   it('SSR 3: T-34/85 APCR depletion 6; VC: 20 exit VP north (T-34/85 7, IS-2 8, one less without a working MA); balance', () => {

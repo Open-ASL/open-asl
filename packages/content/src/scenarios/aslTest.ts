@@ -168,5 +168,31 @@ export const ASL_TESTBED_MINES_SCENARIO: ScenarioDef = {
   ],
 };
 
+/**
+ * The test bed for pillboxes (full ASL B30): the Germans add a PzKpfw IVF2 and a PSW 234/1 (ordnance against a pillbox),
+ * the Russians a 45L AT Gun with its crew (a Gun in a pillbox, B30.45); Russians set up in O6 begin broken (a broken unit
+ * inside a pillbox, B30.5). The fortification counters are the test bed's.
+ */
+export const ASL_TESTBED_PILLBOX_SCENARIO: ScenarioDef = {
+  ...ASL_TESTBED_SCENARIO,
+  id: 'asl-testbed-pillbox',
+  number: 'T4',
+  title: 'T4 Full ASL Test Bed: Pillboxes',
+  forces: ASL_TESTBED_SCENARIO.forces.map((f) =>
+    f.side === 'ge'
+      ? { ...f, units: [...f.units, { def: 'ge.pzivf2', count: 1 }, { def: 'ge.psw2341', count: 1 }] }
+      : { ...f, units: [...f.units, { def: 'ru.228c', count: 1, withSw: ['ru.AT45L'] }] },
+  ),
+  notes: [...ASL_TESTBED_SCENARIO.notes!, 'Pillboxes: the Germans add two AFV and the Russians a 45L AT Gun with its crew; Russians set up in O6 begin broken.'],
+  ssr: [
+    ...ASL_TESTBED_SCENARIO.ssr,
+    {
+      module: 'set-up-broken',
+      params: { side: 'ru', hexes: ['uO6'] },
+      text: 'Russian units set up in O6 (inside a pillbox there too) begin play broken, under DM.',
+    },
+  ],
+};
+
 /** The scenarios that play under the Full ASL ruleset. */
-export const ASL_SCENARIOS: ScenarioDef[] = [ASL_TESTBED_SCENARIO, ASL_TESTBED_FIRE_SCENARIO, ASL_TESTBED_MINES_SCENARIO];
+export const ASL_SCENARIOS: ScenarioDef[] = [ASL_TESTBED_SCENARIO, ASL_TESTBED_FIRE_SCENARIO, ASL_TESTBED_MINES_SCENARIO, ASL_TESTBED_PILLBOX_SCENARIO];

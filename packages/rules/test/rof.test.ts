@@ -143,6 +143,24 @@ describe('ROF kept again in the DFPh (SK1 1.2.4)', () => {
     const t3 = act(engine, t2.state, { type: 'fire', decl: { units: [], sw: ['gMMG'], target: 'yN5' } });
     expect(t3.state.pieces['gMMG']!.tags['fire']).toBe('final');
   });
+
+  it('a MG that kept ROF in the MPh fires in the DFPh as unmarked, keeps ROF and fires again; its squad marked First Fire does not flip (SK1 3.4)', () => {
+    // SK1 3.4: units/MG "not marked with a First or Final Fire counter may fire (including MG that maintained ROF in the
+    // MPh)"; one marked First Fire flips only when it fires again itself. The squad fired its own FP in the MPh (First
+    // Fire); its MMG kept ROF and was left unmarked. DR 1+2: colored 2 within the MMG's ROF 2 (the 3+3 is the target's
+    // check); then 4+5 loses it.
+    const marked = pieces.map((p) => (p.id === 'g1' ? { ...p, tags: { fire: 'first' } } : p));
+    const { engine, state } = makeEngine({ terrain, extra: [testFire], pieces: marked, dice: [1, 2, 3, 3, 4, 5, 3, 3], startPhase: 'DFPh' });
+    const t = act(engine, state, { type: 'fire', decl: { units: [], sw: ['gMMG'], target: 'yN5' } });
+    expect(rofEvent(t)).toEqual({ colored: 2, kept: [{ sw: 'gMMG', rof: 2 }], lost: [] });
+    expect(t.state.pieces['gMMG']!.tags['fire']).toBeUndefined();
+    expect(t.state.pieces['g1']!.tags['fire']).toBe('first');
+    // On the ROF kept it fires again in the DFPh, at the same non-adjacent hex; losing ROF then marks it Final Fire.
+    const t2 = act(engine, t.state, { type: 'fire', decl: { units: [], sw: ['gMMG'], target: 'yN5' } });
+    expect(rofEvent(t2)).toMatchObject({ colored: 5, kept: [], lost: [{ sw: 'gMMG' }] });
+    expect(t2.state.pieces['gMMG']!.tags['fire']).toBe('final');
+    expect(t2.state.pieces['g1']!.tags['fire']).toBe('first');
+  });
 });
 
 describe('Keeping ROF or leaving Residual FP (SK1 3.3.1)', () => {

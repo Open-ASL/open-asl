@@ -54,6 +54,32 @@ describe('Close Combat strengths', () => {
     // 2 (pinned, halved) + 4 = 6 against the 7-4-7's 7: 1:2.
     expect(ge).toMatchObject({ odds: '1:2', fp: { attack: [['g1', 2], ['g2', 4]], defense: [['a1', 7]] } });
   });
+
+  it('says why a pinned attacker’s strength is halved (SK1 3.2.3), in its attack only: defending it keeps its full FP (ASLRB A7.8)', () => {
+    const { engine, state } = makeEngine({
+      startPhase: 'APh',
+      dice: [6, 6, 6, 6, 6, 6, 6, 6],
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yO5', tags: { pinned: true } },
+      ],
+    });
+    let s: GameState = act(engine, state, { type: 'advance', units: ['a1'], to: 'yO5' }).state;
+    s = act(engine, s, { type: 'endPhase' }).state;
+    for (let guard = 0; guard < 10 && engine.currentDecision(s)?.kind !== 'ccDeclare'; guard++) s = engine.submit(s, engine.legalActions(s, engine.currentDecision(s)!.owner)[0]!).state;
+    // The preview the CC panel draws: the pinned 4-6-7 attacks at 2 against 7 (1:4) and says why; defending, it is 4.
+    const env = engine.env(s);
+    const pinnedAttack = ccAttackPreview(env, 'yO5', 'ge', { attackers: ['g1'], targets: ['a1'] });
+    expect(pinnedAttack).toMatchObject({ attackFp: 2, defenseFp: 7, odds: '1:4', fpNotes: [{ unit: 'g1', note: 'pinned: FP halved' }] });
+    expect(ccAttackPreview(env, 'yO5', 'am', { attackers: ['a1'], targets: ['g1'] })).toMatchObject({ attackFp: 7, defenseFp: 4, odds: '3:2', fpNotes: [] });
+    // The attack events record the note as it stood, for the log (the Pin comes off at the end of the Player Turn).
+    s = act(engine, s, { type: 'cc.declare', attacks: [{ attackers: ['a1'], targets: ['g1'] }] }).state;
+    const t = act(engine, s, { type: 'cc.declare', attacks: [{ attackers: ['g1'], targets: ['a1'] }] });
+    const bySide = (side: string) => t.events.find((e) => e.type === 'sk1.cc.attack' && (e.payload as { side: string }).side === side)!.payload as { fp: { notes?: Record<string, string> } };
+    expect(bySide('ge').fp).toMatchObject({ attack: [['g1', 2]], notes: { g1: 'pinned: FP halved' } });
+    expect(bySide('am').fp).toMatchObject({ defense: [['g1', 4]] });
+    expect(bySide('am').fp.notes).toBeUndefined();
+  });
 });
 
 describe('Leaders stacked on top of MMC (SK1 3.8)', () => {
@@ -289,5 +315,39 @@ describe('Field Promotion in simultaneous CC (SK1 5.3, ASLRB A18.12)', () => {
     // The leader who lived and died in the one CC still counts as a casualty for the Germans' CVP.
     const cvp = t.events.filter((e) => e.type === 'sk1.casualty').map((e) => e.payload as { unit: string; vp: number });
     expect(cvp).toEqual(expect.arrayContaining([expect.objectContaining({ unit: leader, vp: 2 }), expect.objectContaining({ unit: 'r1', vp: 2 })]));
+  });
+});
+
+describe('Fire at a hex where a Melee has ended (SK1 3.2, 3.8)', () => {
+  // SK1 3.8: "Remove the Melee counter as soon as no unbroken unit remains"; the broken units of both sides are still
+  // in the hex. SK1 3.2: "Fire attacks ordinarily affect all units in the target hex", so a later attack there hits
+  // the firer's own broken units too, not only the enemy's.
+  const game = (melee: boolean) =>
+    makeEngine({
+      startPhase: 'PFPh',
+      dice: [3, 3, 6, 6, 6, 6, 6, 6],
+      ...(melee ? { hexMarkers: { yP5: { melee: true } } } : {}),
+      pieces: [
+        { id: 'f1', def: 'am.747', side: 'am', hex: 'yO5' },
+        { id: 'gB', def: 'ge.447', side: 'ge', hex: 'yP5', tags: { broken: true } },
+        { id: 'gL', def: 'ge.L80', side: 'ge', hex: 'yP5', tags: { broken: true } },
+        { id: 'aB', def: 'am.747', side: 'am', hex: 'yP5', tags: { broken: true } },
+      ],
+    });
+  const attacked = (melee: boolean) => {
+    const { engine, state } = game(melee);
+    const t = act(engine, state, { type: 'fire', decl: { units: ['f1'], sw: [], target: 'yP5' } });
+    return t.events.filter((e) => e.type === 'sk1.fire.result').map((e) => (e.payload as { unit: string }).unit).sort();
+  };
+
+  it('a Melee counter with no unbroken unit left in the hex comes off', () => {
+    const { engine, state } = game(true);
+    const s = act(engine, state, { type: 'fire', decl: { units: ['f1'], sw: [], target: 'yP5' } }).state;
+    expect(s.hexMarkers['yP5']?.['melee']).toBeUndefined();
+  });
+
+  it('a fire attack there still hits every unit in the hex, the firer’s own broken units included', () => {
+    expect(attacked(false)).toEqual(['aB', 'gB', 'gL']);
+    expect(attacked(true)).toEqual(['aB', 'gB', 'gL']);
   });
 });

@@ -97,7 +97,11 @@ export type FireSource = 'kindle' | 'ft' | 'he' | 'dc' | 'wp' | 'spread' | 'heav
 
 export const fireState = (env: QueryEnv): Record<LocId, FireLoc> => (env.state.ext[FIRE_EXT] as Record<LocId, FireLoc> | undefined) ?? {};
 export const fireAt = (env: QueryEnv, loc: LocId): FireLoc | undefined => fireState(env)[loc];
-export const blazeAt = (env: QueryEnv, loc: LocId): BlazeRecord | undefined => fireState(env)[loc]?.blaze;
+/**
+ * The Blaze a Location is in. A pillbox burns with its hex: its occupants are "fully affected" by a Blaze at the hex's ground
+ * level, and leaving into it kills them (Q&A [K33] to B25.4), so a pillbox Location counts as in its hex's Blaze.
+ */
+export const blazeAt = (env: QueryEnv, loc: LocId): BlazeRecord | undefined => fireState(env)[loc]?.blaze ?? (parseLoc(loc).sub === 'pb' ? fireState(env)[hexOfLoc(loc)]?.blaze : undefined);
 export const flamesAt = (env: QueryEnv, loc: LocId): FlameRecord[] => fireState(env)[loc]?.flames ?? [];
 /** Whether any Location of the hex holds a Blaze (an obstacle "Ablaze", A4.3; the hex's smoke, B25.2). */
 export const isAblaze = (env: QueryEnv, hex: HexId): boolean => Object.entries(fireState(env)).some(([loc, f]) => f.blaze && hexOfLoc(loc) === hex);

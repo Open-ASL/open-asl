@@ -576,16 +576,18 @@ function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, chec
               <div className="cc-result">{RESULT_TEXT[r.result] ?? r.result}</div>
               {c.note && <div className="cc-note">{c.note}</div>}
             </>
+          ) : c.dice && !closing ? (
+            // Rolled, but its turn to be shown has not come: the dice of a simultaneous CC are told one side at a time
+            // (ccPlayOrder), so the other side's roll is in the presented log before its dice land. Its dice and result
+            // appear together when they do.
+            <div className="cc-math">Rolling…</div>
           ) : c.dice ? (
-            <>
-              <div className="cc-dice">
-                {displayDice(c.dice).map((d, i) => (
-                  <Die key={i} value={d.value} colored={d.colored} />
-                ))}
-              </div>
-              {c.note && <div className="cc-note">{c.note}</div>}
-              <div className="cc-math">…</div>
-            </>
+            // The hex's CC is over and this roll had no result (its targets were already gone): its dice as rolled.
+            <div className="cc-dice">
+              {displayDice(c.dice).map((d, i) => (
+                <Die key={i} value={d.value} colored={d.colored} />
+              ))}
+            </div>
           ) : (
             <Odds pv={c.preview} ready plain={plain} />
           )}

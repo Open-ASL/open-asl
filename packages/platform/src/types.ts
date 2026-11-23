@@ -83,6 +83,16 @@ export interface SignupDoc {
 export type MatchMode = 'hotseat' | 'online' | 'computer';
 export type MatchStatus = 'open' | 'active' | 'complete' | 'cancelled' | 'abandoned';
 
+/**
+ * An online match abandoned while under way: `by` conceded or claimed the win on a lapsed clock before the official
+ * threshold (half the scenario's player turns, `reachedOfficialProgress`), or left a match whose recording no longer
+ * replays under the current rules (`ruleset`).
+ */
+export interface MatchEnded {
+  by: string;
+  reason: 'concession' | 'timeout' | 'ruleset';
+}
+
 export interface Seat {
   uid: string;
   displayName: string;
@@ -131,6 +141,8 @@ export interface MatchDoc {
   visibility?: import('./lobby').MatchVisibility;
   /** False for an early concession/abandonment that does not count as having happened. */
   official?: boolean;
+  /** How an online match that was under way ended without a result, and who ended it, so the other player is told. */
+  ended?: MatchEnded;
   /** Unjoined Lobby table that closes automatically when its host leaves the Lobby. */
   quick?: boolean;
   mode: MatchMode;

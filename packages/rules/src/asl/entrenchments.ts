@@ -12,9 +12,10 @@ import { smokeIn, terrainOf } from '../sk1/terrain';
 import { heightAdvantage, heightOf, levelOf } from '../sk2/elevation';
 import { OP, toHitNumber, type ResolveHitFn, type ShotCtx } from '../sk2/ordnance';
 import { vehicle } from '../sk3/status';
-import { counterTerrainIllegal, entrenchmentAt, fortCounters, fortHiddenAt, pillboxAt, removeFortification, revealFortification, shownCounter, type FortRecord } from './fortifications';
+import { counterTerrainIllegal, entrenchmentAt, fortCounters, fortHiddenAt, removeFortification, revealFortification, shownCounter, type FortRecord } from './fortifications';
 import { isTi, laborTag, parseLabor, tiIllegal } from './labor';
 import { onWire, ownHiddenWire, wireKnownTo } from './wire';
+import { bunkerMove } from './pillboxes';
 
 /*
  * Foxholes and trenches in play, and Entrenching (ASLRB B27; full ASL only).
@@ -156,14 +157,13 @@ function placeBeneath(ctx: Ctx, units: PieceId[], hex: HexId, beneath: boolean) 
 
 // ---------------------------------------------------------------- B27.11 Entrenching
 
-/** Why an entrenching attempt may not be made in `hex` at all (B27.1, B23.5, B27.12, B27.51, B30.1), or null. */
+/** Why an entrenching attempt may not be made in `hex` at all (B27.1, B23.5, B27.12, B27.51), or null; a pillbox hex may take one (B30.8). */
 export function entrenchHexIllegal(env: QueryEnv, hex: HexId): string | null {
   const why = counterTerrainIllegal(env, { kind: 'foxhole', hex, hidden: false, capacity: 1 });
   if (why) return why;
   const c = entrenchmentAt(env, hex);
   if (c && c.kind !== 'foxhole') return `A ${entName(c)} hex takes no foxhole (ASLRB B27.51)`;
   if (c && (c.capacity ?? 1) >= 3) return 'The foxhole here is 3S already, the most a hex holds (ASLRB B27.12)';
-  if (pillboxAt(env, hex)) return 'A pillbox hex takes no foxhole (ASLRB B30.1)';
   return null;
 }
 
@@ -535,6 +535,9 @@ export const aslEntrenchmentsModule: RuleModule = {
         if (v || ms.vehicle || !ms.hex) return v;
         const side = env.state.attacker;
         const toHex = hexOfLoc(to);
+        // B30.8: between a bunker and its trench "as if the bunker were also a trench": no separate trench MF.
+        const bunker = bunkerMove(env, ms.sub === 'pb' ? `${ms.hex}:pb` : ms.hex, !!ms.ent, to, !!beneath);
+        if (bunker) return bunker === 'out' ? beneathIllegal(env, toHex, side, ms.units.map((u) => pieceOf(env, u)), !!ms.manhandle) : null;
         const trench = !!ms.ent && trenchToTrench(env, ms.hex, toHex);
         if (beneath) {
           if (!isGroundLoc(to)) return 'A foxhole is at ground level (ASLRB B27.1)';
@@ -785,7 +788,8 @@ export const aslEntrenchmentsModule: RuleModule = {
       id: 'asl.ent.routExit',
       query: 'rout.exitCost',
       ref: 'ASLRB B27.41',
-      apply: (v, { unit, from }, env) => (isEntrenched(pieceOf(env, unit)) ? v + entrenchmentMf(env, from, pieceOf(env, unit).side) : v),
+      // Not into a bunker its trench connects to (B30.8: as if the bunker were also a trench).
+      apply: (v, { unit, from, toLoc }, env) => (isEntrenched(pieceOf(env, unit)) && !(toLoc && bunkerMove(env, from, true, toLoc, false)) ? v + entrenchmentMf(env, from, pieceOf(env, unit).side) : v),
     });
     r.contribute({
       id: 'asl.ent.routExempt',

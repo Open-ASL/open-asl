@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Engine, GameState } from '@asl/engine';
-import { activeRout, activeRoutEnds, pendingRouts, routEscorts, routMfLeft } from '../src';
+import { activeRout, activeRoutEnds, pendingRouts, routEscorts, routMfLeft, sk2CoreModules } from '../src';
 import { RU_VS_GE, act, makeEngine, testMap } from './fixtures';
 
 /** The legal `rout.step` of `unit` into `to` (normal or Low Crawl). */
@@ -15,6 +15,31 @@ const stepTargets = (engine: Engine, s: GameState, side: string, unit: string, l
 
 /** Board y, American (attacker) routs first. */
 describe('Rout Phase', () => {
+  it('a rout may not end in a building that is not the nearest shelter, and the refusal names the one it must reach (SK1 3.6)', () => {
+    // N5 is open, in the LOS of the German squad in P5. M6 is a Woods-Road hex entered along the road for 1 MF, farther
+    // from the German than N5, so it is the nearest shelter and may not be ignored. The stone building M5 costs 2 MF:
+    // the rout may pass through it on the way to M6, but not end there.
+    const { engine, state } = makeEngine({
+      startPhase: 'RtPh',
+      terrain: { yM6: { terrain: 'woods', features: ['road:dirt', 'woods-road'] }, yM5: { terrain: 'building-stone', buildingId: 'b-M5' }, yN5: { terrain: 'open', features: ['road:dirt'] } },
+      roadHexsides: [['yN5', 'yM6']],
+      pieces: [
+        { id: 'r', def: 'am.747', side: 'am', hex: 'yN5', tags: { broken: true, dm: true } },
+        { id: 'g', def: 'ge.467', side: 'ge', hex: 'yP5' },
+      ],
+    });
+    expect(stepTargets(engine, state, 'am', 'r')).toContain('yM5');
+    const inBuilding = act(engine, state, stepTo(engine, state, 'am', 'r', 'yM5')!).state;
+    expect(engine.legalActions(inBuilding, 'am').some((a) => a.type === 'rout.stop')).toBe(false);
+    // The refusal says where the rout must end and that this building is not it, not merely that it must go on.
+    expect(engine.validate(inBuilding, { type: 'rout.stop', unit: 'r', side: 'am', decisionId: engine.currentDecision(inBuilding)!.id })).toMatch(
+      /^Rout must go on to the nearest legal building or woods hex \(M6\); M5 is not it/,
+    );
+    // M6 ends it.
+    const there = act(engine, inBuilding, stepTo(engine, inBuilding, 'am', 'r', 'yM6')!).state;
+    expect(engine.legalActions(there, 'am').some((a) => a.type === 'rout.stop')).toBe(true);
+  });
+
   it('only a broken unit under DM may rout (SK1 3.6): one without DM is listed as staying, and its rout is refused', () => {
     const { engine, state } = makeEngine({
       startPhase: 'RtPh',
@@ -161,6 +186,25 @@ describe('Rout Phase', () => {
     expect(state.pieces['a1']!.loc.kind).toBe('eliminated');
   });
 
+  it('a unit broken during the RtPh by a Leader Loss MC must rout too, and with no legal rout is eliminated (SK1 3.6, ASLRB A10.2)', () => {
+    // The broken 8-0 and an unbroken 7-4-7 share N5, ringed by German squads. The 8-0 has no legal rout and is
+    // eliminated for failure to rout; the 7-4-7 takes a LLMC (DR 9 vs 7) and breaks, beside unbroken Known enemy
+    // units: "During the RtPh a broken unit ... may not end a RtPh adjacent to ... a unbroken Known Enemy Unit".
+    const neighbours = testMap().neighbors('yN5');
+    const { state } = makeEngine({
+      startPhase: 'RtPh',
+      dice: [6, 3],
+      pieces: [
+        { id: 'l1', def: 'am.L80', side: 'am', hex: 'yN5', tags: { broken: true, dm: true } },
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5' },
+        ...neighbours.map((h, i) => ({ id: `g${i}`, def: 'ge.467', side: 'ge', hex: h })),
+      ],
+    });
+    expect(state.pieces['l1']!.loc.kind).toBe('eliminated');
+    expect(state.pieces['a1']!.loc.kind).toBe('eliminated');
+  });
+
+
   it('a shelter no farther from any one Known Enemy Unit than the start may be ignored, though nearer another (SK1 3.6, ASLRB A10.51 EX)', () => {
     // L3 is next to the 4-6-7 in M4 and as far from the one in N6 as the K4 building is. K4 is farther from M4 than L3,
     // but no farther from N6: it may be ignored for the buildings in J3 and K2, 3 MF away.
@@ -178,6 +222,25 @@ describe('Rout Phase', () => {
     expect(d('yK4', 'yM4')).toBeGreaterThan(d('yL3', 'yM4'));
     // Toward K4, or toward J3 and K2 through K3 or L2 (each leads only there).
     expect(stepTargets(engine, state, 'am', 'a1').sort()).toEqual(['yK3', 'yK4', 'yL2']);
+  });
+
+  it('a building next door on higher ground may be farther in MF than one two hexes away, and the refusal says so (SK1 3.6, SK4 1.1.1)', () => {
+    // The building in M5 is on a hill: its COT of 2 is doubled for crossing the Crest Line uphill, 4 MF. N3 is 3 MF away
+    // through the open N4 and farther from the 4-6-7 in N9 than N5, so it is the nearest shelter and M5 may not be entered.
+    const { engine, state } = makeEngine({
+      startPhase: 'RtPh',
+      extra: [...sk2CoreModules],
+      terrain: { yM5: { terrain: 'building-stone', elevation: 1 }, yN3: { terrain: 'building-stone' } },
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5', tags: { broken: true, dm: true } },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yN9' },
+      ],
+    });
+    expect(stepTargets(engine, state, 'am', 'a1')).not.toContain('yM5');
+    expect(stepTargets(engine, state, 'am', 'a1')).toContain('yN4');
+    const why = engine.validate(state, { type: 'rout.step', unit: 'a1', to: 'yM5', side: 'am', decisionId: engine.currentDecision(state)!.id });
+    expect(why).toMatch(/\(N3\)/);
+    expect(why).toMatch(/M5 is a building or woods hex too, but 4 MF away against 3 for N3/);
   });
 
   it('a rout may not enter a hex it would overstack, so a full shelter is ignored (SK1 3.6)', () => {

@@ -102,7 +102,7 @@ export function conditionText(env: QueryEnv, scenario: ScenarioDef, vc: VictoryC
     case 'exitForce':
       return `Exit ${vc.hsEquivalents} half-squad equivalents and ${vc.smc} leader${vc.smc === 1 ? '' : 's'}${vc.immediate ? '' : ' by game end'}`;
     case 'noGoodOrderEnemyIn':
-      return `No ${vc.unbroken ? 'unbroken' : 'Good Order'} ${plural(sideName(scenario, other))} in ${vc.hexesLabel ? `the ${vc.hexes.length} ${vc.hexesLabel}` : vc.buildings ? 'the objective buildings' : vc.hexes.length > 12 ? 'the objective' : list(vc.hexes.map(hexLabelOf))} at game end`;
+      return `${enemyLimit(scenario, vc, other)} in ${vc.hexesLabel ? `the ${vc.hexes.length} ${vc.hexesLabel}` : vc.buildings ? 'the objective buildings' : vc.hexes.length > 12 ? 'the objective' : list(vc.hexes.map(hexLabelOf))} at game end`;
     case 'clearAreas':
       return `No Good Order ${plural(sideName(scenario, other))} on ${vc.atLeast} of the ${vc.areas.length} ${vc.areasLabel ?? 'areas'} at game end`;
     case 'fewerLosses':
@@ -135,6 +135,29 @@ export function conditionText(env: QueryEnv, scenario: ScenarioDef, vc: VictoryC
   }
 }
 
+/** "No Good Order Germans", or with a limit "No more than 1 Good Order German" (`atMost`). */
+function enemyLimit(scenario: ScenarioDef, vc: Extract<VictoryCondition, { kind: 'noGoodOrderEnemyIn' }>, other: string): string {
+  const kind = vc.unbroken ? 'unbroken' : 'Good Order';
+  if (!vc.atMost) return `No ${kind} ${plural(sideName(scenario, other))}`;
+  return `No more than ${vc.atMost} ${kind} ${vc.atMost === 1 ? sideName(scenario, other) : plural(sideName(scenario, other))}`;
+}
+
+/**
+ * The conditions that carried a met victory condition: of an `any`, only the first branch met; of an `all`, every part.
+ * A part met inside a branch that failed as a whole did not win anything.
+ */
+export function metLeaves(env: QueryEnv, vcs: VictoryCondition[]): VictoryCondition[] {
+  return vcs.flatMap((vc): VictoryCondition[] => {
+    if (!achieved(env, vc)) return [];
+    if (vc.kind === 'any') {
+      const branch = vc.of.find((c) => achieved(env, c));
+      return branch ? metLeaves(env, [branch]) : [];
+    }
+    if (vc.kind === 'all') return metLeaves(env, vc.of);
+    return [vc];
+  });
+}
+
 /** Every condition of the scenario, as it stood at game end. */
 export function victoryStandings(env: QueryEnv, scenario: ScenarioDef): AarVictory[] {
   return leaves(scenario.victory).map((vc) => {
@@ -165,7 +188,7 @@ export function winningClause(env: QueryEnv, scenario: ScenarioDef, vc: VictoryC
     case 'exitVp':
       return met ? `Exited ${s.have} VP, ${s.need} needed` : `exited ${s.need} VP (${s.have} by game end)`;
     case 'noGoodOrderEnemyIn':
-      return met ? `No Good Order ${plural(sideName(scenario, other))} left in the objective at game end` : 'cleared the objective';
+      return met ? `${enemyLimit(scenario, vc, other)} left in the objective at game end` : vc.atMost ? `left no more than ${vc.atMost} in the objective` : 'cleared the objective';
     case 'clearAreas':
       return met ? `Cleared ${s.have} of the ${vc.areas.length} ${vc.areasLabel ?? 'areas'}, ${s.need} needed` : `cleared ${s.need} of the ${vc.areas.length} ${vc.areasLabel ?? 'areas'} (${s.have} by game end)`;
     case 'fewerLosses':

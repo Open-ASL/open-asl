@@ -1,7 +1,7 @@
 import { seedRng, type Engine, type GameState, type HexId, type Piece, type PieceId, type QueryEnv, type SideId } from '@asl/engine';
 import { defOf, hexOf, isVehicleDef, otherSide, statics, unitsAt } from '../common/pieces';
 import { isBroken, mmc, smc } from './status';
-import { adjacentLocs, isGroundLoc, locOf, type LocId } from '../common/location';
+import { adjacentFor, adjacentLocs, isGroundLoc, locOf, type LocId } from '../common/location';
 import { UNKNOWN_DEF_ID } from '../common/statics';
 
 declare module '@asl/engine' {
@@ -74,11 +74,12 @@ export const hasLos = (env: QueryEnv, from: LocId, to: LocId) =>
   from === to || env.query('los.trace', { from, to }, { clear: true, hindrance: 0, parts: [] }).clear;
 
 /**
- * Known Enemy Units for a friendly unit in Location `hex` (a hex id at ground level): enemy units to which it has LOS.
- * (SK1 has no concealment, so every enemy in LOS is known.)
+ * Known Enemy Units for a friendly unit in Location `hex` (a hex id at ground level): enemy units to which it has LOS,
+ * vehicles that are not wrecks included ("Any unconcealed (8.3) enemy unit", SK4 glossary; ASLRB A10.62 "a Known armed
+ * enemy unit"). (SK1 has no concealment, so every enemy in LOS is known.)
  */
 export function knownEnemiesFrom(env: QueryEnv, side: SideId, hex: LocId, opts: { unbrokenOnly?: boolean } = {}): Piece[] {
-  return enemyPersonnel(env, side).filter((e) => {
+  return enemyUnits(env, side).filter((e) => {
     if (opts.unbrokenOnly && isBroken(e)) return false;
     if (!isKnownTo(env, e, side)) return false;
     return hasLos(env, hex, locOf(env.state, e)!);
@@ -92,9 +93,10 @@ export function adjacentToKnownEnemy(env: QueryEnv, side: SideId, hex: LocId, op
   return knownEnemiesFrom(env, side, hex, opts).some((e) => {
     const eh = locOf(env.state, e)!;
     if (eh === hex) return true;
-    // Between ground Locations, the neighbouring hexes; otherwise the 'loc.adjacent' answer.
+    // Between ground Locations, the neighbouring hexes; otherwise the 'loc.adjacent' answer, or ADJACENT for DM purposes
+    // (full ASL: through a pillbox's Covered Arc, ASLRB B30.2).
     if (isGroundLoc(eh) && isGroundLoc(hex)) return map.distance(eh, hex) === 1;
-    return (near ??= adjacentLocs(env, hex)).includes(eh);
+    return (near ??= adjacentLocs(env, hex)).includes(eh) || adjacentFor(env, hex, eh, 'dm');
   });
 }
 

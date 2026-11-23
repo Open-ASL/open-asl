@@ -237,6 +237,109 @@ describe('Movement Phase', () => {
     expect(t.state.pieces['g2']!.tags['fire']).toBe('first');
   });
 
+  it('two units of one hex using FPF on the same MF expenditure fire as one Fire Group, never one after the other (ASLRB A7.55)', () => {
+    // A7.55 names no exception for Subsequent First Fire or FPF: units of one Location "going to fire at the same target"
+    // on the same "simultaneous" MF expenditure "must form a FG".
+    const { engine, state } = makeEngine({
+      board: 'z',
+      terrain,
+      scenario: RU_VS_GE,
+      startPhase: 'MPh',
+      dice: [5, 6, 3, 4, 5, 6, 3, 4],
+      pieces: [
+        { id: 'r1', def: 'ru.447', side: 'ru', hex: 'zK3' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'zK5', tags: { fire: 'final' } },
+        { id: 'g2', def: 'ge.467', side: 'ge', hex: 'zK5', tags: { fire: 'final' } },
+        // A squad in another hex keeps the defender's question open.
+        { id: 'g3', def: 'ge.467', side: 'ge', hex: 'zL4' },
+      ],
+    });
+    let s = act(engine, state, { type: 'move.start', units: ['r1'] }).state;
+    s = act(engine, s, { type: 'move.step', to: 'zK4' }).state;
+    expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', owner: 'ge' });
+    const both = engine.validate(s, { type: 'defFire', decl: { units: ['g1', 'g2'], sw: [], target: 'zK4' }, side: 'ge', decisionId: engine.currentDecision(s)!.id } as never);
+    expect(both).toBeNull();
+    s = act(engine, s, { type: 'defFire', decl: { units: ['g1'], sw: [], target: 'zK4' } }).state;
+    expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', owner: 'ge' });
+    const v = (decl: { units: string[] }) => engine.validate(s, { type: 'defFire', decl: { sw: [], target: 'zK4', ...decl }, side: 'ge', decisionId: engine.currentDecision(s)!.id } as never);
+    expect(v({ units: ['g2'] })).toMatch(/this MF expenditure without g2 .*one Fire Group/);
+    // The squad of the other hex is not bound.
+    expect(v({ units: ['g3'] })).toBeNull();
+  });
+
+  it('on a two-MF entry the units that fired together may fire again; one that sat out may not join or fire alone (ASLRB A7.55)', () => {
+    // Two MF to enter a building are one "simultaneous" expenditure (A7.55, SK1 3.3.1 Residual FP), and a unit may fire
+    // on it as often as MF were spent there (SK1 3.3.1). Perry Sez A7.55: after one unit fires on the first MF, two units of
+    // that Location may not form a FG on the second.
+    const { engine, state } = makeEngine({
+      board: 'z',
+      terrain,
+      scenario: RU_VS_GE,
+      startPhase: 'MPh',
+      dice: [5, 6, 5, 6, 5, 6, 5, 6],
+      pieces: [
+        { id: 'r1', def: 'ru.447', side: 'ru', hex: 'zI4' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'zK5' },
+        { id: 'g2', def: 'ge.467', side: 'ge', hex: 'zK5' },
+        { id: 'g3', def: 'ge.467', side: 'ge', hex: 'zK5' },
+        { id: 'g4', def: 'ge.467', side: 'ge', hex: 'zL4' },
+      ],
+    });
+    let s = act(engine, state, { type: 'move.start', units: ['r1'] }).state;
+    s = act(engine, s, { type: 'move.step', to: 'zJ3' }).state;
+    expect(moveState({ state: s } as never)!.mfHere).toBe(2);
+    const v = (units: string[]) => engine.validate(s, { type: 'defFire', decl: { units, sw: [], target: 'zJ3' }, side: 'ge', decisionId: engine.currentDecision(s)!.id } as never);
+    s = act(engine, s, { type: 'defFire', decl: { units: ['g1', 'g2'], sw: [], target: 'zJ3' } }).state;
+    expect(v(['g3'])).toMatch(/without g3 .*one Fire Group/);
+    expect(v(['g1', 'g3'])).toMatch(/without g3 .*one Fire Group/);
+    expect(v(['g1', 'g2'])).toBeNull();
+    // Subsequent First Fire by one of them on the second MF; its fellow may not follow alone on that MF.
+    s = act(engine, s, { type: 'defFire', decl: { units: ['g1'], sw: [], target: 'zJ3' } }).state;
+    expect(v(['g2'])).toMatch(/without g2 .*one Fire Group/);
+    expect(v(['g4'])).toBeNull();
+  });
+
+  it('a unit using FPF fires all its FP and usable MG in one attack, never its MG and its own FP apart on one MF (SK1 3.3.1, 4.1)', () => {
+    // A HS marked Final Fire with its LMG, adjacent to the hex the Russian squad enters for one MF.
+    const game = (lmg: Record<string, unknown> = {}) =>
+      makeEngine({
+        board: 'z',
+        terrain,
+        scenario: RU_VS_GE,
+        startPhase: 'MPh',
+        dice: [5, 6, 5, 6, 5, 6],
+        pieces: [
+          { id: 'r1', def: 'ru.447', side: 'ru', hex: 'zK3' },
+          { id: 'gh', def: 'ge.247', side: 'ge', hex: 'zK5', tags: { fire: 'final' } },
+          { id: 'gLMG', def: 'ge.LMG', side: 'ge', heldBy: 'gh', tags: { fire: 'final', ...lmg } },
+        ],
+      });
+    const { engine, state } = game();
+    let s = act(engine, state, { type: 'move.start', units: ['r1'] }).state;
+    s = act(engine, s, { type: 'move.step', to: 'zK4' }).state;
+    expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', owner: 'ge' });
+    const decision = engine.currentDecision(s)!.id;
+    const fire = (units: string[], sw: string[]) => ({ type: 'defFire', decl: { units, sw, target: 'zK4' }, side: 'ge', decisionId: decision }) as never;
+    // The LMG alone, or the HS's own FP alone: each leaves part of the unit's FP out of its FPF.
+    expect(engine.validate(s, fire([], ['gLMG']))).toMatch(/must fire all its FP and usable MG/);
+    expect(engine.validate(s, fire(['gh'], []))).toMatch(/must fire all its FP and usable MG/);
+    // Both together, one attack; then neither may fire again on that one MF.
+    expect(engine.validate(s, fire(['gh'], ['gLMG']))).toBeNull();
+    const t = act(engine, s, { type: 'defFire', decl: { units: ['gh'], sw: ['gLMG'], target: 'zK4' } });
+    expect(t.events.filter((e) => e.type === 'sk1.fire.attack')).toHaveLength(1);
+    const next = engine.currentDecision(t.state);
+    if (next?.kind === 'firstFire') {
+      const again = (units: string[], sw: string[]) => ({ type: 'defFire', decl: { units, sw, target: 'zK4' }, side: 'ge', decisionId: next.id }) as never;
+      expect(engine.validate(t.state, again([], ['gLMG']))).toMatch(/cannot fire again at this location/);
+      expect(engine.validate(t.state, again(['gh'], []))).toMatch(/cannot fire again at this location/);
+    }
+    // A malfunctioned LMG is no usable MG: the HS's own FP may use FPF alone.
+    const broken = game({ malf: true });
+    let b = act(broken.engine, broken.state, { type: 'move.start', units: ['r1'] }).state;
+    b = act(broken.engine, b, { type: 'move.step', to: 'zK4' }).state;
+    expect(broken.engine.validate(b, { type: 'defFire', decl: { units: ['gh'], sw: [], target: 'zK4' }, side: 'ge', decisionId: broken.engine.currentDecision(b)!.id } as never)).toBeNull();
+  });
+
   it('FPF NMC: the Original DR plus the director\'s leadership, but never on the leader himself (ASLRB A8.31 EX)', () => {
     // Original DR 8: the 8-1 is pinned (8 vs 8), the 4-6-7 he directed is pinned too (8 -1 = 7 vs 7).
     const { engine, state } = makeEngine({

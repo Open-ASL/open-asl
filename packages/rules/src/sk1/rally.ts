@@ -2,6 +2,7 @@ import type { Action, Ctx, Decision, HexId, PieceId, QueryEnv, RuleModule } from
 import { byId, defOf, hexOf, isFixedWeapon, otherSide, personnelAt, statics, swHeldBy, unpossessedSwAt } from '../common/pieces';
 import { locOf } from '../common/location';
 import { PHASE_DECISION, PHASE_DONE, askPhaseOwner, type PhaseDoneFn } from '../common/turn';
+import { capturedUseExempt } from './forceRules';
 import { adjacentToKnownEnemy } from './known';
 import { P as MP, type CasualtyFn, type FlushFn, type RallyOutcome } from './morale';
 import {
@@ -438,7 +439,9 @@ export const rallyModule: RuleModule = {
         if (!isMalf(s)) return 'SW is not malfunctioned';
         // One Repair dr per SW: a failed dr leaves it unchanged for the Player Turn, whoever holds it (A9.72).
         if (s.tags[T.repairTried]) return 'A repair was already attempted on this SW this turn';
-        if (isCaptured(env, s)) return 'Only weapons of the unit\'s own nationality can be repaired';
+        // A captured weapon is never repaired (SK4 3.1c; ASLRB A9.72), unless an SSR lets this unit use it without Captured
+        // Use penalties: the weapon is then treated as its own (Perry Sez A25.75: such a weapon may also be repaired).
+        if (isCaptured(env, s) && !capturedUseExempt(env, s.id, u.id)) return 'Only weapons of the unit\'s own nationality can be repaired';
         if (weapon(env, s)?.repair === undefined) return 'Weapon cannot be repaired';
         return env.query('sw.repairIllegal', { unit: a.unit, sw: a.sw }, null);
       },
@@ -466,6 +469,8 @@ export const rallyModule: RuleModule = {
         const from = pieceOf(env, s.loc.by);
         if (from.side !== a.side || to.side !== a.side) return 'Not your units';
         if (locOf(env.state, from) !== locOf(env.state, to)) return 'Units must be in the same location';
+        const across = env.query('transfer.illegal', { sw: s.id, from: from.id, to: to.id }, null);
+        if (across) return across;
         const halted = actionIllegal(env, [from.id, to.id]);
         if (halted) return halted;
         if (!goodOrderUnpinned(env, from.id) || !goodOrderUnpinned(env, to.id)) return 'Both units must be Good Order (and unpinned)';

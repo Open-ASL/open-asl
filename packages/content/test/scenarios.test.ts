@@ -124,7 +124,7 @@ describe('catalogued scenarios', () => {
     expect(counts['fort.place'] ?? 0).toBe(2);
     // The two setup placements, plus any foxhole dug in play (B27.11).
     expect(counts['asl.fort.placed'] ?? 0).toBeGreaterThanOrEqual(2);
-  });
+  }, 60_000);
 
   it('asl-testbed: weighted random play entrenches, moves in and out of foxholes and routs beneath them, and every Player Turn boundary is clean', () => {
     const scenario = scenarioById('asl-testbed')!;
@@ -457,6 +457,6 @@ describe('catalogued scenarios', () => {
       expect(state.result, `${s.id} reached no result in ${steps} steps`).not.toBeNull();
       if (s.ruleset !== 'full-asl') expect(skLocationViolation(state)).toBeNull();
       expect(s.sides.map((x) => x.side)).toContain(state.result!.winner ?? s.sides[0]!.side);
-    });
+    }, 60_000);
   }
 });

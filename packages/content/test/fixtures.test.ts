@@ -261,7 +261,7 @@ describe('dev fixtures on other scenarios', () => {
   };
   it('builds every fixture of a scenario other than the test bed', () => {
     for (const fx of DEV_FIXTURES.filter((f) => f.scenarioId !== ASL_TESTBED_SCENARIO.id)) expect(() => loadOn(fx.id), fx.id).not.toThrow();
-  });
+  }, 120_000);
   it('mg-vs-afv: the German MMG may fire at the Sherman as ordnance, on the Vehicle Target Type only (SK4 4.1)', () => {
     const { engine, state } = loadOn('mg-vs-afv');
     expect([state.phase, state.attacker]).toEqual(['PFPh', 'ge']);

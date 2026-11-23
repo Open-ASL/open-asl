@@ -1,4 +1,5 @@
-import { useEffect, type ReactNode } from 'react';
+import { setTurretArtwork, useTurretArtwork } from './turretArtwork';
+import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { playSfx } from '../audio/engine';
 import { useAudioSettings, useSampleStatus } from '../audio/useAudio';
@@ -25,6 +26,8 @@ interface Props {
 export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, callStrip, onCallStrip, stackCard, onStackCard, extra, onClose }: Props) {
   const [audio, setAudio] = useAudioSettings();
   const samples = useSampleStatus();
+  const [tab, setTab] = useState<'General' | 'Visuals'>('General');
+  const turretArtwork = useTurretArtwork();
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -63,6 +66,21 @@ export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, callStrip, onC
           </button>
         </div>
 
+        <div className="seg" role="tablist" aria-label="Settings categories">
+          {(['General', 'Visuals'] as const).map(name => (
+            <button key={name} id={`settings-tab-${name}`} role="tab" aria-selected={tab === name}
+              aria-controls={`settings-panel-${name}`} tabIndex={tab === name ? 0 : -1}
+              className={tab === name ? 'on' : ''} onClick={() => setTab(name)}
+              onKeyDown={e => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+                e.preventDefault();
+                const next = e.key === 'Home' ? 'General' : e.key === 'End' ? 'Visuals' : tab === 'General' ? 'Visuals' : 'General';
+                setTab(next);
+                document.getElementById(`settings-tab-${next}`)?.focus();
+              }}>{name}</button>
+          ))}
+        </div>
+        <div role="tabpanel" id="settings-panel-General" aria-labelledby="settings-tab-General" hidden={tab !== 'General'}>
         <section>
           <h3>Sound</h3>
           <div className="set-row toggle">
@@ -131,6 +149,19 @@ export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, callStrip, onC
           <p className="muted small">The card that opens beside the pointer when it rests on a hex. Esc or its ✕ closes it until you move to another hex. Off, the orders panel still lists the stack under the pointer.</p>
         </section>
         {extra}
+        </div>
+        <div role="tabpanel" id="settings-panel-Visuals" aria-labelledby="settings-tab-Visuals" hidden={tab !== 'Visuals'}>
+          <section>
+            <div className="set-row toggle">
+              <label className="set-label" htmlFor="rotating-turret-art">Rotating turret artwork</label>
+              <label className="switch">
+                <input id="rotating-turret-art" type="checkbox" checked={turretArtwork} onChange={e => setTurretArtwork(e.target.checked)} />
+                <span className="knob" />
+              </label>
+            </div>
+            <p className="muted small">Show the turret and barrel turning on the counter. Turn off to use the classic turret facing display.</p>
+          </section>
+        </div>
       </div>
     </div>,
     document.body,

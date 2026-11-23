@@ -825,7 +825,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
    */
   /** The side panel's free Delay amount (SK4 3.3.2), typed while a vehicle stands stopped. */
   const [delayMp, setDelayMp] = useState('');
-  const [ring, setRing] = useState<{ hex: HexId; piece: PieceId; what: string; current: number; note: string; action(spine: number): Omit<Action, 'side' | 'decisionId'> | null } | null>(null);
+  const [ring, setRing] = useState<{ hex: HexId; piece: PieceId; what: string; current: number; turret?: boolean; note: string; action(spine: number): Omit<Action, 'side' | 'decisionId'> | null } | null>(null);
   useEffect(() => setRing(null), [decision?.id]);
   // A facing ring wants the hex to itself: no stack card pops up over it while it is shown.
   useEffect(() => {
@@ -2689,6 +2689,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         controls.push({
           id: `face-${spine}`,
           hex: ring.hex,
+          turretPiece: ring.turret ? ring.piece : undefined,
           spine,
           glyph: '▲',
           tone: 'hull',
@@ -3900,7 +3901,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           items.push(
             action(
               'Point turret toward…',
-              () => setRing({ hex: at, piece: v.id, what: 'Turret Covered Arc', current: tca, note: 'free with each MP expenditure', action: (spine) => (spine === tca ? null : { type: 'vmove.turret', tca: spine }) }),
+              () => setRing({ hex: at, piece: v.id, what: 'Turret Covered Arc', turret: true, current: tca, note: 'free with each MP expenditure', action: (spine) => (spine === tca ? null : { type: 'vmove.turret', tca: spine }) }),
               { icon: '◎', hint: `TCA: ${spineLabel(env, at, tca)} · pick a hexspine on the map` },
             ),
           );
@@ -4643,7 +4644,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       const tca = Number(tv.tags['ca'] ?? vca);
       items.push(action('Turn hull toward…', () => setRing({ hex, piece: tv.id, what: 'Vehicle Covered Arc', current: vca, note: turnable.hullHint, action: (spine) => (spine === vca ? null : turnable.turn(spine)) }), { icon: '◠', hint: `VCA: ${spineLabel(env, hex, vca)} · pick a hexspine on the map (Q/E)` }));
       if (vehicleDef(env, tv)!.turret !== 'NT')
-        items.push(action('Point turret toward…', () => setRing({ hex, piece: tv.id, what: 'Turret Covered Arc', current: tca, note: turnable.turretHint, action: (spine) => (spine === tca ? null : turnable.turret(spine)) }), { icon: '◎', hint: `TCA: ${spineLabel(env, hex, tca)} · pick a hexspine on the map (A/D)` }));
+        items.push(action('Point turret toward…', () => setRing({ hex, piece: tv.id, what: 'Turret Covered Arc', turret: true, current: tca, note: turnable.turretHint, action: (spine) => (spine === tca ? null : turnable.turret(spine)) }), { icon: '◎', hint: `TCA: ${spineLabel(env, hex, tca)} · pick a hexspine on the map (A/D)` }));
     }
     if (facingDone) items.push(action('Done turning', facingDone, { icon: '✓', hint: 'Keep this facing and go back to Defensive First Fire' }));
 

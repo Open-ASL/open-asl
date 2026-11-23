@@ -15,10 +15,12 @@ describe('vehicle status tabs (in place of full-size marker counters)', () => {
     return vehicleTabs(env, state.pieces['v']!).map((t) => `${t.text}:${t.tone}`);
   };
 
-  it('shows the crew only when it differs from the usual: an AFV is Buttoned Up, an Open-Topped one Crew Exposed (SK4 3.3.2, 7.13)', () => {
+  it('shows only a departure from the usual crew posture regardless of turret facing', () => {
     expect(at({})).toEqual([]);
     expect(at({ ce: true })).toEqual(['CE:ce']);
     expect(at({ ce: true }, 'am.M8AC')).toEqual([]);
+    expect(at({ ca: 2 })).toEqual([]);
+    expect(at({ ca: 2, ce: true })).toEqual(['CE:ce']);
     expect(at({}, 'am.M8AC')).toEqual(['BU:bu']);
   });
 

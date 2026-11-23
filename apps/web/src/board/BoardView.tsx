@@ -1,11 +1,13 @@
+import { useTurretArtwork } from '../settings/turretArtwork';
 import { useEffect, useRef } from 'react';
-import { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture, UPDATE_PRIORITY } from 'pixi.js';
+import { Application, Assets, Color, Container, Graphics, Rectangle, Sprite, Text, Texture, UPDATE_PRIORITY } from 'pixi.js';
 import { cubeDistance, cubeNeighbors, type GameState, type HexId, type Piece, type QueryEnv, type SideId } from '@asl/engine';
 import { GEO, coveredArc, defOf, gun as gunDef, gunHex, hexOf as hexOfPiece, inCoveredArc, isCaptured, isWeaponDef, isWreck, spineDirections, swHeldBy, tcaOf, vcaOf, vehicle as vehicleDef, type MapHex, type ObjectiveArea, type Statics, acquisitionOf, gunIdents, ordnanceOf, SMOKE58, stackOrder, hexOfLoc, levelOfLoc, locKey } from '@asl/rules';
 import { CAVE_GONE, UNKNOWN_DEF_ID, cavesParams, caveLoc, cornerOffset, hexPixel, isCaveLoc, isPillboxLoc, moveState, pillboxCaHexsides, pillboxLoc, shownFireMarker, sideToward, smokeGrenades } from '@asl/rules';
 import { playableBounds, playableRect, printedRect, type CropPlacement } from './crop';
-import { boardImage, counterImage, cxMarker, loadTurrets, markerImage, splitTurret } from '../game/assets';
+import { assetUrl, boardImage, counterImage, cxMarker, loadTurrets, markerImage, splitTurret } from '../game/assets';
 import { identColor } from './ident';
+import { printedTankLayers, turretMarkerSprite, STOCK_COLOR } from './printedTankArt';
 import { WRECK_PREFIX, wreckTexture } from './wreckArt';
 import type { BoardFx } from '../fx/useGameFx';
 import type { WeatherFxKind } from '../game/weatherView';
@@ -149,6 +151,8 @@ export interface HexControl {
    * hexspine, which is drawn out from the hex corner to it, and its glyph is turned to point along it.
    */
   spine?: number;
+  /** Preview this vehicle’s turret as the pointer passes over the sector. */
+  turretPiece?: string | undefined;
   /** The chosen handle of a set: drawn filled. */
   active?: boolean;
   /** Pointing at the handle previews the Covered Arc of its hexspine, in this nationality's colour. */
@@ -451,6 +455,10 @@ function counterSprite(tex: Texture, size = COUNTER): Sprite {
   return sp;
 }
 
+function turretMarker(p: Piece) {
+  return assetUrl(p.tags['ce'] ? 'markers/tca-ce.svg' : 'markers/tca-bu.svg');
+}
+
 /** Map-pixel offset to a neighbouring hex centre, in the engine's direction order (N, NE, SE, S, SW, NW). */
 
 /** A small round badge with a Gun's identity letter, in its colour. */
@@ -536,17 +544,12 @@ const TAB_STYLE: Record<VehicleTab['tone'], { fill: number; stroke: number; text
   out: { fill: 0x1b1b1b, stroke: 0xc0392b, text: 0xf3a59c },
 };
 
-/**
- * The status tabs a vehicle wears in place of full-size marker counters, as VASL draws them: the crew's posture when it
- * differs from the vehicle's usual one (an AFV is Buttoned Up, an Open-Topped one Crew Exposed: SK4 3.3.2, 7.13), and each
- * state that hampers it (Bog and Mired SK4 3.3.2; Immobilized 7.2; Low Ammo 7.6; Shock, UK, Stun and Recall 7.7; a
- * malfunctioned or disabled MA or MG 7.10). Motion and the fire markers stay counters.
- */
+/** Crew posture and vehicle conditions shown as small tabs on a live vehicle. */
 export function vehicleTabs(env: { state: GameState; statics: Statics }, p: Piece): VehicleTab[] {
   const t = p.tags;
   if (t['vca'] === undefined || t['wreck']) return [];
   const out: VehicleTab[] = [];
-  const openTopped = !!(defOf(env as unknown as QueryEnv, p) as { openTopped?: boolean }).openTopped;
+  const openTopped = !!vehicleDef(env as QueryEnv, p)?.openTopped;
   if (!!t['ce'] !== openTopped) out.push(t['ce'] ? { text: 'CE', tone: 'ce' } : { text: 'BU', tone: 'bu' });
   if (t['bog'] === 'bogged') out.push({ text: 'BOG', tone: 'bad' });
   if (t['bog'] === 'mired') out.push({ text: 'MIRED', tone: 'bad' });
@@ -768,7 +771,7 @@ function drawObjectives(g: Graphics, objectives: ObjectiveArea[], placements: Pl
 /** Counter base colour of each nationality, for the control chits (sampled from the counter art). */
 const NATION_COLOR: Record<string, number> = { ge: 0x5f87a1, am: 0x727b23, ru: 0x7c510d, br: 0xb8975a, al: 0x6f9c5a, it: 0x6c7a82, ja: 0xe9c22a };
 /** Stock colours for counters without art. */
-const STOCK_COLOR: Record<string, number> = { ge: 0x9ac8e8, ru: 0xc8a050, am: 0x9fbf5f, br: 0xe5cea0, al: 0xbfe3c4, it: 0xd2d6d8 };
+
 /** Control chit: a quarter of a counter's width, as VASL players place them. */
 const CONTROL_CHIT = COUNTER / 4;
 
@@ -1171,6 +1174,7 @@ export function BoardView({
     if (l) drawInk(l.ink, inkRef.current, xf.current.toView);
   };
   /** The drawn counter of each piece (rebuilt by every redraw), for face flips and burn-aways. */
+  const turretViews = useRef(new Map<string, { art: Container; fitBarrel?: ((angle: number) => void) | undefined; facing: number; hull: number; base: Sprite | null; aligned: Texture | null; turned: Texture | null; cube: MapHex['cube'] }>());
   const faces = useRef(new Map<string, { box: Container; sprite: Sprite | null; size: number }>());
   /** Map or offboard hex by id. */
   // A Location id (full ASL upper level, "uK4:1") stands for its hex.
@@ -1245,8 +1249,18 @@ export function BoardView({
     controlHits.current = [];
     const scale = world.current?.scale.x ?? 1;
     const R = GEO.px.hexWidth * (2 / 3);
+    const controls = latest.current.overlay.controls ?? [];
+    const hotSector = controls.find((c) => c.id === hoverControl.current && !c.disabled && c.turretPiece);
+    for (const [id, turret] of turretViews.current) {
+      const facing = hotSector?.turretPiece === id ? hotSector.spine ?? turret.facing : turret.facing;
+      turret.art.rotation = spineAngle(turret.cube, facing) + xf.current.angle;
+      turret.art.visible = facing !== turret.hull;
+      if (turret.art.visible) turret.fitBarrel?.(turret.art.rotation);
+      const face = turret.art.visible ? turret.turned : turret.aligned;
+      if (turret.base && face) turret.base.texture = face;
+    }
     const tips: Container[] = [];
-    for (const c of latest.current.overlay.controls ?? []) {
+    for (const c of controls) {
       const h = anyHex(c.hex);
       if (!h) continue;
       const o = center(h);
@@ -1699,12 +1713,15 @@ export function BoardView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, overlay, control, fortified, fires, rubble, fortifications, outOfPlay]);
 
+  const turretArtwork = useTurretArtwork();
+  const turretArtworkRef = useRef(turretArtwork);
+  turretArtworkRef.current = turretArtwork;
   const hideMarkersRef = useRef(hideMarkers);
   hideMarkersRef.current = hideMarkers;
   useEffect(() => {
     if (ready.current) void redraw();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hideMarkers]);
+  }, [hideMarkers, turretArtwork]);
 
   const hideRef = useRef(hidePieces);
   hideRef.current = hidePieces;
@@ -2530,6 +2547,7 @@ export function BoardView({
     };
     const moving = moveState(env as unknown as QueryEnv)?.units[0];
     const bare = hideMarkersRef.current;
+    const showTurretArt = turretArtworkRef.current;
     const markersOf = (p: Piece) => (bare ? [] : unitMarkers(p, natOf(p), moving));
     drawControl(L.control, ctl, statics, anyHex, center);
     drawFortified(L.fort, L.fortLabels, fort, anyHex, xf.current);
@@ -2543,6 +2561,8 @@ export function BoardView({
     for (const p of Object.values(s.pieces)) {
       if (p.loc.kind === 'eliminated') continue;
       urls.push(counterImage(p.defId, false), counterImage(p.defId, true), faceOf(p, natOf(p)));
+      const vehicle = vehicleDef(env as QueryEnv, p);
+      if (showTurretArt && vehicle && vehicle.turret !== 'NT' && !isWreck(p)) urls.push(turretMarker(p));
       const split = splitTurret(p.defId);
       if (split) urls.push(split.hull, split.turret);
       for (const m of markersOf(p)) urls.push(markerImage(m));
@@ -2636,6 +2656,7 @@ export function BoardView({
     slides.current.clear();
     L.pieces.removeChildren().forEach((c) => c.destroy());
     faces.current = new Map();
+    turretViews.current.clear();
     const prev = lastPos.current;
     const nextPos = new Map<string, { x: number; y: number; url: string | null }>();
     const doAnim = animateRef.current;
@@ -2833,11 +2854,15 @@ export function BoardView({
         shadow.rotation = turn;
         box.addChild(shadow);
         // A turreted vehicle with split HD art: the counter shows the hull, the turret is drawn on top.
-        const split = veh && !isWreck(p) && veh.turret !== 'NT' && tex === texture(counterImage(p.defId, false)) ? splitTurret(p.defId) : null;
-        const hullTex = split ? texture(split.hull) : null;
-        const turretTex = split ? texture(split.turret) : null;
+        const front = counterImage(p.defId, false);
+        const canSplit = veh && !isWreck(p) && veh.turret !== 'NT' && front && tex && tex === texture(front);
+        const split = canSplit ? splitTurret(p.defId) : null;
+        const hdHull = split && texture(split.hull);
+        const hdTurret = split && texture(split.turret);
+        const layers = split && hdHull && hdTurret ? { ...split, hull: hdHull, turret: hdTurret }
+          : showTurretArt && canSplit ? printedTankLayers(tex, front) : null;
         if (tex) {
-          const sp = counterSprite(hullTex && turretTex ? hullTex : tex, size);
+          const sp = counterSprite(!showTurretArt && layers ? layers.hull : tex, size);
           if (spent) sp.tint = SPENT_TINT;
           sp.rotation = turn;
           box.addChild(sp);
@@ -2855,34 +2880,47 @@ export function BoardView({
           t.position.set(4, 16);
           box.addChild(t);
         }
-        // A turreted vehicle's barrel points at its Turret Covered Arc (SK4 3.2.4): drawn over the counter
-        // in the nationality's colour, so hull and turret facings read at a glance.
-        if (split && hullTex && turretTex && hexCube) {
-          // The turret turns about its pivot to the TCA; the pivot itself turns with the hull.
-          const ang = spineAngle(hexCube, tcaOf(env as never, p)) + xf.current.angle;
-          const dx = split.x - size / 2;
-          const dy = split.y - size / 2;
-          const ts = new Sprite(turretTex);
-          ts.anchor.set(0.5);
-          ts.width = split.size;
-          ts.height = split.size;
-          ts.position.set(size / 2 + dx * Math.cos(turn) - dy * Math.sin(turn), size / 2 + dx * Math.sin(turn) + dy * Math.cos(turn));
-          ts.rotation = ang;
-          if (spent) ts.tint = SPENT_TINT;
-          box.addChild(ts);
-        } else if (veh && hexCube && !isWreck(p) && veh.turret !== 'NT') {
-          const ang = spineAngle(hexCube, tcaOf(env as never, p)) + xf.current.angle;
-          const cx = size / 2;
-          const cy = size / 2;
-          const len = size * 0.58;
-          const ex = cx + Math.sin(ang) * len;
-          const ey = cy - Math.cos(ang) * len;
-          const tg = new Graphics();
-          tg.moveTo(cx, cy).lineTo(ex, ey).stroke({ color: 0x111111, width: 7, alpha: 0.7, cap: 'round' });
-          tg.moveTo(cx, cy).lineTo(ex, ey).stroke({ color: STOCK_COLOR[d.nationality] ?? 0xffffff, width: 3.5, alpha: 0.95, cap: 'round' });
-          tg.circle(cx, cy, 6).fill({ color: STOCK_COLOR[d.nationality] ?? 0xffffff, alpha: 0.95 }).stroke({ color: 0x111111, width: 1.5, alpha: 0.8 });
-          if (spent) tg.tint = SPENT_TINT;
-          box.addChild(tg);
+        // Point the turret at its covered arc (SK4 3.2.4).
+        if (veh && hexCube && !isWreck(p) && veh.turret !== 'NT') {
+          const marker = showTurretArt ? texture(turretMarker(p)) : null;
+          const roof = marker ?? layers?.turret;
+          if (roof) {
+            const markerView = marker
+              ? turretMarkerSprite(marker, size, !!veh.openTopped, d.nationality, layers && 'roofWidth' in layers ? layers : null, front)
+              : null;
+            const art = markerView?.art ?? new Sprite(roof);
+            const mount = layers && 'hullCenter' in layers ? layers.hullCenter : layers;
+            const dx = (mount?.x ?? size / 2) - size / 2;
+            const dy = (mount?.y ?? size / 2) - size / 2;
+            if (!marker) {
+              art.anchor.set(0.5);
+              art.width = art.height = layers!.size;
+            }
+            if (spent) art.tint = new Color(art.tint).multiply(SPENT_TINT).toNumber();
+            art.position.set(size / 2 + dx * Math.cos(turn) - dy * Math.sin(turn), size / 2 + dx * Math.sin(turn) + dy * Math.cos(turn));
+            box.addChild(art);
+            if (showTurretArt) {
+              turretViews.current.set(p.id, { art,
+                fitBarrel: markerView ? angle => markerView.fitBarrel(angle - turn, dx + size / 2, dy + size / 2) : undefined,
+                facing: tcaOf(env as QueryEnv, p), hull: vcaOf(p), cube: hexCube,
+                base: faces.current.get(p.id)?.sprite ?? null, aligned: tex, turned: layers?.hull ?? tex });
+            } else {
+              art.rotation = spineAngle(hexCube, tcaOf(env as QueryEnv, p)) + xf.current.angle;
+            }
+          } else if (!showTurretArt) {
+            const ang = spineAngle(hexCube, tcaOf(env as never, p)) + xf.current.angle;
+            const cx = size / 2;
+            const cy = size / 2;
+            const len = size * 0.58;
+            const ex = cx + Math.sin(ang) * len;
+            const ey = cy - Math.cos(ang) * len;
+            const tg = new Graphics();
+            tg.moveTo(cx, cy).lineTo(ex, ey).stroke({ color: 0x111111, width: 7, alpha: 0.7, cap: 'round' });
+            tg.moveTo(cx, cy).lineTo(ex, ey).stroke({ color: STOCK_COLOR[d.nationality] ?? 0xffffff, width: 3.5, alpha: 0.95, cap: 'round' });
+            tg.circle(cx, cy, 6).fill({ color: STOCK_COLOR[d.nationality] ?? 0xffffff, alpha: 0.95 }).stroke({ color: 0x111111, width: 1.5, alpha: 0.8 });
+            if (spent) tg.tint = SPENT_TINT;
+            box.addChild(tg);
+          }
         }
         if (p.tags['broken'] === true) box.addChild(new Graphics().roundRect(1, 1, size - 2, size - 2, 4).stroke({ color: BROKEN_RED, width: 2.5 }));
         if (o.selectedPieces?.has(p.id)) {
@@ -2907,11 +2945,17 @@ export function BoardView({
           box.addChild(new Graphics().roundRect(ms.x + 2, ms.y + 3, MARKER, MARKER, 3).fill({ color: 0x000000, alpha: 0.4 }));
           box.addChild(ms);
         }
-        // The crew's posture and the states that hamper a vehicle as tabs on the middle of its counter, over the markers
-        // (`vehicleTabs`). The hover card names them all.
         if (veh && !bare) {
           const tabs = vehicleTabs(env, p);
-          if (tabs.length) box.addChild(vehicleTabsBox(tabs, size, spent));
+          const posture = showTurretArt ? tabs.find(tab => tab.tone === 'ce' || tab.tone === 'bu') : undefined;
+          const conditions = tabs.filter(tab => tab !== posture);
+          if (posture) {
+            const badge = vehicleTabsBox([posture], size, spent);
+            // Hang the crew tab from the lower-left edge so the turret remains visible.
+            badge.position.set(10 - size / 2, size * 0.38 - 2);
+            box.addChild(badge);
+          }
+          if (conditions.length) box.addChild(vehicleTabsBox(conditions, size, spent));
         }
         // A Gun's identity letter (top left), and text badges for Gun states with no marker art. A
         // vehicle wears its letter only when it is needed: to pair it with its Acquired Target

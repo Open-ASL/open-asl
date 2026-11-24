@@ -42,6 +42,23 @@ const profiles: Record<string, Profile> = {
   ty95hago: [89, 91, 13, 15, 15, 91, 51, 3, 91, 91],
 };
 
+// Measurements in the upright view: front edge of the hull and clearance for fuzzy
+// barrel ink. Below the hull the repair borrows deck texture. Ahead of it, the
+// neighboring stock along the printed border supplies matching background ink.
+const barrelRepairs: Record<string, { hullFront: number; radius: number; squareFrame?: boolean; textLeft?: number }> = {
+  pzvie: { squareFrame: true, hullFront: 36, radius: 6, textLeft: 130 },
+  pzviel: { squareFrame: true, hullFront: 36, radius: 6, textLeft: 106 },
+  pzvg: { squareFrame: true, hullFront: 30, radius: 5, textLeft: 106 },
+  pzvib: { squareFrame: true, hullFront: 27, radius: 6, textLeft: 106 },
+  pzivf2: { hullFront: 39, radius: 5.5, textLeft: 130 },
+  pzivh: { hullFront: 38, radius: 5.5, textLeft: 130 },
+  cromiv: { hullFront: 30, radius: 7.5 },
+  sheriiaa: { hullFront: 33, radius: 6 },
+  T3485: { hullFront: 39, radius: 6 },
+  IS2: { squareFrame: true, hullFront: 47, radius: 6 },
+  psw2342: { squareFrame: true, hullFront: 33, radius: 5 },
+};
+
 interface Layers {
   hullCenter: { x: number; y: number };
   roofWidth: number;
@@ -65,7 +82,8 @@ function surface(size: number) {
 export function printedTankLayers(front: Texture, url: string): Layers | null {
   const cached = cache.get(front);
   if (cached) return cached;
-  const profile = profiles[url.split('/').pop()?.replace(/\.webp$/, '') ?? ''];
+  const model = url.split('/').pop()?.replace(/\.webp$/, '') ?? '';
+  const profile = profiles[model];
   const image = front.source.resource;
   if (!profile || !(image instanceof HTMLImageElement || (typeof ImageBitmap !== 'undefined' && image instanceof ImageBitmap))) return null;
   const [x, y, w, nose, tail, muzzleX, muzzleY, tubeWidth, hullX, hullY, heading = 150] = profile;
@@ -130,10 +148,42 @@ export function printedTankLayers(front: Texture, url: string): Layers | null {
   // Repair the stationary deck. Copy the neighbouring scanline across the narrow
   // gun tube so counter borders and terrain-independent stock colours continue through it.
   const repair = surface(PX);
-  const gunX = Math.floor(Math.min(muzzleX, x) - r * 1.18 - 1);
-  const gunRight = Math.ceil(Math.max(muzzleX, x) + r * 1.18 + 1);
-  repair.drawImage(upright.canvas, gunX - 2, muzzleY, 2, breechY - muzzleY,
-    gunX, muzzleY, gunRight - gunX, breechY - muzzleY);
+  const detail = barrelRepairs[model];
+  const radius = detail?.radius ?? r * 1.18 + 1;
+  const startY = Math.max(0, muzzleY - 3);
+  repair.save();
+  repair.beginPath();
+  repair.moveTo(muzzleX - radius, startY);
+  repair.lineTo(muzzleX + radius, startY);
+  repair.lineTo(x + radius, breechY);
+  repair.lineTo(x - radius, breechY);
+  repair.closePath();
+  repair.clip();
+  const deckStart = detail?.hullFront ?? startY;
+  const left = Math.floor(Math.min(muzzleX, x) - radius);
+  const right = Math.ceil(Math.max(muzzleX, x) + radius);
+  repair.drawImage(upright.canvas, left - 3, deckStart, 3, breechY - deckStart,
+    left, deckStart, right - left, breechY - deckStart);
+  if (detail) {
+    repair.beginPath();
+    repair.rect(left, startY, right - left, deckStart - startY);
+    repair.clip();
+    repair.translate(90, 90);
+    repair.rotate(-angle);
+    if (detail.squareFrame) {
+      // The square frame runs horizontally under the muzzle. Only sample its
+      // center where it is clear of the armor values, deck and gun caliber.
+      repair.fillStyle = `rgb(${sample[0]} ${sample[1]} ${sample[2]})`;
+      repair.fillRect(-90, -90, PX, PX);
+      repair.drawImage(image, image.width / 2, image.height * 0.86, 1, image.height * 0.14,
+        -90, PX * 0.86 - 90, PX, PX * 0.14);
+    } else {
+      // The circular frame continues along the rim into clear stock.
+      repair.rotate(-Math.PI / 15);
+      repair.drawImage(image, -90, -90, PX, PX);
+    }
+  }
+  repair.restore();
   // Continue the model's printed deck underneath the rotating roof. Reflect the
   // nearby fore and aft plating inward so each exposed edge meets matching ink.
   const deck = surface(PX);
@@ -156,6 +206,14 @@ export function printedTankLayers(front: Texture, url: string): Layers | null {
   // Stamp only the repaired region onto the untouched counter, preserving its text and edges.
   const hull = surface(PX);
   hull.drawImage(image, 0, 0, PX, PX);
+  // These long guns reach the lower-right printed armor values. Preserve the
+  // original pixels (including their antialiasing) in native counter coordinates.
+  if (detail?.textLeft !== undefined) {
+    hull.beginPath();
+    hull.rect(0, 0, PX, PX);
+    hull.rect(detail.textLeft, 149, PX - detail.textLeft, PX - 149);
+    hull.clip('evenodd');
+  }
   hull.translate(90, 90);
   hull.rotate(angle);
   hull.drawImage(repair.canvas, -90, -90);

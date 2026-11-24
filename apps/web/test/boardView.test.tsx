@@ -2,6 +2,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { Assets, Texture } from 'pixi.js';
+import { DEMO_VEHICLES_SCENARIO, newGame } from '@asl/content';
+import * as printedArt from '../src/board/printedTankArt';
 import type { Statics } from '@asl/rules';
 import { makeEngine } from '../../../packages/rules/test/fixtures';
 import type { BoardFx } from '../src/fx/useGameFx';
@@ -89,7 +92,7 @@ vi.mock('pixi.js', () => {
       return g;
     }
   };
-  return { UPDATE_PRIORITY: { UTILITY: -50 }, Application, Assets: { load: async () => node() }, Container: plain, Graphics, Sprite: plain, Text: plain, Texture: plain, Rectangle: plain };
+  return { UPDATE_PRIORITY: { UTILITY: -50 }, Application, Assets: { load: vi.fn(async () => node()), unload: async () => {} }, Container: plain, Graphics, Sprite: plain, Text: plain, Texture: plain, Rectangle: plain };
 });
 
 const { BoardView } = await import('../src/board/BoardView');
@@ -198,4 +201,19 @@ describe('BoardView keeps its canvas across renders', () => {
     tickAll();
     expect(app.ticker.started).toBe(false);
   });
+});
+
+it('shows the classic TCA when the rotating marker fails to load (SK4 3.2.4)', async () => {
+  const game = newGame(DEMO_VEHICLES_SCENARIO, 'missing-turret', { los: 'grid' });
+  const front = new Texture();
+  vi.spyOn(printedArt, 'printedTankLayers').mockReturnValue({ x: 30, y: 30, hull: front, roofWidth: 12, stock: 0xffffff });
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const load = vi.spyOn(Assets, 'load').mockImplementation(async url => {
+    if (String(url).endsWith('tca-bu.svg')) throw new Error('Missing marker');
+    return front;
+  });
+  const tank = { id: 'tank', defId: 'am.M4A3', side: 'am', loc: { kind: 'hex' as const, hex: 'yM2' }, tags: { vca: 1, ca: 2 } };
+  await mount({ statics: game.engine.statics as Statics, state: { ...game.state, pieces: { tank } } });
+  expect(load).toHaveBeenCalledWith(expect.stringContaining('tca-bu.svg'));
+  expect(pixi.graphics.some(g => g.calls.join(',').includes('moveTo,lineTo,stroke,moveTo,lineTo,stroke,circle,fill,stroke'))).toBe(true);
 });

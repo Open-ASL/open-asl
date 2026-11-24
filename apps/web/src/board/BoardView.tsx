@@ -2892,10 +2892,10 @@ export function BoardView({
         const split = canSplit ? splitTurret(p.defId) : null;
         const hdHull = split && texture(split.hull);
         const hdTurret = split && texture(split.turret);
-        const layers = split && hdHull && hdTurret ? { ...split, hull: hdHull, turret: hdTurret }
+        const printed = split && hdHull && hdTurret ? { ...split, hull: hdHull }
           : showTurretArt && canSplit ? printedTankLayers(tex, front) : null;
         if (tex) {
-          const sp = counterSprite(!showTurretArt && layers ? layers.hull : tex, size);
+          const sp = counterSprite(!showTurretArt && printed ? printed.hull : tex, size);
           if (spent) sp.tint = SPENT_TINT;
           sp.rotation = turn;
           box.addChild(sp);
@@ -2915,19 +2915,18 @@ export function BoardView({
         }
         // Point the turret at its covered arc (SK4 3.2.4).
         if (veh && hexCube && !isWreck(p) && veh.turret !== 'NT') {
-          const marker = showTurretArt ? texture(turretMarker(p)) : null;
-          const roof = marker ?? layers?.turret;
+          const marker = showTurretArt && printed ? texture(turretMarker(p)) : null;
+          const roof = marker ?? (hdHull ? hdTurret : null);
           if (roof) {
             const markerView = marker
-              ? turretMarkerSprite(marker, size, !!veh.openTopped, d.nationality, layers && 'roofWidth' in layers ? layers : null, front)
+              ? turretMarkerSprite(marker, size, !!veh.openTopped, d.nationality, printed && 'roofWidth' in printed ? printed : null, front)
               : null;
             const art = markerView?.art ?? new Sprite(roof);
-            const mount = layers && 'hullCenter' in layers ? layers.hullCenter : layers;
-            const dx = (mount?.x ?? size / 2) - size / 2;
-            const dy = (mount?.y ?? size / 2) - size / 2;
+            const dx = (printed?.x ?? size / 2) - size / 2;
+            const dy = (printed?.y ?? size / 2) - size / 2;
             if (!marker) {
               art.anchor.set(0.5);
-              art.width = art.height = layers!.size;
+              art.width = art.height = split!.size;
             }
             if (spent) art.tint = new Color(art.tint).multiply(SPENT_TINT).toNumber();
             art.position.set(size / 2 + dx * Math.cos(turn) - dy * Math.sin(turn), size / 2 + dx * Math.sin(turn) + dy * Math.cos(turn));
@@ -2936,11 +2935,11 @@ export function BoardView({
               turretViews.current.set(p.id, { art,
                 fitBarrel: markerView ? angle => markerView.fitBarrel(angle - turn, dx + size / 2, dy + size / 2) : undefined,
                 facing: tcaOf(env as QueryEnv, p), hull: vcaOf(p), cube: hexCube,
-                base: faces.current.get(p.id)?.sprite ?? null, aligned: tex, turned: layers?.hull ?? tex });
+                base: faces.current.get(p.id)?.sprite ?? null, aligned: tex, turned: printed?.hull ?? tex });
             } else {
               art.rotation = spineAngle(hexCube, tcaOf(env as QueryEnv, p)) + xf.current.angle;
             }
-          } else if (!showTurretArt) {
+          } else {
             const ang = spineAngle(hexCube, tcaOf(env as never, p)) + xf.current.angle;
             const cx = size / 2;
             const cy = size / 2;

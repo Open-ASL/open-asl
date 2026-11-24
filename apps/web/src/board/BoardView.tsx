@@ -1256,7 +1256,7 @@ export function BoardView({
     if (l) drawInk(l.ink, inkRef.current, xf.current.toView);
   };
   /** The drawn counter of each piece (rebuilt by every redraw), for face flips and burn-aways. */
-  const turretViews = useRef(new Map<string, { art: Container; fitBarrel?: ((angle: number) => void) | undefined; facing: number; hull: number; base: Sprite | null; aligned: Texture | null; turned: Texture | null; cube: MapHex['cube'] }>());
+  const turretViews = useRef(new Map<string, { art: Container; factors?: Sprite | undefined; fitBarrel?: ((angle: number) => void) | undefined; facing: number; hull: number; base: Sprite | null; aligned: Texture | null; turned: Texture | null; cube: MapHex['cube'] }>());
   const faces = useRef(new Map<string, { box: Container; sprite: Sprite | null; size: number }>());
   /** Map or offboard hex by id. */
   // A Location id (full ASL upper level, "uK4:1") stands for its hex.
@@ -1337,6 +1337,7 @@ export function BoardView({
       const facing = hotSector?.turretPiece === id ? hotSector.spine ?? turret.facing : turret.facing;
       turret.art.rotation = spineAngle(turret.cube, facing) + xf.current.angle;
       turret.art.visible = facing !== turret.hull;
+      if (turret.factors) turret.factors.visible = turret.art.visible;
       if (turret.art.visible) turret.fitBarrel?.(turret.art.rotation);
       const face = turret.art.visible ? turret.turned : turret.aligned;
       if (turret.base && face) turret.base.texture = face;
@@ -3054,7 +3055,13 @@ export function BoardView({
             art.position.set(size / 2 + dx * Math.cos(turn) - dy * Math.sin(turn), size / 2 + dx * Math.sin(turn) + dy * Math.cos(turn));
             box.addChild(art);
             if (showTurretArt) {
-              turretViews.current.set(p.id, { art,
+              const factors = marker && printed && 'factors' in printed ? counterSprite(printed.factors, size) : undefined;
+              if (factors) {
+                factors.rotation = turn;
+                if (spent) factors.tint = SPENT_TINT;
+                box.addChild(factors);
+              }
+              turretViews.current.set(p.id, { art, factors,
                 fitBarrel: markerView ? angle => markerView.fitBarrel(angle - turn, dx + size / 2, dy + size / 2) : undefined,
                 facing: tcaOf(env as QueryEnv, p), hull: vcaOf(p), cube: hexCube,
                 base: faces.current.get(p.id)?.sprite ?? null, aligned: tex, turned: printed?.hull ?? tex });

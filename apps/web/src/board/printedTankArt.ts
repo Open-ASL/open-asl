@@ -64,6 +64,7 @@ interface Layers {
   roofWidth: number;
   stock: number;
   hull: Texture;
+  factors: Texture;
   x: number;
   y: number;
 }
@@ -94,6 +95,29 @@ export function printedTankLayers(front: Texture, url: string): Layers | null {
 
 export function printedProfile(url: string) {
   return profiles[url.split('/').pop()?.replace(/\.webp$/, '') ?? ''];
+}
+
+// Restore the original ink and its immediate background above the moving marker.
+// The MP and armor columns use the same positions on the 180 px vehicle faces.
+function printedFactors(counter: CanvasRenderingContext2D): Texture {
+  const overlay = surface(PX);
+  const pixels = counter.getImageData(0, 0, PX, PX).data;
+  for (let y = 10; y < 115; y++) {
+    let first = PX;
+    let last = -1;
+    for (let x = y < 44 ? 115 : 135; x < 176; x++) {
+      const i = (y * PX + x) * 4;
+      const r = pixels[i]!, g = pixels[i + 1]!, b = pixels[i + 2]!;
+      if (Math.max(r, g, b) < 70 || (r > 130 && g < 70 && b < 70)) {
+        first = Math.min(first, x);
+        last = x;
+      }
+    }
+    if (last >= first) overlay.fillRect(first - 2, y - 2, last - first + 5, 5);
+  }
+  overlay.globalCompositeOperation = 'source-in';
+  overlay.drawImage(counter.canvas, 0, 0);
+  return Texture.from(overlay.canvas);
 }
 
 function buildPrintedHull(front: Texture, url: string): Layers | null {
@@ -213,6 +237,7 @@ function buildPrintedHull(front: Texture, url: string): Layers | null {
     roofWidth: 2 * w / 3,
     stock: (sample[0]! << 16) | (sample[1]! << 8) | sample[2]!,
     hull: Texture.from(hull.canvas),
+    factors: printedFactors(hull),
     ...onCounter(x, y),
   };
 }

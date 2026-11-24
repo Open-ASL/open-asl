@@ -1,11 +1,12 @@
 import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
-import { bunkerTrenches, controlState, pillboxLoc, entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, lastMineAttacks, roadblockObstacles, stunWord } from '@asl/rules';
+import { bunkerTrenches, controlState, pillboxLoc, entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, lastMineAttacks, roadblockObstacles, stunLabel } from '@asl/rules';
 import { AMMO_NAME, acquisitionsAt, ammoOut, defOf, fireAt, fireMarker, fireNumbers, fortCounters, fortKindName, gunIdent, isWeaponDef, locationsOf, moveState, parseLabor, rubbleAt, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, terrainOf, windOf, type Statics, type VehicleDef } from '@asl/rules';
 import { counterImage, cxMarker, markerImage } from '../game/assets';
 import { fortMarker } from '../panels/FortTray';
 import { identCss } from './ident';
 import { pieceLabel } from '../game/describe';
+import { StunCase } from '../game/StunCase';
 import { smoke58Chits } from '../game/smoke';
 import { HexArt, type ArtPlacement } from './HexArt';
 
@@ -49,10 +50,9 @@ function vehicleMgStates(env: QueryEnv, p: Piece): { type: string; state: 'malfu
 }
 
 /**
- * Status of a counter: the marker chit that sits on it on the board (if any) and a label. `keepCase` keeps a label out
- * of the status line's capitals, which would make a stun read as a STUN (SK4 7.7; ASLRB D5.34).
+ * Status of a counter: the marker chit that sits on it on the board (if any) and a label.
  */
-type Status = { label: string; marker?: string; keepCase?: boolean };
+type Status = { label: string; marker?: string };
 function statusOf(env: QueryEnv, p: Piece): Status[] {
   const t = p.tags;
   const out: Status[] = [];
@@ -117,8 +117,7 @@ function statusOf(env: QueryEnv, p: Piece): Status[] {
     if (t['dugIn']) out.push({ label: 'dug in' });
     if (t['shock'] === 'shock') out.push({ label: 'Shocked', marker: 'Shock' });
     if (t['shock'] === 'uk') out.push({ label: 'Unconfirmed Kill', marker: 'UK' });
-    if (t['stun'] === 'fresh') out.push({ label: stunWord(p, 'stunned'), marker: 'Stun', keepCase: true });
-    if (t['stun'] === 'plus1') out.push({ label: `${stunWord(p, 'stun')} +1`, marker: 'StunPlus1', keepCase: true });
+    if (t['stun'] !== undefined) out.push({ label: stunLabel(p), marker: t['stun'] === 'plus1' ? 'StunPlus1' : 'Stun' });
     if (t['recall']) out.push({ label: 'Recalled', marker: 'Recall' });
     if (t['bff']) out.push({ label: 'Bounding First Fire', marker: 'FireBnd' });
     if (t['lowAmmo']) out.push({ label: 'Low Ammo', marker: 'LowAmmo' });
@@ -133,14 +132,14 @@ function statusOf(env: QueryEnv, p: Piece): Status[] {
   return out;
 }
 
-/** The status labels in one line, with the `keepCase` ones out of its capitals. */
+/** The status labels in one line; a lowercase stun stays out of the line's capitals (StunCase). */
 function StatusLine({ st }: { st: Status[] }) {
   return (
     <span className="peek-status">
       {st.map((x, i) => (
         <Fragment key={i}>
           {i > 0 && ' · '}
-          {x.keepCase ? <span className="keep-case">{x.label}</span> : x.label}
+          <StunCase text={x.label} />
         </Fragment>
       ))}
     </span>

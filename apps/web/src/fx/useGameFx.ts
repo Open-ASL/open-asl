@@ -67,9 +67,6 @@ export interface DiceToast {
   hold: number;
 }
 
-/** Outcome lines shown as written, out of the toast's capitals: a lowercase stun is not a STUN (SK4 7.7; ASLRB D5.34). */
-export const KEEP_CASE_RESULTS: ReadonlySet<string> = new Set(['stun']);
-
 /**
  * Pacing of the dice: one roll (with its outcome) per beat, so a volley of morale checks reads
  * one at a time instead of landing all at once.
@@ -1061,7 +1058,7 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
             lastToast.detail = tk === null ? `${p['ammo']} has no To Kill number` : `${p['ammo']}${p['ch'] ? ' Critical Hit ×2' : ''} TK ${p['modifiedTk']} − AF ${p['af']} = Final TK ${tk} · kills below ${tk}`;
             lastToast.target = chip(target).label;
             lastToast.results.push(
-              result === 'kill' ? 'DESTROYED' : result === 'immobilized' ? 'IMMOBILIZED' : result === 'shock' ? 'SHOCK' : result === 'stun' ? 'stun' : result === 'possibleShock' ? (p['shocked'] ? 'Possible Shock: crew fails → SHOCK' : 'Possible Shock: crew holds') : result === 'dud' ? 'dud (12)' : 'no effect',
+              result === 'kill' ? 'DESTROYED' : result === 'immobilized' ? 'IMMOBILIZED' : result === 'shock' ? 'SHOCK' : result === 'stun' ? (p['stunned'] === 'STUN' ? 'STUN' : 'stun') : result === 'possibleShock' ? (p['shocked'] ? 'Possible Shock: crew fails → SHOCK' : 'Possible Shock: crew holds') : result === 'dud' ? 'dud (12)' : 'no effect',
             );
             lastToast.tone = result === 'none' || result === 'dud' || (result === 'possibleShock' && !p['shocked']) ? 'neutral' : 'bad';
           }

@@ -1,4 +1,4 @@
-import type { Action, Ctx, PieceId, QueryEnv, RuleModule } from '@asl/engine';
+import type { Action, Ctx, Piece, PieceId, QueryEnv, RuleModule } from '@asl/engine';
 import { byId, swHeldBy } from '../common/pieces';
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
 import { T } from '../sk1/status';
@@ -24,6 +24,14 @@ export function haltMover(ctx: Ctx, vehicleId: PieceId) {
   ctx.emit('sk1.move.state', { state: { ...ms, halted: true, vehicle: { ...ms.vehicle, stopped: true, started: false, freeStop: false } } });
 }
 
+/**
+ * What a stun result does to this vehicle: a second stun, or any stun on a One Man Turret, is a STUN with Recall
+ * (SK4 7.10). Whoever reports a stun before applying it asks here, so the report and the counter agree.
+ */
+export function stunOutcome(env: QueryEnv, p: Piece): 'stun' | 'STUN' {
+  return p.tags[T3.stun] !== undefined || vehicle(env, p)?.turret === '1MT' ? 'STUN' : 'stun';
+}
+
 /** Apply an effect to a vehicle and say so (`by`: what caused it). */
 export function applyVehicleEffect(ctx: Ctx, vehicleId: PieceId, effect: VehicleEffect, by: string) {
   const p = pieceOf(ctx, vehicleId);
@@ -32,7 +40,7 @@ export function applyVehicleEffect(ctx: Ctx, vehicleId: PieceId, effect: Vehicle
   switch (effect) {
     case 'wreck': {
       const vp = ctx.query('vp.casualty', { unit: vehicleId }, 0);
-      setTags(ctx, vehicleId, { [T3.wreck]: true, [T3.motion]: null, [T3.ce]: null, [T3.shock]: null, [T3.stun]: null, [T3.bff]: null, fire: null, acq: null, acqHex: null, acqUnits: null, acqLevel: null });
+      setTags(ctx, vehicleId, { [T3.wreck]: true, [T3.motion]: null, [T3.ce]: null, [T3.shock]: null, [T3.stun]: null, [T3.STUN]: null, [T3.bff]: null, fire: null, acq: null, acqHex: null, acqUnits: null, acqLevel: null });
       ctx.emit('sk3.vehicle.wrecked', { vehicle: vehicleId, by });
       ctx.emit('sk1.casualty', { unit: vehicleId, side: p.side, kind: 'eliminated', defId: p.defId, vp, turn: ctx.state.turn, phase: ctx.state.phase, reason: by });
       haltMover(ctx, vehicleId);
@@ -51,8 +59,7 @@ export function applyVehicleEffect(ctx: Ctx, vehicleId: PieceId, effect: Vehicle
       break;
     case 'stun': {
       // A second Stun (or any on a One Man Turret) is a STUN with Recall (7.10).
-      const d = vehicle(ctx, p)!;
-      if (p.tags[T3.stun] !== undefined || d.turret === '1MT') {
+      if (stunOutcome(ctx, p) === 'STUN') {
         applyVehicleEffect(ctx, vehicleId, 'STUN', by);
         return;
       }

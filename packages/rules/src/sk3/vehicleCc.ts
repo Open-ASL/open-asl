@@ -74,6 +74,14 @@ const vehicleOf = (env: QueryEnv, id: PieceId): Piece | null => {
   const p = env.state.pieces[id];
   return p && vehicle(env, p) && !isWreck(p) ? p : null;
 };
+/** The attacking vehicle whose crew is on the +1 side of its stun counter (SK4 7.10), if any. */
+const stunPlus1Attacker = (env: QueryEnv, attackers: readonly PieceId[]): Piece | null => {
+  for (const a of attackers) {
+    const v = vehicleOf(env, a);
+    if (v && hasStunPlus1(v)) return v;
+  }
+  return null;
+};
 
 /** A vehicle on the move that has not stopped (its own MPh), or in Motion. */
 export function nonStopped(env: QueryEnv, v: Piece): boolean {
@@ -269,11 +277,8 @@ export const vehicleCcModule: RuleModule = {
       id: 'sk3.cc.drm.stun',
       query: 'cc.drm',
       ref: 'SK4 7.10',
-      label: ({ attackers }, env) => {
-        const v = attackers.map((a) => pieceOf(env, a)).find((p) => vehicleOf(env, p.id) && hasStunPlus1(p));
-        return `+1 ${v ? stunWord(v, 'stunned') : 'stunned'} crew (+1)`;
-      },
-      when: ({ attackers }, env) => attackers.some((a) => vehicleOf(env, a) && hasStunPlus1(pieceOf(env, a))),
+      label: ({ attackers }, env) => `+1 ${stunWord(stunPlus1Attacker(env, attackers)!, 'stunned')} crew (+1)`,
+      when: ({ attackers }, env) => !!stunPlus1Attacker(env, attackers),
       apply: (v) => v + 1,
     });
     // Infantry DRM that do not apply to a vehicle target.

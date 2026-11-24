@@ -8,6 +8,7 @@ import type { GameState } from '@asl/engine';
 import { DEMO_VEHICLES_SCENARIO, newGame } from '@asl/content';
 import { StackPeek } from '../src/board/StackPeek';
 import { StackInspector } from '../src/panels/StackInspector';
+import { StunCase } from '../src/game/StunCase';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -50,20 +51,32 @@ describe('a stunned vehicle in the stack views', () => {
   it('writes a stun in lowercase, kept out of the capitals, and a STUN in capitals, in the map card and the tray (SK4 7.7; ASLRB D5.34)', () => {
     const { engine, state: s0 } = newGame(DEMO_VEHICLES_SCENARIO, 'stun', { los: 'grid' });
     const v = Object.values(s0.pieces).find((p) => p.defId === 'am.M4A3')!;
+    // [tags, the label in the card and the tray, the words kept out of the capitals]
     const cases = [
-      [{ stun: 'fresh' }, 'stunned', 'stunned'],
-      [{ stun: 'plus1' }, 'stun +1', 'stunned (+1)'],
-      [{ stun: 'fresh', STUN: true, recall: true }, 'STUNNED', 'STUNNED'],
-      [{ stun: 'plus1', STUN: true, recall: true }, 'STUN +1', 'STUNNED (+1)'],
+      [{ stun: 'fresh' }, 'stunned', ['stunned']],
+      [{ stun: 'plus1' }, 'stun +1', ['stun']],
+      [{ stun: 'fresh', STUN: true, recall: true }, 'STUNNED', []],
+      [{ stun: 'plus1', STUN: true, recall: true }, 'STUN +1', []],
     ] as const;
-    for (const [tags, label, tag] of cases) {
+    for (const [tags, label, kept] of cases) {
       const stun = JSON.stringify(tags);
       const state: GameState = { ...s0, pieces: { ...s0.pieces, [v.id]: { ...v, loc: { kind: 'hex', hex: 'yP5' }, tags: { ...v.tags, vca: 0, ca: 0, ...tags } } } };
       const env = engine.env(state);
       const card = renderHost(createElement(StackPeek, { env, hex: 'yP5', at: { x: 10, y: 10 }, bounds: { w: 800, h: 600 } }));
-      expect([...card.querySelectorAll('.peek-status .keep-case')].map((e) => e.textContent), stun).toEqual([label]);
+      expect(card.querySelector('.peek-status')?.textContent?.split(' · '), stun).toContain(label);
+      expect([...card.querySelectorAll('.peek-status .keep-case')].map((e) => e.textContent), stun).toEqual(kept);
       const tray = renderHost(createElement(StackInspector, { env, hex: 'yP5', selected: new Set(), onToggle: () => {} }));
-      expect(tray.querySelector('.tag-stun')?.textContent, stun).toBe(tag);
+      expect(tray.querySelector('.tag-stun')?.textContent, stun).toBe(label);
+      expect([...tray.querySelectorAll('.tag-stun .keep-case')].map((e) => e.textContent), stun).toEqual(kept);
     }
+  });
+
+  it('keeps a lowercase stun out of the capitals inside a longer line, and leaves a STUN alone', () => {
+    const words = (text: string) => [...renderHost(createElement(StunCase, { text })).querySelectorAll('.keep-case')].map((e) => e.textContent);
+    expect(words('stun')).toEqual(['stun']);
+    expect(words('Immobilized · stun · crew stunned')).toEqual(['stun', 'stunned']);
+    expect(words('STUN')).toEqual([]);
+    expect(words('DESTROYED')).toEqual([]);
+    expect(renderHost(createElement(StunCase, { text: 'Immobilized · stun' })).textContent).toBe('Immobilized · stun');
   });
 });

@@ -77,6 +77,8 @@ export const isRecalled = (p: Piece) => p.tags[T3.recall] === true;
 export const hasSTUN = (p: Piece) => p.tags[T3.STUN] === true;
 /** A stun's word as the players write it: a STUN in capitals, a stun in lowercase, never mixed (SK4 7.7; ASLRB D5.34). */
 export const stunWord = (p: Piece, word: 'stun' | 'stunned') => (hasSTUN(p) ? word.toUpperCase() : word);
+/** The label of a stunned vehicle's counter: `word` while the counter is fresh, "stun +1" once it has flipped, in the case of `stunWord`. */
+export const stunLabel = (p: Piece, word: 'stun' | 'stunned' = 'stunned') => (hasStunPlus1(p) ? `${stunWord(p, 'stun')} +1` : stunWord(p, word));
 /** The hull's Covered Arc (hexspine 0–5). */
 export const vcaOf = (p: Piece): number => (p.tags[T3.vca] as number | undefined) ?? 0;
 /** The turret's Covered Arc: SK2's `ca` tag for a turreted vehicle, the VCA otherwise. */

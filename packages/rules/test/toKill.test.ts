@@ -3,7 +3,8 @@ import type { Action, Engine, GameState } from '@asl/engine';
 import { facingOf, hitLocation } from '../src/sk3/facing';
 import { sk2CoreModules } from '../src/sk2';
 import { sk3CoreModules } from '../src/sk3';
-import { T3, stunWord } from '../src/sk3/status';
+import { T3, stunLabel, stunWord } from '../src/sk3/status';
+import { stunOutcome } from '../src/sk3/vehicleStatus';
 import { RU_VS_GE, act, makeEngine, type PieceSpec } from './fixtures';
 
 /*
@@ -215,6 +216,32 @@ describe('the To Kill process (SK4 7.9, 7.10)', () => {
       expect(s.pieces['t34']!.tags[T3.stun]).toBe('plus1');
       expect(stunWord(s.pieces['t34']!, 'stun')).toBe(g === STUN ? 'STUN' : 'stun');
     }
+  });
+
+  it('a wreck keeps neither the stun nor the STUN (SK4 7.10)', () => {
+    // The T-34's shot destroys a PzKw IV that is STUNNED and Recalled.
+    const { engine, state } = setup([2, 1, 3, 3]);
+    const pz = state.pieces['pziv']!;
+    const stunned = { ...state, pieces: { ...state.pieces, pziv: { ...pz, tags: { ...pz.tags, [T3.stun]: 'plus1', [T3.STUN]: true, [T3.recall]: true } } } };
+    const r = fire(engine, stunned, { weapon: 't34', target: 'yM5', targetType: 'VTT' });
+    expect(r.state.pieces['pziv']!.tags[T3.wreck]).toBe(true);
+    expect(r.state.pieces['pziv']!.tags[T3.stun]).toBeUndefined();
+    expect(r.state.pieces['pziv']!.tags[T3.STUN]).toBeUndefined();
+  });
+
+  it('a stun result is a STUN on a vehicle already stunned or with a One Man Turret, and the label follows the counter (SK4 7.10)', () => {
+    const { engine, state } = setup([]);
+    const env = engine.env(state);
+    const pz = state.pieces['pziv']!;
+    const with_ = (tags: Record<string, string | boolean>) => ({ ...pz, tags: { ...pz.tags, ...tags } });
+    expect(stunOutcome(env, pz)).toBe('stun');
+    expect(stunOutcome(env, with_({ [T3.stun]: 'fresh' }))).toBe('STUN');
+    expect(stunOutcome(env, with_({ [T3.stun]: 'plus1' }))).toBe('STUN');
+    expect(stunLabel(with_({ [T3.stun]: 'fresh' }))).toBe('stunned');
+    expect(stunLabel(with_({ [T3.stun]: 'fresh' }), 'stun')).toBe('stun');
+    expect(stunLabel(with_({ [T3.stun]: 'plus1' }))).toBe('stun +1');
+    expect(stunLabel(with_({ [T3.stun]: 'fresh', [T3.STUN]: true }))).toBe('STUNNED');
+    expect(stunLabel(with_({ [T3.stun]: 'plus1', [T3.STUN]: true }), 'stun')).toBe('STUN +1');
   });
 
   it('Shock recuperates in the Rally Phase: 1-2 recovers, 3-6 becomes an Unconfirmed Kill, which on 4-6 is a wreck', () => {

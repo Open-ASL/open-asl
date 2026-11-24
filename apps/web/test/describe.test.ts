@@ -67,6 +67,17 @@ describe('game log', () => {
     expect(line('STUN', 'fire on the CE crew: the CE crew rolled 12 on its MC')).toMatch(/ is STUNNED and Recalled \(/);
   });
 
+  it('a To Kill line writes the stun the crew ends up with (SK4 7.10)', () => {
+    const { engine, state } = newGame(DEMO_VEHICLES_SCENARIO, 'stun', { los: 'grid' });
+    const v = Object.values(state.pieces).find((p) => p.defId === 'am.M4A3')!;
+    const tk = (stunned?: string) =>
+      describeEvents(engine.env(state), [{ seq: 1, type: 'sk3.toKill', payload: { weapon: v.id, target: v.id, ammo: 'AP', ch: false, location: 'hull', facing: 'rear', af: 3, tk: 6, modifiedTk: 7, finalTk: 4, dr: [2, 2], result: 'stun', ...(stunned ? { stunned } : {}) } }] as never)[0]!.text;
+    expect(tk('stun')).toMatch(/→ stun$/);
+    expect(tk('STUN')).toMatch(/→ STUN$/);
+    // A game recorded before the event carried the outcome reads as it did.
+    expect(tk()).toMatch(/→ stun$/);
+  });
+
   it('a cowering attack shows the column it came to and the one it cowered to (SK1 3.2)', () => {
     const { engine, state } = makeEngine({ terrain, pieces: [{ id: 'a1', def: 'am.747', side: 'am', hex: 'yN5' }, { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yO5' }] });
     const ev = { seq: 1, type: 'sk1.fire.attack', payload: { attack: { mode: 'first', target: 'yO5', parts: ['a1'] }, from: ['yN5'], fp: 10, column: 6, dr: [6, 6], drm: 1, cowered: true, explain: [] } };

@@ -74,6 +74,21 @@ describe('Machine Guns vs AFV (SK4 4.1)', () => {
     expect(r.state.pieces['q']!.tags['fire']).toBeUndefined();
   });
 
+  it('a TK DR equal to the Final TK# stuns the AFV, and the To Kill record says STUN when the crew was already stunned (SK4 7.10)', () => {
+    // From behind, a turret hit: TK 6 + 1 (rear) - AF 4 = Final TK 3. TH DR 3 hits; TK DR 3 equals it.
+    const rear = (tags: Record<string, string | number | boolean>) =>
+      game([{ id: 'q', def: 'ru.447', side: 'ru', hex: 'yK5' }, { id: 'm', def: 'ru.LMG', side: 'ru', heldBy: 'q' }, { id: 'pz', def: 'ge.pzivf2', side: 'ge', hex: 'yK8', tags: { vca: 3, ca: 3, ...tags } }], [2, 1, 1, 2]);
+    const shot = { type: 'fire.ordnance', shot: { weapon: 'm', target: 'yK8', targetType: 'VTT' } };
+    const first = rear({});
+    const r1 = act(first.engine, first.state, shot);
+    expect(ev(r1, 'sk3.toKill')[0]).toMatchObject({ finalTk: 3, result: 'stun', stunned: 'stun' });
+    expect(r1.state.pieces['pz']!.tags['STUN']).toBeUndefined();
+    const second = rear({ stun: 'plus1' });
+    const r2 = act(second.engine, second.state, shot);
+    expect(ev(r2, 'sk3.toKill')[0]).toMatchObject({ result: 'stun', stunned: 'STUN' });
+    expect(r2.state.pieces['pz']!.tags).toMatchObject({ STUN: true, recall: true });
+  });
+
   it('a malfunction on an original TH DR at or above its B#', () => {
     const { engine, state } = mgGame('yK8', [6, 5]);
     const r = act(engine, state, { type: 'fire.ordnance', shot: { weapon: 'm', target: 'yK8', targetType: 'VTT' } });

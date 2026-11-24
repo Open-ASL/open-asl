@@ -68,6 +68,12 @@ export function GunComposer({ gunLabel, mannedBy, targetType, ammo, depletion, i
               </span>
             )}
           </div>
+          {preview.ift && (
+            <div className="ift-fp">
+              A hit attacks on the IFT with <b>{preview.ift.fp} FP</b>
+              {preview.ift.ch !== null && preview.ift.ch !== preview.ift.fp ? <span className="muted"> · a Critical Hit with {preview.ift.ch} FP</span> : null}
+            </div>
+          )}
           {preview.also?.map((line) => (
             <div key={line} className="muted">
               {line}

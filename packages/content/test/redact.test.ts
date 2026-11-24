@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deepEqual, type GameState, type LoggedEvent } from '@asl/engine';
-import { beltHexes, breaches, fortCounters, fortifiedKnownTo, fortifiedState, hiddenFrom, redactState, scatterState, shownCounter, type Breach, type FortRecord, type FortifiedState, type ScatterState } from '@asl/rules';
-import { ASL_TESTBED_MINES_SCENARIO, ASL_TESTBED_PILLBOX_SCENARIO, ASL_TESTBED_SCENARIO, FixtureBuilder, fixtureActions, PLAYABLE_SCENARIOS, TESTBED_FORTIFIED, mulberry, newGame, newSk1Game, testbedBreachApproach, testbedForts } from '../src';
+import { beltHexes, breaches, fortCounters, fortifiedKnownTo, fortifiedState, hiddenFrom, redactState, scatterState, shownCounter, statics, type Breach, type FortRecord, type FortifiedState, type ScatterState } from '@asl/rules';
+import { ASL_TESTBED_DEPLOY_SCENARIO, ASL_TESTBED_MINES_SCENARIO, ASL_TESTBED_PILLBOX_SCENARIO, ASL_TESTBED_SCENARIO, ASL_TESTBED_VEHICLES_SCENARIO, FixtureBuilder, fixtureActions, PLAYABLE_SCENARIOS, TESTBED_FORTIFIED, mulberry, newGame, newSk1Game, testbedBreachApproach, testbedForts } from '../src';
 
 /** Strings the viewer must never receive: ids of pieces hidden from them, and the other side's unrevealed secrets. */
 function secretsFrom(engine: ReturnType<typeof newSk1Game>['engine'], state: GameState, viewer: string | null): string[] {
@@ -448,5 +448,151 @@ describe('pillboxes: what each seat and a spectator receive (B30.7, A12.33)', ()
       expect(occupied(engine, f.state, viewer), `${viewer}`).toBeUndefined();
     }
     expect(known).toBe(true);
+  });
+});
+
+describe('Vehicles beneath a hidden trench, and the Hull Down question (ASLRB B27.52, A12.33, B9.36; T5)', () => {
+  const VIEWERS = ['ge', 'ru', null] as const;
+  type Trans = { from: GameState; to: GameState; events: LoggedEvent[] };
+  function record(fixture: string, more: (f: FixtureBuilder) => void) {
+    const g = newGame(ASL_TESTBED_VEHICLES_SCENARIO, 'vehicle-redact');
+    const f = new FixtureBuilder(g.engine, g.state);
+    for (const a of fixtureActions(g.engine, g.state, fixture)) f.act(a as never);
+    const start = f.actions.length;
+    more(f);
+    const trans: Trans[] = [];
+    let s = g.state;
+    for (const [i, a] of f.actions.entries()) {
+      const t = g.engine.submit(s, a);
+      if (i >= start) trans.push({ from: s, to: t.state, events: t.events as LoggedEvent[] });
+      s = t.state;
+    }
+    return { engine: g.engine, f, trans };
+  }
+  /** Every viewer's stream folds into its snapshot, transition by transition. */
+  function streams(engine: ReturnType<typeof newGame>['engine'], trans: Trans[]) {
+    for (const viewer of VIEWERS) {
+      const redact = (x: GameState) => redactState(engine, x, viewer);
+      for (const t of trans) {
+        const stream = engine.redactTransition(viewer, redact, t.from, t.events);
+        expect(deepEqual(engine.applyEvents(redact(t.from), stream), redact(t.to)), `${viewer} at seq ${t.to.seq}`).toBe(true);
+      }
+    }
+  }
+  const pos = (engine: ReturnType<typeof newGame>['engine'], s: GameState, viewer: string | null, id: string) => (redactState(engine, s, viewer).pieces[id]?.loc as { pos?: { ent?: string } } | undefined)?.pos?.ent;
+
+  it('the other seat and a spectator see the tank and no trench, no position, until a German within 16 hexes with a LOS reveals the trench; the owner sees it beneath throughout', () => {
+    let t34 = '';
+    let before: GameState | null = null;
+    const { engine, f, trans } = record('trench-tank-hidden', (b) => {
+      t34 = b.unit('ru', 'ru.T34M41');
+      before = b.state;
+      // A German 4-6-7 walks out of the U4 woods to U7, nine hexes from the L10 woods with a LOS to them (past the roadblock).
+      b.move([b.unit('ge', 'ge.467', 3), b.unit('ge', 'ge.L80')], ['uU5', 'uU6', 'uU7']);
+    });
+    streams(engine, trans);
+    for (const viewer of ['ge', null]) {
+      expect(pos(engine, before!, viewer, t34), `${viewer}`).toBeUndefined();
+      expect((redactState(engine, before!, viewer).ext['asl.fortifications'] as { counters: FortRecord[] }).counters.some((c) => c.hex === 'uL10'), `${viewer}`).toBe(false);
+    }
+    expect(pos(engine, before!, 'ru', t34)).toBe('trench');
+    const c = fortCounters(engine.env(f.state)).find((x) => x.hex === 'uL10')!;
+    expect(c.revealed).toBe(true);
+    for (const viewer of VIEWERS) expect(pos(engine, f.state, viewer, t34), `${viewer}`).toBe('trench');
+  });
+
+  it('the Hull Down question is the target\'s owner\'s: every seat\'s stream folds, and no choice is recorded before the answer', () => {
+    let pending: GameState | null = null;
+    const { engine, f, trans } = record('trench-tank-woods', (b) => {
+      const pz = b.unit('ge', 'ge.pzivf2');
+      const shot = b.engine.legalActions(b.state, 'ge').find((a) => a.type === 'fire.ordnance' && (a['shot'] as { weapon: string }).weapon === pz && (a['shot'] as { target: string }).target === 'uN10' && (a['shot'] as { targetType: string }).targetType === 'VTT')!;
+      const { side: _s, decisionId: _d, ...a } = shot;
+      b.act(a as never);
+      pending = b.state;
+      b.act({ type: 'hd.choose', choice: 'tem' });
+    });
+    streams(engine, trans);
+    expect(engine.currentDecision(pending!)).toMatchObject({ kind: 'hdChoice', owner: 'ru' });
+    for (const viewer of VIEWERS) expect(redactState(engine, pending!, viewer).ext['asl.hd.choice'], `${viewer}`).toBeUndefined();
+    expect(f.state.ext['asl.hd.choice']).toBeUndefined();
+    expect(f.state.ext['asl.hd.pending']).toBeUndefined();
+  });
+});
+
+describe('Deploy and Recombine by hidden units (ASLRB A1.31, A1.32, A12.3; T1, T6)', () => {
+  const VIEWERS = ['ge', 'ru', null] as const;
+  /** The test bed with the hidden-units rule given to `side` for `quota` squads. */
+  const withHidden = (base: typeof ASL_TESTBED_SCENARIO, side: string, quota: number) => ({ ...base, ssr: base.ssr.map((r) => (r.module === 'hidden-units' ? { ...r, params: { side, quota, notOpenGround: true, rule: 'SSR 2' } } : r)) });
+  /** A woods hex of `side`'s setup area. */
+  const woodsOf = (f: FixtureBuilder, base: typeof ASL_TESTBED_SCENARIO, side: string, not: string[] = []) => {
+    const map = statics(f.engine.env(f.state)).map;
+    const area = base.forces.find((x) => x.side === side)!.setup as { hexes: string[] };
+    return area.hexes.find((h) => map.hex(h)?.terrain === 'woods' && !not.includes(h))!;
+  };
+  function play(scenario: typeof ASL_TESTBED_SCENARIO, build: (f: FixtureBuilder) => void, act: (f: FixtureBuilder) => void) {
+    const g = newGame(scenario, 'deploy-redact');
+    const f = new FixtureBuilder(g.engine, g.state);
+    build(f);
+    const before = f.state;
+    act(f);
+    const t = g.engine.submit(before, f.actions[f.actions.length - 1]!);
+    for (const viewer of VIEWERS) {
+      const redact = (x: GameState) => redactState(g.engine, x, viewer);
+      const stream = g.engine.redactTransition(viewer, redact, before, t.events as LoggedEvent[]);
+      expect(deepEqual(g.engine.applyEvents(redact(before), stream), redact(t.state)), `${viewer}`).toBe(true);
+    }
+    return { engine: g.engine, before, after: t.state, events: t.events };
+  }
+
+  it('a hidden German squad and its hidden leader Deploy: the other seat and a spectator receive neither until the action places them on the board', () => {
+    const scenario = withHidden(ASL_TESTBED_SCENARIO, 'ge', 1);
+    let squad = '';
+    let leader = '';
+    const { engine, before, after } = play(
+      scenario,
+      (f) => {
+        f.fortify(TESTBED_FORTIFIED);
+        f.setup('ru', {});
+        squad = f.unit('ge', 'ge.467', 1);
+        leader = f.unit('ge', 'ge.L80');
+        const hex = woodsOf(f, scenario, 'ge');
+        f.setup('ge', { [squad]: hex, [leader]: hex }, {}, { hidden: [squad, leader] });
+        f.until('RPh', { turn: 1, attacker: 'ge' });
+      },
+      (f) => f.act({ type: 'rally.deploy', unit: squad, leader }),
+    );
+    for (const viewer of ['ru', null]) {
+      const seen = JSON.stringify(redactState(engine, before, viewer));
+      expect(seen, `${viewer}`).not.toContain(JSON.stringify(squad));
+      expect(seen, `${viewer}`).not.toContain(JSON.stringify(leader));
+      expect(redactState(engine, after, viewer).pieces[squad], `${viewer}`).toBeDefined();
+      expect(redactState(engine, after, viewer).pieces[leader], `${viewer}`).toBeDefined();
+    }
+    expect(redactState(engine, before, 'ge').pieces[squad]).toBeDefined();
+  });
+
+  it('two hidden Russian HS Recombine under a hidden 7-0 in the German RPh: placed on the board by it, never shown before', () => {
+    const scenario = withHidden(ASL_TESTBED_DEPLOY_SCENARIO, 'ru', 2);
+    let hs: string[] = [];
+    let leader = '';
+    const { engine, before, after } = play(
+      scenario,
+      (f) => {
+        f.fortify(TESTBED_FORTIFIED);
+        hs = [f.unit('ru', 'ru.226h', 1), f.unit('ru', 'ru.226h', 2)];
+        leader = f.unit('ru', 'ru.L70');
+        const hex = woodsOf(f, scenario, 'ru');
+        f.setup('ru', { [hs[0]!]: hex, [hs[1]!]: hex, [leader]: hex }, {}, { hidden: [...hs, leader] });
+        f.setup('ge', {});
+        f.until('RPh', { turn: 1, attacker: 'ge' });
+        f.pass();
+      },
+      (f) => f.act({ type: 'rally.recombine', units: hs, leader }),
+    );
+    for (const viewer of ['ge', null]) {
+      const seen = JSON.stringify(redactState(engine, before, viewer));
+      for (const id of [...hs, leader]) expect(seen, `${viewer} ${id}`).not.toContain(JSON.stringify(id));
+      expect(redactState(engine, after, viewer).pieces[hs[0]!]?.defId, `${viewer}`).toBe('ru.426');
+    }
   });
 });

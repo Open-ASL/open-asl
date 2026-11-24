@@ -7,6 +7,7 @@ import { knownEnemyAt } from '../sk1/known';
 import { fireMarker, isBroken, isPinned, mmc, pieceOf, setTags, smc } from '../sk1/status';
 import { levelOf } from '../sk2/elevation';
 import { isTi } from './labor';
+import { vehicle } from '../sk3/status';
 
 /*
  * Wall Advantage (ASLRB B9.32–B9.323, B9.41) over the hexside obstacles in play: today the roadblocks (B29.3, a stone wall
@@ -25,7 +26,10 @@ import { isTi } from './labor';
  *   only to a side with a claim or forfeit open to it; never by a pinned or TI unit.
  * - Loss (B9.32, B9.41): at once when the unit no longer qualifies (broken, pinned beneath nothing changes this, moved to
  *   another Location, an enemy in its Location), or when its hex has no wall hexside left (the roadblock removed).
- * Vehicles (B9.36, D4.2 HD), concealment (B9.324) and Deluxe ASL per-hexside WA wait for their chapters.
+ * - Vehicles (B9.32, B9.323): a vehicle may claim WA (and must, under B9.323) unless it is eligible for an in-hex TEM of +1
+ *   or more; a vehicle subject to the wall TEM is HD to Direct Fire ordnance instead (B9.36, `asl/hullDown.ts`). Its wall
+ *   TEM against non-ordnance waits for MG fire at vehicles (A9.6); Bypass WA (B9.32) for VBM.
+ * Concealment (B9.324) and Deluxe ASL per-hexside WA wait for their chapters.
  */
 
 export const WA_TAG = 'wa';
@@ -51,6 +55,8 @@ export const hasWa = (env: QueryEnv, p: Piece | undefined): boolean => !!p && ty
 export const hasWaOver = (env: QueryEnv, p: Piece, o: HexsideObstacle): boolean => hasWa(env, p) && wallSidesOf(env, p).some((x) => x.id === o.id);
 
 const armed = (env: QueryEnv, p: Piece): boolean => {
+  const v = vehicle(env, p);
+  if (v) return !!v.ma || Object.values(v.mg).some((fp) => !!fp);
   const m = mmc(env, p);
   if (m) return (m.fp ?? 0) > 0 || swHeldBy(env.state, p.id).length > 0;
   return swHeldBy(env.state, p.id).length > 0;
@@ -73,8 +79,13 @@ export function waDeniers(env: QueryEnv, p: Piece): Piece[] {
  */
 export function waIneligible(env: QueryEnv, p: Piece, withOthers = false): string | null {
   if (p.loc.kind !== 'hex') return 'Not on the map';
-  if (isVehicleDef(defOf(env, p))) return 'Vehicles and WA wait for Chapter D (ASLRB B9.32, B9.36)';
-  if (!mmc(env, p) && !smc(env, p)) return 'Not an Infantry unit';
+  const isVehicle = isVehicleDef(defOf(env, p));
+  if (isVehicle) {
+    // B9.32: of vehicles only "a vehicle eligible to receive in-hex TEM of ≥ 1" is barred (Height Advantage excepted: it is
+    // no in-hex TEM here); a wreck is no unit. Column/Convoy, bridges and VBM do not exist here.
+    if (p.tags['wreck'] === true) return 'A wreck is not a unit';
+    if (env.query('hex.tem', { hex: locOf(env.state, p)! }, 0) >= 1) return 'In-hex TEM of +1 or more: no WA for a vehicle (ASLRB B9.32)';
+  } else if (!mmc(env, p) && !smc(env, p)) return 'Not an Infantry unit';
   if (p.loc.level || p.loc.sub === 'pb') return p.loc.sub === 'pb' ? 'A unit in a pillbox may not claim WA (ASLRB B9.32)' : 'Only a ground-level unit may claim WA (ASLRB B9.32)';
   if (wallSidesOf(env, p).length === 0) return 'No wall hexside of its hex at its level (ASLRB B9.32, B9.6)';
   if (p.loc.pos?.ent) return 'A unit beneath an entrenchment may not claim WA (ASLRB B9.32)';

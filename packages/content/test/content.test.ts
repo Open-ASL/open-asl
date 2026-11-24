@@ -118,8 +118,8 @@ describe('SK3 vehicles (VASL import)', () => {
     expect((c['ru.KV2'] as VehicleDef).cmgVcaOnly).toBeUndefined();
   });
   it('keeps every existing scenario on its SK1/SK2 ruleset', () => {
-    // The free download cards with vehicles (S28) play under the SK3 rules too, as do the armor and jungle demos and the minefield and pillbox test beds (two German AFV).
-    const withVehicles = ['sk-s28', 'sk-s30', 'sk-s33', 'sk-s34', 'sk-s35', 'sk-s36', 'lma-10', 'lma-8', 'lma-5', 'lma-4', 'demo-armor', 'demo-jungle', 'asl-testbed-mines', 'asl-testbed-pillbox'];
+    // The free download cards with vehicles (S28) play under the SK3 rules too, as do the armor and jungle demos and the minefield, pillbox and vehicle test beds (German AFV).
+    const withVehicles = ['sk-s28', 'sk-s30', 'sk-s33', 'sk-s34', 'sk-s35', 'sk-s36', 'lma-10', 'lma-8', 'lma-5', 'lma-4', 'demo-armor', 'demo-jungle', 'asl-testbed-mines', 'asl-testbed-pillbox', 'asl-testbed-vehicles'];
     const commercial = new Set(COMMERCIAL_SCENARIOS.map((x) => x.id));
     for (const sc of ALL_SCENARIOS.filter((x) => !commercial.has(x.id) && !withVehicles.includes(x.id))) expect(needsSk3(sc), sc.id).toBe(false);
     for (const id of withVehicles) expect(needsSk3(ALL_SCENARIOS.find((x) => x.id === id)!), id).toBe(true);

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Action, Ctx, Engine, GameState, RuleModule } from '@asl/engine';
 import {
   FP,
+  defOf,
   acquisitionsAt,
   inCoveredArc,
   nearestSpine,
@@ -97,6 +98,26 @@ describe('To Hit Example #1 (SK4 3.2.4): an 88mm AA Gun on the Infantry Target T
     expect((shot!['explain'] as { label: string }[]).map((n) => n.label)).toEqual(['+2 Intensive Fire', '-1 Acquired Target']);
     expect(t.state.pieces['g88']!.tags).toMatchObject({ intensive: true, acqLevel: 2 });
     expect(() => act(engine, t.state, { type: 'fire.ordnance', shot: { weapon: 'g88', target: 'yM3', targetType: 'ITT', intensive: true } })).toThrow(/Intensive Fire this Player Turn/);
+  });
+});
+
+describe('the To Hit preview names the FP a hit attacks with (SK4 3.2.4, 6.1)', () => {
+  const pieces = [
+    { id: 'c1', def: 'ge.228c', side: 'ge', hex: 'yK5' },
+    { id: 'g88', def: 'ge.AA88L', side: 'ge', heldBy: 'c1', tags: { ca: 0 } },
+    { id: 'b1', def: 'br.457', side: 'br', hex: 'yO5' },
+  ];
+  it('gives the HE column on the Infantry and Area Target Types and a Critical Hit\'s, and none for Smoke', () => {
+    const { engine, state } = makeEngine({ scenario: GE_VS_BR, extra, pieces });
+    const env = engine.env(state);
+    const tables = statics(env).tables;
+    const def = defOf(env, state.pieces['g88']!) as Parameters<typeof tables.gunColumn>[0];
+    const itt = shotOutlook(env, { weapon: 'g88', target: 'yO5', targetType: 'ITT' }, 'prep', 'ge');
+    // To Hit Example #1: the 88 hits on the 16 column.
+    expect(itt.ift).toEqual({ fp: 16, ch: tables.gunColumn(def, 'CH') });
+    const att = shotOutlook(env, { weapon: 'g88', target: 'yO5', targetType: 'ATT' }, 'prep', 'ge');
+    expect(att.ift).toEqual({ fp: tables.gunColumn(def, 'ATT'), ch: tables.gunColumn(def, 'CH') });
+    expect(shotOutlook(env, { weapon: 'g88', target: 'yO5', targetType: 'ATT', ammo: 'SMOKE' }, 'prep', 'ge').ift).toBeUndefined();
   });
 });
 

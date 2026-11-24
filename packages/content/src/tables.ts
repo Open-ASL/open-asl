@@ -14,6 +14,8 @@ const CC_KILL: [string, number][] = [
 ];
 
 export const IFT_COLUMNS = [1, 2, 4, 6, 8, 12, 16, 20, 24, 30, 36];
+/** The IFT's HE row (ASLSK Combat Charts): the ordnance size whose HE attacks on each FP column. */
+export const IFT_HE: Record<number, string> = { 1: '20mm', 2: '30mm', 4: '37mm', 6: '50mm', 8: '60mm', 12: '70mm', 16: '80mm', 20: '100mm', 24: '120mm', 30: '150mm', 36: '200+mm' };
 
 /** Infantry Fire Table: per FP column, results for final DR ≤0, 1, 2, …; blank beyond the list. */
 const IFT: Record<number, string[]> = {

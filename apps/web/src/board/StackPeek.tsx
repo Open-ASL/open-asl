@@ -70,7 +70,12 @@ function statusOf(env: QueryEnv, p: Piece): { label: string; marker?: string }[]
   // Full ASL: Wall Advantage over the wall hexsides (a roadblock) of its hex (ASLRB B9.32, B9.31).
   if (typeof t['wa'] === 'string') out.push({ label: 'Wall Advantage: the wall TEM vs fire across its hexside, no in-hex TEM; denies it to the enemy across (ASLRB B9.31, B9.321)' });
   const labor = parseLabor(t['labor']);
-  if (labor) out.push({ label: `Labor ${labor.drm} on the next attempt at ${labor.task.replace(/^flame:/, 'the Flame in ').replace(/^entrench:/, 'entrenching in ').replace(/^[a-z]/, '')} (ASLRB B24.8)`, marker: labor.drm <= -2 ? 'Labor2' : 'Labor1' });
+  if (labor) out.push({ label: `Labor ${labor.drm} on the next attempt at ${labor.task.replace(/^flame:/, 'the Flame in ').replace(/^entrench:/, 'entrenching in ').replace(/^manhandle:/, 'pushing the Gun out of ').replace(/^[a-z]/, '')} (ASLRB B24.8)`, marker: labor.drm <= -2 ? 'Labor2' : 'Labor1' });
+  // Full ASL: a vehicle beneath a trench (ASLRB B27.52), or Hull Down behind a roadblock (B9.36, worked out per firer).
+  if (p.loc.kind === 'hex' && defOf(env, p).kind === 'vehicle' && isEntrenched(p)) {
+    const ent = entrenchmentAt(env, p.loc.hex);
+    out.push({ label: `beneath the ${ent ? entrenchmentName(ent) : 'trench'}: Hull Down to Direct Fire ordnance (only a turret hit counts), no Start MP, VCA change or Motion; the trench +2 vs Indirect Fire (ASLRB B27.52, D4.2)`, marker: 'Trench' });
+  }
   // Full ASL: beneath the foxhole or trench of the hex, or on top of it (ASLRB B27.1, B27.13).
   if (p.loc.kind === 'hex' && defOf(env, p).kind !== 'vehicle') {
     const ent = entrenchmentAt(env, p.loc.hex);

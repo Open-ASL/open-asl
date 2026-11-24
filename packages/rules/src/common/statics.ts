@@ -216,6 +216,11 @@ export interface VehicleDef extends CounterBase {
     specialAmmo?: SpecialAmmoDef[];
     noIntensive?: boolean;
   };
+  /**
+   * The MA uses the red To Hit numbers only in scenarios dated before this year, the black ones from it on, whatever
+   * the nationality: "Red TH#s (Pre44)" on the back of the Lend-Lease Sherman III(a) (SK3 Russian Vehicle Note 50).
+   */
+  redThBefore?: number;
   /** Machine guns (SK4 7.8): Bow / Coaxial / Anti-Aircraft / Rear FP; a white dot on the BMG is a Fixed Mount. */
   mg: { bmg?: number; bmgFixed?: boolean; cmg?: number; aamg?: number; rmg?: number };
   /** "CMG: VCA Only" (or "MG: VCA only") on the counter back: that CMG may not attack in CC (ASLRB D1.82, A11.62). */
@@ -601,6 +606,35 @@ export type ScenarioRuleset = 'starter-kit' | 'full-asl';
 /** The rulebook a scenario plays under, its default filled in. */
 export const scenarioRuleset = (s: Pick<ScenarioDef, 'ruleset'>): ScenarioRuleset => s.ruleset ?? 'starter-kit';
 
+/** The theatres of the war, as the service decorations group scenarios. */
+export type Theatre = 'nw-europe' | 'eastern-front' | 'mediterranean' | 'pacific';
+
+/**
+ * The US Army's WW2 campaigns (the battle stars on the campaign medals), named for the campaign a scenario's date and
+ * place fall in.
+ */
+export type Campaign =
+  | 'sicily' | 'rome-arno' | 'normandy' | 'northern-france' | 'southern-france' | 'rhineland' | 'ardennes-alsace'
+  | 'guadalcanal' | 'india-burma' | 'western-pacific' | 'luzon';
+
+/** Battles with a decoration of their own, beyond the campaigns. */
+export type Battle = 'stalingrad' | 'market-garden';
+
+/** The army a side fields. Several share a counter nationality: the Free French and Canadians use the British counters. */
+export type Army =
+  | 'american' | 'german' | 'russian' | 'british' | 'canadian' | 'free-french' | 'italian' | 'greek' | 'dutch' | 'japanese';
+
+/**
+ * Where a scenario stands in the war, for the service decorations: its theatre, the US campaign its date and place
+ * fall in, a battle with its own decoration, and each side's army where its counter nationality does not settle it.
+ */
+export interface ScenarioService {
+  theatre: Theatre;
+  campaign?: Campaign;
+  battle?: Battle;
+  armies?: Record<SideId, Army>;
+}
+
 /** Scenario data (the card's content encoded as data; never the card image). */
 export interface ScenarioDef {
   id: string;
@@ -679,6 +713,8 @@ export interface ScenarioDef {
   /** Where and when the action takes place, as the card's dateline gives them, e.g. "Vierville, France" and "7 June 1944". */
   place?: string;
   date?: string;
+  /** Theatre, campaign, battle and armies, for the service decorations. Every scenario players can play has one. */
+  service?: ScenarioService;
   /** The card's historical introduction and aftermath. Paragraphs are separated by blank lines. */
   history?: string;
   aftermath?: string;

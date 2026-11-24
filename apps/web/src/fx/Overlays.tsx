@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
+import { levelName, medalById, type MatchAwards } from '@asl/platform';
 import type { SideId } from '@asl/engine';
 import type { Callout } from './useGameFx';
 
@@ -48,13 +50,17 @@ export type AarCue = { kind: 'link'; href: string } | { kind: 'pending' } | { ki
 interface GameOverProps {
   winner: SideId | null;
   reason: string;
+  /** The winner's victory conditions that decided the game, as the card words them. */
+  decidedBy?: string[];
   sideName(s: SideId): string;
   onLobby(): void;
   onReview(): void;
   aar?: AarCue | null;
+  /** What the match did for this player's decorations, once the server has scored it. */
+  awards?: MatchAwards | null;
 }
 
-export function GameOver({ winner, reason, sideName, onLobby, onReview, aar = null }: GameOverProps) {
+export function GameOver({ winner, reason, decidedBy = [], sideName, onLobby, onReview, aar = null, awards = null }: GameOverProps) {
   const navigate = useNavigate();
   return (
     <div className={`gameover ${winner ? `side-${winner}` : ''}`}>
@@ -62,6 +68,16 @@ export function GameOver({ winner, reason, sideName, onLobby, onReview, aar = nu
         <div className="kicker">{winner ? 'Victory' : 'Stalemate'}</div>
         <div className="big">{winner ? sideName(winner) : 'Draw'}</div>
         <div className="reason">{reason}</div>
+        {decidedBy.length > 0 && (
+          <div className="decided">
+            <span className="decided-kicker">Decided by</span>
+            <ul>
+              {decidedBy.map((c) => (
+                <li key={c}>{c}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="buttons">
           <button className="primary" onClick={onLobby}>
             Back to lobby
@@ -70,6 +86,7 @@ export function GameOver({ winner, reason, sideName, onLobby, onReview, aar = nu
           {aar?.kind === 'pending' && <button disabled>Preparing report…</button>}
           <button onClick={onReview}>Review the board</button>
         </div>
+        {awards && (awards.earned.length > 0 || awards.advanced.length > 0) && <MatchAwardsNote awards={awards} />}
         {aar?.kind === 'none' && (
           <div className="no-aar">
             <svg viewBox="0 0 24 24" aria-hidden>
@@ -83,6 +100,39 @@ export function GameOver({ winner, reason, sideName, onLobby, onReview, aar = nu
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const ADVANCED_SHOWN = 5;
+
+/** The decorations a finished match earned or raised, and those it moved closer. */
+function MatchAwardsNote({ awards }: { awards: MatchAwards }) {
+  const [all, setAll] = useState(false);
+  const advanced = all ? awards.advanced : awards.advanced.slice(0, ADVANCED_SHOWN);
+  return (
+    <div className="gameover-awards">
+      {awards.earned.map(({ id, level }) => {
+        const m = medalById(id);
+        return (
+          <div key={id} className="gameover-earned">
+            <span className="gameover-earned-kicker">{level > 1 ? (m.classes ? 'Raised' : 'Further award') : 'Decorated'}</span>
+            <b>{levelName(m, level)}</b>
+          </div>
+        );
+      })}
+      {advanced.length > 0 && (
+        <ul className="gameover-advanced">
+          {advanced.map(({ id, value, goal }) => (
+            <li key={id}>
+              <span>{medalById(id).name}</span>
+              <span className="xp-bar"><span style={{ width: `${Math.round(Math.min(1, value / goal) * 100)}%` }} /></span>
+              <small>{Math.min(value, goal)} / {goal}</small>
+            </li>
+          ))}
+        </ul>
+      )}
+      {awards.advanced.length > ADVANCED_SHOWN && <button type="button" className="link" onClick={() => setAll(!all)}>{all ? 'Fewer' : `${awards.advanced.length - ADVANCED_SHOWN} more moved closer`}</button>}
     </div>
   );
 }

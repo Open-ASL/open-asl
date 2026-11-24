@@ -30,7 +30,7 @@ declare module '@asl/engine' {
      * Why `unit` (with what it holds) may not set up in `hex` by a rule of another rule pack (a large Gun in a building),
      * or null. The default placement steers clear of such hexes; the setup action is still judged by 'setup.illegal'.
      */
-    'setup.hexIllegal': { ctx: { side: SideId; unit: PieceId; hex: HexId }; value: string | null };
+    'setup.hexIllegal': { ctx: { side: SideId; unit: PieceId; hex: HexId; sw?: Record<PieceId, PieceId> }; value: string | null };
     /** Whether a victory condition another rule pack defines currently holds (null: nobody answers). */
     'vc.achieved': { ctx: { vc: VictoryCondition }; value: boolean | null };
     /** How many of a side's AFV in the hexes are mobile with a functioning MA (0 without the vehicle rules). */
@@ -761,22 +761,73 @@ function applySwAssignments(ctx: Ctx, sw: Record<PieceId, PieceId> | undefined) 
   }
 }
 
+/** The weapons a unit carries once the setup's SW assignments `sw` (SW id → unit) are applied. */
+function carriedWith(env: QueryEnv, holder: PieceId, sw: Record<PieceId, PieceId>): Piece[] {
+  return Object.values(env.state.pieces).filter((w) => w.loc.kind === 'held' && (sw[w.id] ?? w.loc.by) === holder);
+}
+
+/**
+ * Why handing weapon `swId` to `holder` breaks the setup so far, or null: the assignment rules (SK1 4.0) and the card's
+ * constraints, judged with the weapon where its new holder stands and the weapons not yet handed out in `sw` standing
+ * nowhere. A Gun dropped beside a building ("≥ 2 hexes away from any building") is refused here, or every later
+ * placement would fail on it.
+ */
+export function weaponDropIllegal(
+  env: QueryEnv,
+  side: SideId,
+  todo: Piece[],
+  placements: Record<PieceId, LocId>,
+  sw: Record<PieceId, PieceId>,
+  swId: PieceId,
+  holder: PieceId,
+): string | null {
+  const next = { ...sw, [swId]: holder };
+  const tray = todo.filter((p) => mmc(env, p) || smc(env, p)).flatMap((p) => swHeldBy(env.state, p.id));
+  const where = { ...Object.fromEntries(tray.map((w) => [w.id, '-'])), ...next };
+  return swAssignmentIllegal(env, side, todo, next) ?? placementIllegal(env, side, todo, placements, true, where);
+}
+
+/**
+ * Every weapon of the units being set up with a holder: the player's assignments `sw` kept, the rest with the unit the
+ * card gave them. A carrier the player has handed another weapon gives its own to a unit of its group left carrying
+ * nothing (two crews that swapped Guns: each Gun stays with one crew, never two with one).
+ */
+export function defaultSwAssignment(env: QueryEnv, todo: Piece[], sw: Record<PieceId, PieceId>): Record<PieceId, PieceId> {
+  const assign = { ...sw };
+  const given = new Set(Object.values(sw));
+  const load = (id: PieceId) => Object.values(assign).filter((h) => h === id).length;
+  // Only Infantry hand weapons about; a vehicle's own armament stays with it (SK4 7.8).
+  for (const p of todo.filter((u) => mmc(env, u) || smc(env, u))) {
+    for (const w of swHeldBy(env.state, p.id).sort(byId)) {
+      if (assign[w.id]) continue;
+      const spare = given.has(p.id)
+        ? todo.find((u) => u.id !== p.id && u.tags['force'] === p.tags['force'] && (mmc(env, u) || smc(env, u)) && load(u.id) === 0 && swHeldBy(env.state, u.id).every((x) => sw[x.id]))
+        : undefined;
+      assign[w.id] = spare?.id ?? p.id;
+    }
+  }
+  return assign;
+}
+
 /**
  * A legal default placement (round-robin over each piece's hexes within stacking limits, offboard
  * units near the middle of their edge), keeping any placements already made. Null if impossible.
+ * `sw` gives weapons to other units than the card's (the setup's SW assignments); the constraints follow them.
  */
 export function defaultPlacement(
   env: QueryEnv,
   side: SideId,
   todo: Piece[],
   existing: Record<PieceId, HexId> = {},
+  sw: Record<PieceId, PieceId> = {},
 ): Record<PieceId, HexId> | null {
   const placements: Record<PieceId, HexId> = { ...existing };
+  const held = (id: PieceId) => carriedWith(env, id, sw);
   const sc = statics(env).scenario;
   const map = statics(env).map;
   // The spacing constraints a piece is under (through the weapons it carries too), for ranking hexes.
   const spacingOf = (p: Piece) => {
-    const defs = [p.defId, ...swHeldBy(env.state, p.id).map((w) => w.defId)];
+    const defs = [p.defId, ...held(p.id).map((w) => w.defId)];
     const f = sc.forces[p.tags['force'] as number];
     const cs = f && (f.setup.kind === 'hexes' || f.setup.kind === 'area') ? (f.setup.constraints ?? []) : [];
     return cs.filter((c): c is Extract<SetupConstraint, { kind: 'spacing' }> => c.kind === 'spacing' && c.defs.some((d) => defs.includes(d)));
@@ -786,7 +837,7 @@ export function defaultPlacement(
   const anchored = (p: Piece) => {
     const f = sc.forces[p.tags['force'] as number];
     const cs = f && (f.setup.kind === 'hexes' || f.setup.kind === 'area') ? (f.setup.constraints ?? []) : [];
-    return cs.some((c) => c.kind === 'minWithin') ? swHeldBy(env.state, p.id).length : 0;
+    return cs.some((c) => c.kind === 'minWithin') ? held(p.id).length : 0;
   };
   // Units that must set up near a vehicle (LMA4 SSR 3) go after the vehicles.
   const nearVehicle = sc.forces.some((f) => f.side === side && (f.setup.kind === 'hexes' || f.setup.kind === 'area') && f.setup.constraints?.some((c) => c.kind === 'nearVehicle'));
@@ -795,11 +846,11 @@ export function defaultPlacement(
   const worth = (p: Piece) => {
     const m = mmc(env, p);
     const l = smc(env, p);
-    return m ? m.fp * 2 + m.morale + swHeldBy(env.state, p.id).length * 3 : l ? -l.leadership * 10 + l.morale : 0;
+    return m ? m.fp * 2 + m.morale + held(p.id).length * 3 : l ? -l.leadership * 10 + l.morale : 0;
   };
   const order = [...todo].sort((a, b) => vehicleFirst(a) - vehicleFirst(b) || Number(spacingOf(a).length === 0) - Number(spacingOf(b).length === 0) || Number(!mmc(env, a)) - Number(!mmc(env, b)) || anchored(b) - anchored(a) || worth(b) - worth(a));
   const geo = setupGeography(env, side);
-  const tactical = (h: HexId, p: Piece) => tacticalRank(env, geo, h, p, placements);
+  const tactical = (h: HexId, p: Piece) => tacticalRank(env, geo, h, p, placements, held);
   for (const p of order) {
     if (placements[p.id]) continue;
     const options = placementHexes(env, p);
@@ -808,7 +859,7 @@ export function defaultPlacement(
     // Spacing: prefer a hex within reach of a piece already placed under the same rule.
     const anchors = spacingOf(p).flatMap((c) =>
       todo
-        .filter((o) => o.id !== p.id && placements[o.id] && [o.defId, ...swHeldBy(env.state, o.id).map((w) => w.defId)].some((d) => c.defs.includes(d)))
+        .filter((o) => o.id !== p.id && placements[o.id] && [o.defId, ...held(o.id).map((w) => w.defId)].some((d) => c.defs.includes(d)))
         .map((o) => ({ hex: placements[o.id]!, near: c.withinOfAnother ?? Infinity, far: c.atLeast ?? 0 })),
     );
     const spacingRank = (h: HexId) =>
@@ -817,14 +868,14 @@ export function defaultPlacement(
         return d >= a.far && d <= a.near ? 0 : d < a.far ? 100 : d - a.near;
       }));
     // Anchor minimums (`minWithin`): prefer the anchor where this piece (and the SW it carries) fills the most shortfalls.
-    const fills = anchorFills(env, side, p, placements);
+    const fills = anchorFills(env, side, p, placements, held);
     const anchorRank = (h: HexId) => (fills.length === 0 ? 0 : 10 * (Math.max(...fills.map((f) => f.gain)) - Math.max(0, ...fills.filter((f) => map.distance(h, f.anchor) <= f.range).map((f) => f.gain))));
     // The card's constraints decide first; among the hexes they allow, the tactical rank (cover, the goals, the enemy's
     // front, spreading the stacks) picks; the middle of an edge only breaks ties for a force entering with no goals.
     const rank = (h: HexId) => 100 * (spacingRank(h) + anchorRank(h)) + tactical(h, p) + (p.loc.kind === 'offboard' && p.loc.edge !== 'setup' && mid ? 0.01 * Math.abs(options.indexOf(h) - options.indexOf(mid)) : 0);
     const used = (h: HexId) => Object.values(placements).filter((x) => x === h).length;
     const sorted = [...options].sort((a, b) => rank(a) - rank(b) || used(a) - used(b) || (a < b ? -1 : 1));
-    const hex = sorted.find((h) => !placementIllegal(env, side, todo, { ...placements, [p.id]: h }, true) && !env.query('setup.hexIllegal', { side, unit: p.id, hex: h }, null));
+    const hex = sorted.find((h) => !placementIllegal(env, side, todo, { ...placements, [p.id]: h }, true, sw) && !env.query('setup.hexIllegal', { side, unit: p.id, hex: h, sw }, null));
     if (!hex) return null;
     placements[p.id] = hex;
   }
@@ -876,10 +927,10 @@ export function setupGeography(env: QueryEnv, side: SideId): { front: HexId[]; g
  * way to the card's goals and toward the enemy's front, and the stack already there (two MMC make a fire group, a
  * third is one attack's worth of casualties; a leader joins MMC with no leader yet; a Gun or a vehicle stands alone).
  */
-function tacticalRank(env: QueryEnv, geo: { front: HexId[]; goals: HexId[]; holder: boolean }, h: HexId, p: Piece, placements: Record<PieceId, LocId>): number {
+function tacticalRank(env: QueryEnv, geo: { front: HexId[]; goals: HexId[]; holder: boolean }, h: HexId, p: Piece, placements: Record<PieceId, LocId>, held: (id: PieceId) => Piece[]): number {
   const map = statics(env).map;
   const vehicleP = isVehicleDef(defOf(env, p));
-  const gunP = swHeldBy(env.state, p.id).some((w) => isGunDef(defOf(env, w)));
+  const gunP = held(p.id).some((w) => isGunDef(defOf(env, w)));
   const leaderP = !!smc(env, p);
   const onMap = !!map.hex(h);
   // Hex distance by cubes: an offboard entry hex has a cube too, and `map.distance` knows only map hexes.
@@ -921,7 +972,7 @@ function tacticalRank(env: QueryEnv, geo: { front: HexId[]; goals: HexId[]; hold
   ];
   const mmcs = there.filter((q) => mmc(env, q)).length;
   const leaders = there.filter((q) => smc(env, q)).length;
-  const guns = there.filter((q) => swHeldBy(env.state, q.id).some((w) => isGunDef(defOf(env, w)))).length;
+  const guns = there.filter((q) => held(q.id).some((w) => isGunDef(defOf(env, w)))).length;
   const vehicles = there.filter((q) => isVehicleDef(defOf(env, q))).length;
   if (vehicleP) r += vehicles ? 6 : 0;
   else if (gunP) r += guns || mmcs ? 4 : 0;
@@ -934,10 +985,10 @@ function tacticalRank(env: QueryEnv, geo: { front: HexId[]; goals: HexId[]; hold
  * For a piece about to be placed by default: each `minWithin` anchor of its force and how many of that anchor's
  * shortfalls (MMC, leaders, SW it carries) placing it there would make up, given the placements so far.
  */
-function anchorFills(env: QueryEnv, side: SideId, p: Piece, placements: Record<PieceId, LocId>): { anchor: HexId; range: number; gain: number }[] {
+function anchorFills(env: QueryEnv, side: SideId, p: Piece, placements: Record<PieceId, LocId>, held: (id: PieceId) => Piece[]): { anchor: HexId; range: number; gain: number }[] {
   const progress = setupAnchorProgress(env, side, placements).filter((a) => a.force === p.tags['force']);
   if (progress.length === 0) return [];
-  const carried = swHeldBy(env.state, p.id).filter((w) => !isVehicleDef(defOf(env, w))).length;
+  const carried = held(p.id).filter((w) => !isVehicleDef(defOf(env, w))).length;
   return progress.map((a) => {
     let gain = 0;
     for (const c of a.counts) {

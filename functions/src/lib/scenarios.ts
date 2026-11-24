@@ -11,8 +11,6 @@ const sameRulesets: [RulesetId, ScenarioRuleset] extends [ScenarioRuleset, Rules
 void sameRulesets;
 
 export { ALL_SCENARIOS };
-/** Scenario ids that count toward the campaign medal. */
-export const CAMPAIGN_SCENARIO_IDS = ALL_SCENARIOS.filter((s) => s.product === 'sk1').map((s) => s.id);
 
 /** Validate a scenario choice and apply its balance options; returns the playable scenario and the ruleset hash it pins. */
 export function prepareScenario(scenarioId: unknown, balance: unknown): { scenario: ScenarioDef; balance: string[]; versionHash: string } {

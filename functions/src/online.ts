@@ -1,7 +1,8 @@
-import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { logger } from 'firebase-functions/v2';
+import { HttpsError, onCall, type CallableRequest } from 'firebase-functions/v2/https';
 import { RuleError, type Action, type Engine, type GameState } from '@asl/engine';
 import type { ScenarioDef } from '@asl/rules';
-import { COL, actionDocId, type MatchActionDoc, type MatchDoc, type MatchResult } from '@asl/platform';
+import { COL, actionDocId, recordEarlyQuit, type MatchActionDoc, type MatchDoc, type MatchResult } from '@asl/platform';
 import { db, now } from './lib/app';
 import { snapshotsOf, stepsOf, usesViews, viewersOf, type ViewStep } from './lib/views';
 import { rewindViews, seedOf, writeSnapshots, writeSteps } from './lib/viewStore';
@@ -119,6 +120,19 @@ async function playAction(matchId: string, before: MatchDoc, pos: { seed: string
  * action must answer the current decision and be legal from the recorded position.
  */
 export const submitAction = onCall({ minInstances: 1 }, async (req) => {
+  try {
+    return await submit(req);
+  } catch (e) {
+    // The player sees only "Order refused: <reason>"; the log keeps which order and why, so a report can be traced.
+    if (e instanceof HttpsError) {
+      const action = req.data?.action as { type?: unknown } | undefined;
+      logger.warn('submitAction refused', { matchId: req.data?.matchId, seq: req.data?.seq, type: action?.type, code: e.code, reason: (e.details as { code?: string } | undefined)?.code, message: e.message });
+    }
+    throw e;
+  }
+});
+
+async function submit(req: CallableRequest) {
   const { uid } = requireMember(req);
   const matchId = requireString(req.data?.matchId, 'matchId');
   const seq = req.data?.seq;
@@ -141,7 +155,7 @@ export const submitAction = onCall({ minInstances: 1 }, async (req) => {
   const snapshot = mine(played.snapshots) as { state: GameState } | undefined;
   const step = mine(played.steps) as ViewStep | undefined;
   return { seq: played.seq, result: played.result, ...(snapshot && step ? { step: { seq: played.seq, stateJson: JSON.stringify(snapshot.state), eventsJson: JSON.stringify(step.events) } } : {}) };
-});
+}
 
 /**
  * Act on a lapsed clock, at the waiting opponent's request. A lapsed clock does nothing by itself:
@@ -175,6 +189,9 @@ async function enforceTimeout(matchId: string, match: MatchDoc, uid: string, out
     if (!hasReachedOfficialThreshold(fresh, scenario)) {
       tx.update(ref, { ...abandonedPatch(fresh, { by: uid, reason: 'timeout' }, now()), ...seedBack });
       for (const player of Object.values(players)) if (player.data.activeMatchId === ref.id) tx.update(player.ref, { activeMatchId: null, updatedAt: now() });
+      // Running out of time in a ranked match starts the Good Conduct count again; the opponent's count is untouched.
+      const lapsed = players[fresh.seats[deadline.side]?.uid ?? ''];
+      if (lapsed && (fresh.competition ?? 'ranked') === 'ranked') tx.update(lapsed.ref, { service: recordEarlyQuit(lapsed.data.service), updatedAt: now() });
       return null;
     }
     return applyMatchResult(tx, ref, fresh, players, { winner: otherSide(scenario, deadline.side), reason: 'timeout' }, { summary: { ...fresh.summary, toMove: null }, deadline: null, ...seedBack });

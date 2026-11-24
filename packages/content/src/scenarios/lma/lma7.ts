@@ -34,6 +34,7 @@ export const LMA7_HILL_HEXES = [...LMA7_HILLS_V, ...LMA7_HILLS_T].flatMap((h) =>
 /** LMA7 Opération Brassard-2: Monte Costello (Ile d’Elbe, 17 June 1944). */
 export const LMA_7: ScenarioDef = {
   id: 'lma-7',
+  service: { theatre: 'mediterranean', campaign: 'rome-arno', armies: { br: 'free-french' } },
   product: 'lma',
   number: 'LMA7',
   title: 'LMA7 Brassard 2: Monte Costello',

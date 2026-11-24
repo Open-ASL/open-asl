@@ -56,6 +56,8 @@ import {
   inPlay,
   digInParams,
   deployableSquads,
+  deployQuota,
+  DEPLOYED_FROM,
   setupDeployParams,
   squadsDeployed,
   ssrHexAttacks,
@@ -84,6 +86,8 @@ import {
   ROUT_BAR_TEXT,
   planRout,
   defaultPlacement,
+  defaultSwAssignment,
+  weaponDropIllegal,
   FORTIFY_DECISION,
   fortifiableBuildings,
   fortifiableLocations,
@@ -161,10 +165,12 @@ import {
 } from '@asl/rules';
 import { caChangeFor, directedShotOptions, gunHexOf, shotOptions, spineLabel, spineToward, thPreview } from './game/ordnance';
 import { screenViewer } from './game/visibility';
+import { advanceTos, clickLoc } from './game/clickLoc';
 import { DirectorPicker, GunComposer } from './panels/GunComposer';
 import type { SmokeThrow } from '@asl/rules';
 import { maBffRefusal, vehicleMgUnavailable, entrenchDrm, entrenchHexIllegal, entrenchers, entrenchmentKnownTo, entrenchmentMf, entrenchmentName, entrenchmentRoom, isEntrenched, smc, stackEntrenchment, mineStepChoices, mineTbThrough, removeMinesIllegal, sideToward as mineSideToward, lastMineAttacks } from '@asl/rules';
-import { WIRE_DROP_DECISION, hasUnitsLeft, WA_RPH_DECISION, CLEARANCE_RULE, clearanceSideFor, defaultTbHexsides, roadblockBetween, clearanceCandidates, clearanceTargets, clearanceUnitIllegal, hasWa, lastWireExit, roadblockObstacles, stackWire, taskDrm, wallSidesOf, type ClearanceKind, type WireExitResult } from '@asl/rules';
+import { WIRE_DROP_DECISION, HD_CHOICE_DECISION, hullDownLabel, shotHullDown, WA_RPH_DECISION, CLEARANCE_RULE, clearanceSideFor, defaultTbHexsides, roadblockBetween, clearanceCandidates, clearanceTargets, clearanceUnitIllegal, hasWa, lastWireExit, roadblockObstacles, stackWire, taskDrm, wallSidesOf, type ClearanceKind, type WireExitResult } from '@asl/rules';
+import { enemyVehicleAt, shotContext } from '@asl/rules';
 import { ACQ_CHOICE_DECISION, CONCEAL_RTPH_DECISION, backblastFrom, mmc, squadEquivalents, LEADER_PTC_DECISION, ONCE_DR_DECISION, actionIllegal, onceDrRules, ordnanceWeaponIllegal, banzaiSteps, banzaiState, banzaiWindowsPending, concealRtphUnits, concealmentActive, declareIllegal as banzaiIllegal, dcChargeOptions, isJapanese, obConcealment, redactState } from '@asl/rules';
 import { counterTerrainIllegal, defaultFortPlacement, fortArea, fortCounters, fortKindName, fortPlaceIllegal, fortPools, fortSetupIllegal, fortificationView, fortificationsParams, hipIllegal, isPillboxLoc, roadblockExtension, type FortPlacement } from '@asl/rules';
 import { ccStateOf, isGroundLoc, arcSpine, bunkerTrenches, inPillboxCa, pillboxCcUnits, pillboxKnownToSide, pillboxLoc, pillboxMf, possiblePillbox } from '@asl/rules';
@@ -172,6 +178,7 @@ import { BoardView, type BoardOverlay, type FireHex, type FortHex, type Fortifie
 import { ActionWheel, action, group, type WheelItem } from './board/ActionWheel';
 import { StackPeek, hasPeek, stackIn } from './board/StackPeek';
 import { NATION, PHASE_NAME, defLabel, describeEvents, hexLabel, humanize, phaseSections, pieceLabel } from './game/describe';
+import { targetOwnDrms } from './game/targetDrm';
 import { LogSections } from './game/LogEntries';
 import { pillboxRoutMarks } from './game/pillboxRout';
 import { RofChoice, type RofChoiceItem } from './panels/RofChoice';
@@ -191,6 +198,7 @@ import { keepsTicks } from './game/stackClick';
 import { aimsAt, beyondRange, blindFireOffered, fireLeaders, fireSelectable, swCarriers, withinRange } from './game/fireSelection';
 import { endPhaseWarning, type EndPhaseWarning } from './game/endPhaseGuard';
 import { Modal } from './ui/Modal';
+import { deployEntries, type DeployEntry, type DeployOption } from './game/deployEntries';
 import { ErrorBoundary } from './ui/ErrorBoundary';
 import type { MapPoint, Session } from './game/session';
 import type { InkStroke } from './board/ink';
@@ -210,13 +218,15 @@ import { Hud } from './hud/Hud';
 import { PhaseWheel, resetWheel } from './fx/PhaseWheel';
 import { DiceLog, DiceTray } from './fx/DiceTray';
 import { CalloutBanner, GameOver, YourCall, type AarCue } from './fx/Overlays';
+import { gameOverText } from './game/gameOver';
+import type { MatchAwards } from '@asl/platform';
 import { DICE_LOG_LIMIT, useGameFx } from './fx/useGameFx';
 import { usePresentation } from './game/presentation';
 import { playSfx } from './audio/engine';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { ShortcutsDialog } from './panels/Shortcuts';
 import { ChartsDialog } from './panels/Charts';
-import { useFxLevel, useStackCard, useWeatherFx, useYourCallStrip } from './fx/settings';
+import { useFollowAction, useFxLevel, useStackCard, useWeatherFx, useYourCallStrip } from './fx/settings';
 import { hexsideScreenAngle, northScreenAngle, weatherFxKind, windScreenAngle } from './game/weatherView';
 import { CompassRose } from './hud/CompassRose';
 import { HudTools } from './deployment';
@@ -244,6 +254,8 @@ interface Props {
   aside?: ReactNode;
   /** The after action report's place on the victory screen (see GameOver). */
   aar?: AarCue | null;
+  /** What the match did for this player's decorations, once the server has scored it. */
+  awards?: MatchAwards | null;
   /** Who plays each side, for the top bar (see `seatNames`). */
   players?: Record<string, string>;
   /** More settings for this screen, shown at the foot of the Settings dialog (a commentator's switch). */
@@ -364,7 +376,7 @@ export function GameScreen(props: Props) {
   );
 }
 
-function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvingChange, slow = false, aside, aar = null, players, settingsExtra, ss }: Props) {
+function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvingChange, slow = false, aside, aar = null, awards = null, players, settingsExtra, ss }: Props) {
   const { engine } = session;
   const [fxLevel, setFxLevel] = useFxLevel();
   // The screen shows the game as far as the dice have been revealed (see usePresentation).
@@ -611,6 +623,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   const [kindle, setKindle] = useState<{ loc: string; picks: string[]; self: string | null } | null>(null);
   /** A Flame clearance being composed (full ASL B24.72): the Location and the units joining the one DR. */
   const [douse, setDouse] = useState<{ loc: string; picks: string[]; flame?: number } | null>(null);
+  // Full ASL Deployment (ASLRB A1.31): the weapons the second half-squad takes, asked before the NTC when the squad has two or more.
+  const [deploySplit, setDeploySplit] = useState<{ unit: string; leader: string; second: string[] } | null>(null);
   // Full ASL: the Clearance Task being composed (ASLRB B24.73, B24.76): the counter, its Location and the units ticked.
   const [clearing, setClearing] = useState<{ kind: ClearanceKind; counter: string; loc: string; picks: string[]; hexsides?: [number, number] } | null>(null);
   // An Entrenching Attempt being composed (ASLRB B27.11): the Location, the MMC ticked, the directing leader.
@@ -644,6 +658,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   const [weatherFx, setWeatherFx] = useWeatherFx();
   const [callStrip, setCallStrip] = useYourCallStrip();
   const [stackCard, setStackCard] = useStackCard();
+  const [followAction, setFollowAction] = useFollowAction();
   /** The phase the player hid the "your call" strip in: it stays hidden until the next one. */
   const [callHiddenIn, setCallHiddenIn] = useState<string | null>(null);
   const [sideCollapsed, setSideCollapsed] = useSideCollapsed();
@@ -750,9 +765,14 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   }, [session.pings]);
   // Online play: the hex this player has selected goes to the opponent, who sees it ringed in this side's colour while they
   // wait. Every hex, a hidden unit's too: holding some back would itself point them out, so a selection proves nothing
-  // (and a player may bluff). Nothing during setup, where a click shows where units go, hidden ones included.
-  const setupDecision = decision?.kind === 'setup' || decision?.kind === 'offboardSetup';
-  const focusShown = session.mySide && !setupDecision ? selectedHex : null;
+  // (and a player may bluff). Nothing before play starts, where a click shows where units go, hidden ones included, or
+  // which buildings are secretly fortified (ASLRB B23.911: "secretly recorded prior to the start of play").
+  const setupDecision = decision?.kind === 'setup' || decision?.kind === 'offboardSetup' || state.phase === 'setup';
+  // A hex selected before play (the last unit placed, a building looked at) stays selected into play: only a selection
+  // made since play began is shared, or the first ring would point at a setup choice.
+  const [selectedInPlay, setSelectedInPlay] = useState(false);
+  useEffect(() => setSelectedInPlay(state.phase !== 'setup'), [selectedHex]); // eslint-disable-line react-hooks/exhaustive-deps
+  const focusShown = session.mySide && !setupDecision && selectedInPlay ? selectedHex : null;
   useEffect(() => {
     session.sendFocus?.(focusShown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1006,7 +1026,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       return;
     }
     const next = { ...swAssign, [swId]: holder };
-    const err = swAssignmentIllegal(env, placing.owner, todo, next);
+    // The card's constraints bind the weapon where it now stands (a Gun beside a building), as they bind a unit placed.
+    const err = weaponDropIllegal(env, placing.owner, todo, pending, swAssign, swId, holder);
     setError(plain(err));
     if (!err) {
       setSwAssign(next);
@@ -1082,15 +1103,24 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   // Our own setup goes out to the opponent as we place it, and is cleared when the decision is answered.
   useEffect(() => {
     if (!session.publishDraft || session.mySide === undefined) return;
-    // Hidden Guns (HIP) and their crews, and units hidden by a special rule, stay out of what the opponent sees.
-    // Hidden and concealed placements stay out of the draft the opponent watches: a counter's id names it.
-    const hiddenCrews = new Set([...[...pendingHip].map((g) => swAssign[g]).filter(Boolean), ...pendingHidden, ...pendingConcealed]);
-    const shownPending = Object.fromEntries(Object.entries(pending).filter(([id]) => !hiddenCrews.has(id)));
-    // Placed weapons go too (for the opponent's view of our tray), unless hidden or carried by a hidden unit.
-    const shownSw = Object.fromEntries(Object.entries(swHexes).filter(([sw]) => !pendingHip.has(sw) && !hiddenCrews.has(swAssign[sw]!)));
+    // Whatever may set up hidden or concealed where it stands stays out of the draft the opponent watches, chosen or
+    // not: a unit placed first and hidden a moment later would already have been seen there, and a counter's id names
+    // it. So: HIP-capable Guns (SK4 6.4) with their crews, units a special rule hides or lets hide (S23 SSR 1, the
+    // Japanese 10%), and units in Concealment Terrain (SK4 8.3).
+    const hipGuns = new Set([...pendingHip, ...gunTodo.filter((g) => hipAllowed(g.id)).map((g) => g.id)]);
+    const secret = new Set([
+      ...[...hipGuns].map((g) => swAssign[g]).filter((u): u is PieceId => !!u),
+      ...pendingHidden,
+      ...pendingConcealed,
+      ...hiddenByRule,
+      ...Object.keys(pending).filter((id) => hideable(id) || concealable(id)),
+    ]);
+    const shownPending = Object.fromEntries(Object.entries(pending).filter(([id]) => !secret.has(id)));
+    // Placed weapons go too (for the opponent's view of our tray), unless hidden or carried by a unit kept back.
+    const shownSw = Object.fromEntries(Object.entries(swHexes).filter(([sw]) => !hipGuns.has(sw) && !secret.has(swAssign[sw]!)));
     session.publishDraft(placing ? { decisionId: placing.id, placements: { ...shownPending, ...shownSw } } : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placing?.id, pending, pendingHip, pendingHidden, pendingConcealed, swAssign]);
+  }, [placing?.id, pending, pendingHip, pendingHidden, pendingConcealed, swAssign, swHexes]);
   /** Who this screen shows the game to (`screenViewer`): 'all' shows everything, hidden units included. */
   const seenBy = screenViewer(session, decision?.owner, !!state.result);
   const seeAll = seenBy === 'all';
@@ -1353,14 +1383,16 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   const autoPlace = () => {
     if (!placing) return;
     if (fortRule && !fortLocked && pendingForts.length === 0) setPendingForts(defaultFortPlacement(env, placing.owner));
-    const next = defaultPlacement(env, placing.owner, todo, pending);
+    // Weapons not yet given out go to their card's carriers (or, where the player swapped them, to the unit left without one),
+    // and the units are placed with the weapons where they will stand.
+    const assign = defaultSwAssignment(env, todo, swAssign);
+    const next = defaultPlacement(env, placing.owner, todo, pending, assign);
     if (!next) {
-      setError('Cannot fit the remaining units around the ones already placed');
+      const why = placementIllegal(env, placing.owner, todo, pending, true, assign);
+      setError(why ? `Cannot auto-place the rest: ${plain(why)}` : 'Cannot fit the remaining units around the ones already placed');
       return;
     }
     setPending(next);
-    // Weapons not yet given out go to their card's carriers.
-    const assign = { ...Object.fromEntries(swTodo.map((s) => [s.id, (s.loc as { by: PieceId }).by])), ...swAssign };
     setSwAssign(assign);
     // Guns without a Covered Arc yet face the middle of the map (the player can turn them before confirming).
     const hexes = [...statics.map.hexes()];
@@ -1447,15 +1479,6 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     const loc = clickLoc(opts.map((a) => a['to'] as string), to, hexOfId(state, unit));
     return opts.find((a) => a['to'] === loc);
   };
-  /**
-   * The Location a click on `hex` stands for among step targets `tos` (Location ids) of units standing in `from`: the
-   * hex itself when it is one; in full ASL, for units upstairs, the same floor of that hex. A level of `from` itself
-   * (the stairs) is never a click on the map but a wheel entry (ASLRB B23.4). In the Starter Kit this is `hex`.
-   */
-  function clickLoc(tos: string[], hex: HexId, from?: HexId | null): string {
-    if (tos.includes(hex) || hex === from) return hex;
-    return tos.find((t) => hexOfLoc(t) === hex) ?? hex;
-  }
   /**
    * Why a broken unit may not take its first rout step into each hex beside it, distinct reasons only. A rout
    * may never shorten the range to a Known enemy unit in LOS, broken or far away (ASLRB A10.51), which can box
@@ -1737,6 +1760,14 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   const digInRule = placing ? digInParams(env, placing.owner) : undefined;
   // Squads a special rule lets the side split into half-squads at setup (LMA7 SSR 3, `setup-deploy`).
   const deployRule = placing ? setupDeployParams(env, placing.owner) : undefined;
+  // Full ASL A2.9: the group's 10% (FRU), with the squads still to place; a nationality that may not Deploy gets its reason.
+  const aslSetupQuota = useMemo(() => {
+    if (!placing || statics.scenario.ruleset !== 'full-asl') return null;
+    const squads = todo.filter((p) => defOf(env, p).kind === 'squad');
+    const any = squads[0] ?? todo.find((p) => p.tags[DEPLOYED_FROM] !== undefined);
+    const quota = any ? deployQuota(env, placing.owner, any.id) : null;
+    return quota ? { quota, squads } : null;
+  }, [placing, todo, env, statics]);
   const canDigIn = (id: PieceId) => !!digInRule && !digInRule.defs && placing?.kind === 'setup' && !!pending[id];
   const vehiclesField = Object.fromEntries(vehicleTodo.filter((v) => pending[v.id]).map((v) => [v.id, { vca: pendingCa[v.id] ?? defaultVca(env, pending[v.id]!), ...(pendingTca[v.id] !== undefined && vehicleDef(env, v)?.turret !== 'NT' ? { tca: pendingTca[v.id] } : {}), ...(pendingCe.has(v.id) ? { ce: true } : {}), ...(pendingDugIn.has(v.id) && canDigIn(v.id) ? { dugIn: true } : {}) }]));
   // Hidden units (SSR): only those still placed where hiding is allowed go into the setup.
@@ -1849,7 +1880,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   };
   const confirmFortify = fortifying
     ? {
-        label: fortPicks.length ? `Fortify ${fortPicks.length} ${fortByLoc ? 'Location' : 'building'}${fortPicks.length === 1 ? '' : 's'}` : 'Fortify none',
+        // The designation comes before any unit is placed (a pre-designation, ASLRB B23.911): the button says what follows.
+        label: `${fortPicks.length ? `Fortify ${fortPicks.length} ${fortByLoc ? 'Location' : 'building'}${fortPicks.length === 1 ? '' : 's'}` : 'Fortify none'}, then set up units`,
         icon: '✔',
         blocked: plain(fortifyIllegal(env, fortifying.owner, fortPicksArg(fortPicks))),
         onClick: () => run({ type: 'fortify.designate', ...fortPicksArg(fortPicks) }),
@@ -2270,7 +2302,13 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   const gunPreview = useMemo(() => {
     if (!gunShot || !owner || !target) return null;
     const shot = buildShot(target);
-    return shot ? thPreview(env, shot, gunMode(), owner, gunMode() === 'bounding' || !ms ? undefined : firstFireTargets(env, ms)) : null;
+    const p = shot ? thPreview(env, shot, gunMode(), owner, gunMode() === 'bounding' || !ms ? undefined : firstFireTargets(env, ms)) : null;
+    // Full ASL: a vehicle Hull Down to the shot (beneath a trench, B27.52; behind a roadblock, B9.36) is named: only a turret hit counts.
+    if (p && shot && shot.targetType === 'VTT' && !p.illegal) {
+      const hd = shotHullDown(env, shotContext(env, shot, gunMode(), owner), shot.targetUnit ?? enemyVehicleAt(env, shot.target, owner)?.id);
+      if (hd) return { ...p, also: [...(p.also ?? []), hullDownLabel(hd)] };
+    }
+    return p;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gunShot, owner, target, env, state, ms, decision, phase]);
   /** Everyone standing in a hex (units and vehicles; held weapons excluded). */
@@ -2323,6 +2361,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           // Full ASL Snap Shot (ASLRB A8.15): say what it is aimed at and why its numbers differ.
           ...(fireDecl.snap ? [`Snap Shot at ${fireDecl.snap.map((h) => h.replace(/^[a-z]+/, '')).join('-')}: ½ FP (Area Fire), no TEM, FFNAM or FFMO; traced to both corners of the hexside`] : []),
           ...drm.trace.filter((t) => !t.suppressedBy && t.label).map((t) => t.label!),
+          // A target's own DRM (-1 vs a FT possessor) is on its result alone: named per unit (SK1 4.2, ASLRB A22.4).
+          ...targetOwnDrms(env, attack, drm.value),
           'LOS and hindrances are checked when you fire',
         ],
         leftOut: [
@@ -2653,8 +2693,11 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         return { selectedHex, highlights, selectedPieces: new Set<PieceId>(), los: null, badges: anchorBadges };
       }
       if (picked && isSw(picked)) {
-        // Green = hexes holding a placed unit of the weapon's group.
-        for (const h of new Set(Object.values(pending))) if (swHolderAt(picked, h)) highlights.set(h, GREEN);
+        // Green = hexes holding a placed unit of the weapon's group that may take it there (a Gun not beside a building).
+        for (const h of new Set(Object.values(pending))) {
+          const holder = swHolderAt(picked, h);
+          if (holder && !weaponDropIllegal(env, placing.owner, todo, pending, swAssign, picked, holder)) highlights.set(h, GREEN);
+        }
         return { selectedHex, highlights, selectedPieces: selected, los: null, badges: anchorBadges };
       }
       const candidates = picked ? todo.filter((p) => p.id === picked) : todo.filter((p) => !pending[p.id]);
@@ -3174,7 +3217,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     }
     if (decision?.kind === 'phase' && phase === 'APh' && selected.size > 0) {
       const units = [...selected];
-      const advTo = clickLoc(legal.filter((a) => a.type === 'advance').map((a) => a['to'] as string), hex, hexOfId(state, units[0]!));
+      const advTo = clickLoc(advanceTos(legal, units), hex, hexOfId(state, units[0]!));
       const why = plain(session.check({ type: 'advance', units, to: advTo }));
       if (why === null) {
         // Full ASL: the advance may end beneath the foxhole or trench of the hex entered (ASLRB B27.44): ask which.
@@ -3750,6 +3793,27 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
             }),
           );
         }
+        // Full ASL: a vehicle may start beneath a trench or A-T Ditch (ASLRB B27.51), Hull Down and never moving (B27.52);
+        // never beneath a foxhole (B27.1) or Wire (B26.43): the entry stays, greyed with the reason.
+        const vehiclesHereNow = todo.filter((p) => pending[p.id] === hex && vehicleTodo.some((v) => v.id === p.id));
+        const fortHere = fortificationsHereOf(hex).find((c) => c.kind === 'foxhole' || c.kind === 'trench' || c.kind === 'ditch') ?? fortificationsHereOf(hex).find((c) => c.kind === 'wire');
+        if (fortHere)
+          for (const v of vehiclesHereNow) {
+            const on = pendingBeneath.has(v.id);
+            const next = new Set(pendingBeneath);
+            if (on) next.delete(v.id);
+            else next.add(v.id);
+            const err = on ? null : plain(fortSetupIllegal(shownEnv, placing.owner, { type: 'setup.place', side: placing.owner, decisionId: placing.id, placements: pending, beneath: [...next].filter((id) => pending[id] && !isPillboxLoc(pending[id]!)) }));
+            const name = fortKindName(fortHere);
+            items.push(
+              action(on ? `${pieceLabel(env, v).replace(/^\S+ /, '')}: on top of the ${name}` : `${pieceLabel(env, v).replace(/^\S+ /, '')}: beneath the ${name}`, () => { setPendingBeneath(next); setError(null); }, {
+                icon: on ? '▴' : '▾',
+                active: on,
+                disabled: !!err,
+                hint: err ?? (on ? `Back on top: it may move, but a tracked vehicle checks for Bog changing VCA in a trench hex (ASLRB B27.55)` : `Beneath the ${name}: Hull Down, never moves (no Start MP, VCA change or Motion), outside its Infantry capacity (ASLRB B27.51, B27.52)`),
+              }),
+            );
+          }
       }
       // Concealment (SK4 8.3): the OB's counters go on stacks set up in Concealment Terrain, one per stack.
       if (concealmentOn) {
@@ -4304,15 +4368,17 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       const rec = recoverMenu('rally.recover', unpossessedSwAt(env, hex), holders, ticked.length === 1 ? ticked[0] : undefined);
       if (rec) items.push(rec);
       // U.S. Marine Corps (SK4 8.4): a 7-6-8 deploys by NTC; two 3-4-8 with a leader recombine.
-      for (const a of legal.filter((x) => x.type === 'rally.deploy' && idsHere.has(x['unit'] as string)))
-        items.push(action(`Deploy ${pieceLabel(env, state.pieces[a['unit'] as string]).replace(/^\S+ /, '')} (NTC)`, () => run(a), { icon: '⇉', hint: 'Pass a Normal Task Check to split the squad into two 3-4-8 half-squads: its sole Rally Phase action (SK4 8.4)' }));
-      for (const a of legal.filter((x) => x.type === 'rally.recombine' && (x['units'] as string[]).every((u) => idsHere.has(u))))
-        items.push(action(`Recombine into a 7-6-8 (${pieceLabel(env, state.pieces[a['leader'] as string]).replace(/^\S+ /, '')})`, () => run(a), { icon: '⇇', hint: 'Two Good Order 3-4-8 half-squads with a Good Order leader become a 7-6-8: their sole Rally Phase action (SK4 8.4.1)' }));
+      if (!fullAslRules) {
+        for (const a of legal.filter((x) => x.type === 'rally.deploy' && idsHere.has(x['unit'] as string)))
+          items.push(action(`Deploy ${pieceLabel(env, state.pieces[a['unit'] as string]).replace(/^\S+ /, '')} (NTC)`, () => run(a), { icon: '⇉', hint: 'Pass a Normal Task Check to split the squad into two 3-4-8 half-squads: its sole Rally Phase action (SK4 8.4)' }));
+        for (const a of legal.filter((x) => x.type === 'rally.recombine' && (x['units'] as string[]).every((u) => idsHere.has(u))))
+          items.push(action(`Recombine into a 7-6-8 (${pieceLabel(env, state.pieces[a['leader'] as string]).replace(/^\S+ /, '')})`, () => run(a), { icon: '⇇', hint: 'Two Good Order 3-4-8 half-squads with a Good Order leader become a 7-6-8: their sole Rally Phase action (SK4 8.4.1)' }));
+      } else items.push(...aslDeployItems(unitsHere, owner!));
       // DM (SK1 3.1 g): "Remove DM" (or "Keep DM", to take that back) on every broken unit here under DM.
       const dms = dmChoices(env, owner!, unitsHere).map((c) => ({ ...dmItem(c), label: `${c.label}: ${pieceLabel(env, state.pieces[c.unit])}` }));
       if (dms.length === 1) items.push(dms[0]!);
       else if (dms.length > 1) items.push(group('DM…', dms, { icon: '⚐' }));
-      const deployHere = unitsHere.filter((p) => p.side === owner && p.defId === 'am.768');
+      const deployHere = unitsHere.filter((p) => p.side === owner && p.defId === 'am.768' && !fullAslRules);
       if (deployHere.length && !legal.some((x) => x.type === 'rally.deploy' && idsHere.has(x['unit'] as string))) {
         const why = plain(session.check({ type: 'rally.deploy', unit: deployHere[0]!.id }));
         if (why && !/Only in the/.test(why)) items.push(action('Deploy (NTC)', () => {}, { icon: '⇉', disabled: true, hint: why }));
@@ -4769,7 +4835,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       // advance into light up green, and a click on one advances them.
       // On the map, or off it from an exit hex (ASLRB A2.6: units leave the map "using normal MPh/APh capabilities").
       const offboard = statics.map.offboard('N,E,S,W').filter((o) => statics.map.offboardNeighbors(o.id).onboard.includes(hex)).map((o) => o.id);
-      const targets = [...statics.map.neighbors(hex), ...offboard].filter((to) => session.check({ type: 'advance', units, to }) === null);
+      // Upstairs, a hex beside stands for its same floor (ASLRB A4.7, B23.422).
+      const tos = advanceTos(legal, units);
+      const targets = [...statics.map.neighbors(hex), ...offboard].map((h) => clickLoc(tos, h, hex)).filter((to) => session.check({ type: 'advance', units, to }) === null);
       if (targets.length)
         items.push(action('Advance… click a hex', () => { setSelectedHex(hex); setSelected(new Set(units)); }, { icon: '➜', hint: `Select these units; the green hexes are where they may advance, click one${targets.some((t) => offboard.includes(t)) ? ' (the green hex beyond the map edge exits them)' : ''}` }));
 
@@ -4973,6 +5041,27 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     return entries.length ? group('Recover', entries, { icon: '⚙' }) : null;
   }
 
+  /**
+   * Full ASL Deploy and Recombine wheel entries for a stack in the RPh (`deployEntries`: ASLRB A1.31, A1.32, A2.52). A squad
+   * holding two or more weapons asks how they are shared first (A1.31 "freely rearranged").
+   */
+  function aslDeployItems(unitsHere: Piece[], side: string): WheelItem[] {
+    const send = (o: DeployOption) => {
+      if (o.askSplit) setDeploySplit({ unit: o.action['unit'] as string, leader: o.action['leader'] as string, second: o.action['second'] as string[] });
+      else run(o.action as never, true);
+    };
+    const entries = deployEntries(env, state, legal, (a) => plain(session.check(a as never)), unitsHere, side);
+    const item = (e: DeployEntry): WheelItem => {
+      const icon = e.kind === 'deploy' ? '⇉' : '⇇';
+      if (e.disabled) return action(e.label, () => {}, { icon, disabled: true, hint: e.hint });
+      if (e.options.length === 1) return action(e.label, () => send(e.options[0]!), { icon, hint: e.hint });
+      return group(e.label, e.options.map((o) => action(o.label, () => send(o), { hint: o.hint })), { icon, hint: e.hint });
+    };
+    const deploys = entries.filter((e) => e.kind === 'deploy').map(item);
+    const recombines = entries.filter((e) => e.kind === 'recombine').map(item);
+    return [...(deploys.length > 1 ? [group('Deploy…', deploys, { icon: '⇉' })] : deploys), ...(recombines.length > 1 ? [group('Recombine…', recombines, { icon: '⇇' })] : recombines)];
+  }
+
   const togglePiece = (id: PieceId) =>
     setSelected((s) => {
       const n = new Set(s);
@@ -5062,6 +5151,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   }, [overlay, losThreads, theirHex, theirColor, ssMarks]);
   const result = state.result;
   const sideName = (s?: string) => (s ? (scenario.sides.find((x) => x.side === s)?.name ?? NATION[s] ?? s) : '');
+  const gameOver = useMemo(() => gameOverText(env, scenario, state, sideName), [env, scenario, state.result]);
   // Each side's tally when its victory conditions turn on one (exit VP, or CVP), else nothing.
   const tally = useMemo(() => Object.fromEntries(scenario.sides.map((s) => [s.side, sideTally(env, scenario, s.side)])), [env, scenario]);
   // Panzerfaust shots left, for the sides that have them (public information, SK4 4.4.2).
@@ -5097,6 +5187,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       ping: (hex: HexId, at?: MapPoint) => pingHex(hex, at),
       /** Online play: the hex the other player has selected, as this board rings it. */
       theirFocus: theirFocus?.hex ?? null,
+      /** Online setup: the other player's placements as this board receives them (piece id → hex). */
+      theirDraft,
       selectedHex,
       kindOf: (id: PieceId) => (state.pieces[id] ? defOf(env, state.pieces[id]!).kind : null),
       /** The fire group as declared so far (the orders panel's), or null. */
@@ -5166,6 +5258,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           onReturnPiece={(id) => pending[id] && unplace(id, false)}
           fx={fx.boardFx}
           animate={fxLevel !== 'off'}
+          {...(followAction && session.mySide !== undefined ? { follow: (side: SideId) => side !== session.mySide } : {})}
           holdFace={fx.holdsFace}
           objectives={objectives}
           control={control}
@@ -5357,9 +5450,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         {/* The next phase is announced once a finished Close Combat's results are put away (Close, or the linger ends). */}
         {fx.wheel && !ccLingering && <PhaseWheel key={fx.wheel.id} cue={fx.wheel} phases={phases} sideName={sideName} level={fxLevel} onDone={fx.dismissWheel} />}
         {result && !reviewing && !ccShown && !resolving && (
-          <GameOver winner={result.winner} reason={result.reason === 'concession' && result.winner ? `The ${sideName(state.sides.find((x) => x !== result.winner)!)} concede` : result.reason === 'annihilation' && state.sides.some((x) => !hasUnitsLeft(env, x)) ? `The ${sideName(state.sides.find((x) => !hasUnitsLeft(env, x))!)} have no units left` : result.reason === 'nothing left to play' ? 'Nothing left on the map can change the result' : result.reason} sideName={sideName} onLobby={onQuit} onReview={() => setReviewing(true)} aar={aar} />
+          <GameOver winner={result.winner} reason={gameOver?.reason ?? result.reason} decidedBy={gameOver?.decidedBy} sideName={sideName} onLobby={onQuit} onReview={() => setReviewing(true)} aar={aar} awards={awards} />
         )}
-        {settings && <SettingsPanel fx={fxLevel} onFx={setFxLevel} weatherFx={weatherFx} onWeatherFx={setWeatherFx} callStrip={callStrip} onCallStrip={setCallStrip} stackCard={stackCard} onStackCard={setStackCard} extra={settingsExtra} onClose={() => setSettings(false)} />}
+        {settings && <SettingsPanel fx={fxLevel} onFx={setFxLevel} weatherFx={weatherFx} onWeatherFx={setWeatherFx} callStrip={callStrip} onCallStrip={setCallStrip} stackCard={stackCard} onStackCard={setStackCard} followAction={followAction} onFollowAction={setFollowAction} extra={settingsExtra} onClose={() => setSettings(false)} />}
         {shortcuts && <ShortcutsDialog onClose={() => setShortcuts(false)} />}
         {charts && <ChartsDialog nationalities={scenario.sides.flatMap((s) => s.nationalities ?? [s.nationality])} onClose={() => setCharts(false)} />}
         {decision?.kind === BLAZE_ESCAPE_DECISION && decision.owner === owner && (
@@ -5393,6 +5486,46 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                 );
               })}
             </ul>
+          </Modal>
+        )}
+        {deploySplit && state.pieces[deploySplit.unit] && (
+          <Modal title={`Deploy ${pieceLabel(env, state.pieces[deploySplit.unit]).replace(/^\S+ /, '')}: share its weapons`} kicker="Rally Phase" onClose={() => setDeploySplit(null)}>
+            <p>A squad’s possessions are freely rearranged among its half-squads when it Deploys (ASLRB A1.31). Pick the half-squad each weapon goes with; this applies only if the NTC passes.</p>
+            <ul className="end-ask-units">
+              {swHeldBy(state, deploySplit.unit)
+                .sort((x, y) => (x.id < y.id ? -1 : 1))
+                .map((w) => {
+                  const second = deploySplit.second.includes(w.id);
+                  const put = (toSecond: boolean) => setDeploySplit({ ...deploySplit, second: toSecond ? [...deploySplit.second.filter((x) => x !== w.id), w.id] : deploySplit.second.filter((x) => x !== w.id) });
+                  return (
+                    <li key={w.id}>
+                      {pieceLabel(env, w)}{' '}
+                      <button className={second ? 'ghost small' : 'primary small'} onClick={() => put(false)}>
+                        Half-squad 1
+                      </button>{' '}
+                      <button className={second ? 'primary small' : 'ghost small'} onClick={() => put(true)}>
+                        Half-squad 2
+                      </button>
+                    </li>
+                  );
+                })}
+            </ul>
+            <div className="buttons">
+              <button
+                className="primary"
+                autoFocus
+                onClick={() => {
+                  const d = deploySplit;
+                  setDeploySplit(null);
+                  run({ type: 'rally.deploy', unit: d.unit, leader: d.leader, second: d.second }, true);
+                }}
+              >
+                Roll the NTC
+              </button>
+              <button className="ghost" onClick={() => setDeploySplit(null)}>
+                Cancel
+              </button>
+            </div>
           </Modal>
         )}
         {fortConfirm && (
@@ -5471,7 +5604,14 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         {result ? (
           <section className="panel result">
             <h2>{result.winner ? `${sideName(result.winner)} win` : 'Draw'}</h2>
-            <p className="hint">{result.reason}</p>
+            <p className="hint">{gameOver?.reason ?? result.reason}</p>
+            {!!gameOver?.decidedBy.length && (
+              <ul className="result-decided">
+                {gameOver.decidedBy.map((c) => (
+                  <li key={c}>{c}</li>
+                ))}
+              </ul>
+            )}
           </section>
         ) : resolving ? (
           <section className="panel decision resolving">
@@ -5504,6 +5644,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                   />
                 </div>
               </>
+            ) : decision?.kind === FORTIFY_DECISION && !fortOpen ? (
+              <p className="hint">They choose their fortified {fortByLoc ? 'Locations' : 'buildings'} before setting up their units. The choice is secret: nothing they pick is shown here, and a fortification is revealed only when it matters.</p>
             ) : (
               <p className="hint">{session.mySide === null ? 'You are watching this match.' : 'The board updates as soon as they act.'}</p>
             )}
@@ -5662,6 +5804,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
               )}
               {fortifying && (
                 <div className="composer fortify">
+                  <p className="hint">
+                    <b>Step 1 of setup: choose the fortified {fortByLoc ? 'Locations' : 'buildings'} first.</b> Your units are placed in the next step, once this choice is confirmed; it cannot be changed afterwards.
+                  </p>
                   <p className="hint">
                     {scenario.ssr.find((r) => r.module === 'fortified-buildings')?.text}
                   </p>
@@ -5901,6 +6046,23 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                   </div>
                 );
               })()}
+              {decision.kind === HD_CHOICE_DECISION && decision.owner === owner && (
+                // Full ASL: a Direct Fire ordnance shot declared at a vehicle Hull Down to it in a hex with TEM: its owner
+                // takes HD or the in-hex TEM before the To Hit DR (ASLRB B9.36, D4.2).
+                <div className="composer">
+                  <p className="hint">
+                    {`${pieceLabel(env, state.pieces[decision.data?.['firer'] as string])} fires at ${pieceLabel(env, state.pieces[decision.data?.['vehicle'] as string])}. ${String(decision.data?.['label'] ?? 'Hull Down')}. Take Hull Down, or the ${String(decision.data?.['terrain'] ?? 'in-hex')} TEM (+${decision.data?.['tem']} To Hit, every hit counts) instead? (ASLRB B9.36, D4.2)`}
+                  </p>
+                  <div className="buttons">
+                    <button className="primary" onClick={() => run({ type: 'hd.choose', choice: 'hd' })} title="Only a turret hit counts; no Case Q TEM, no Height Advantage (ASLRB D4.2, D4.22)">
+                      Hull Down{typeof decision.data?.['needHd'] === 'number' ? ` (hit on ${decision.data['needHd']} or less)` : ''}
+                    </button>
+                    <button onClick={() => run({ type: 'hd.choose', choice: 'tem' })} title="The in-hex TEM as a To Hit DRM (Case Q); a hull hit counts too (ASLRB B9.36, D4.2)">
+                      {`${String(decision.data?.['terrain'] ?? 'In-hex')} TEM +${decision.data?.['tem']}`}{typeof decision.data?.['needTem'] === 'number' ? ` (hit on ${decision.data['needTem']} or less)` : ''}
+                    </button>
+                  </div>
+                </div>
+              )}
               {decision.kind === WA_RPH_DECISION && decision.owner === owner && (
                 // The end of the RPh (ASLRB B9.322, ASOP 1.32B): Wall Advantage may be claimed or forfeited now, the ATTACKER first.
                 <div className="composer">
@@ -5989,7 +6151,35 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                     />
                   )}
                   <SetupRules env={env} todo={todo} rulesShownInTray={!!trayGroups} anchors={anchors} />
-                  {(deployRule || deployableSquads(env, placing.owner).length > 0) && (placing.kind === 'setup' || placing.kind === 'offboardSetup') && (
+                  {fullAslRules && aslSetupQuota && (placing.kind === 'setup' || placing.kind === 'offboardSetup') && (
+                    <div className="setup-deploy">
+                      {aslSetupQuota.quota.refused ? (
+                        <p className="hint">Deploy squads: {aslSetupQuota.quota.refused}</p>
+                      ) : (
+                        <>
+                          <p className="hint">
+                            Deploy squads ({aslSetupQuota.quota.rule}: up to <b>{aslSetupQuota.quota.max}</b> of {aslSetupQuota.squads.length + aslSetupQuota.quota.used}, free, without leader or Task Check; {aslSetupQuota.quota.used} split). A squad keeps its hex and weapons in its first half; the second joins the tray; either may then be given the other's weapons. Undo takes a split back.
+                          </p>
+                          <ul className="setup-rules small">
+                            {aslSetupQuota.squads.map((p) => {
+                              const why = plain(session.check({ type: 'setup.deploy', unit: p.id }));
+                              return (
+                                <li key={p.id}>
+                                  {pieceLabel(env, p)}
+                                  {pending[p.id] ? ` in ${hexLabel(pending[p.id]!)}` : ''}{' '}
+                                  <button className="ghost small" disabled={!!why} onClick={() => run({ type: 'setup.deploy', unit: p.id }, true)} title={why ?? 'Replace this squad with two half-squads (ASLRB A2.9)'}>
+                                    Deploy into 2 HS
+                                  </button>
+                                  {why && <span className="muted"> {why}</span>}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {!fullAslRules && (deployRule || deployableSquads(env, placing.owner).length > 0) && (placing.kind === 'setup' || placing.kind === 'offboardSetup') && (
                     <div className="setup-deploy">
                       <p className="hint">
                         {deployRule ? (
@@ -6465,6 +6655,16 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                       {ms.manhandle ? (
                         <p className="hint wheel-hint">
                           Manhandling <b>{pieceLabel(env, state.pieces[ms.manhandle.gun])}</b>: click a green hex to push it there (double MF, a DR against M{gunDef(env, state.pieces[ms.manhandle.gun]!)?.m}). Right-click the stack to <b>end its move</b>.
+                          {(() => {
+                            // Full ASL: the DRM every push of this stack takes whatever the hex (Labor, B24.8; CX, A4.51), and the roadblock's.
+                            if (!ms.hex) return null;
+                            const standing = env
+                              .explain('manhandle.drm', { gun: ms.manhandle!.gun, units: ms.units, from: ms.hex, to: ms.hex, cost: 0 }, 0)
+                              .trace.filter((t) => !t.suppressedBy && t.label && /^asl\.manhandle\.(labor|cx)$/.test(t.id))
+                              .map((t) => t.label!);
+                            const roadblock = fullAslRules ? ' A known roadblock hexside crossed adds +2 (ASLRB C10.3).' : '';
+                            return standing.length || roadblock ? <> Every push here: {standing.length ? standing.join(', ') : 'no Labor or CX'}.{roadblock}</> : null;
+                          })()}
                         </p>
                       ) : mode === 'normal' ? (
                         <p className="hint wheel-hint">Click green hexes to move{owner && exitHexes(env, owner)?.size ? '; from a violet hex the stack can leave the map (Exit the map, above)' : ''}. Right-click the stack to <b>end its move</b>{ms.units.length > 1 ? ', leave some units behind (tick them first)' : ''}, fire Smoke, place a DC, recover a SW or exit the map.</p>

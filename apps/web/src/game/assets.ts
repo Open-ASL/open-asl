@@ -10,6 +10,9 @@ export function counterImage(defId: string, flipped: boolean): string | null {
   return assetUrl(flipped && a.back ? a.back : a.front);
 }
 
+/** Whether the counter has back art to turn over to (a reduced, broken, malfunctioned or wrecked side, a LATW's To Hit Table). */
+export const hasBack = (defId: string) => !!ASSETS.counters[defId]?.back;
+
 export const markerImage = (name: string) => {
   const path = ASSETS.markers[name] ?? extraMarkers[name];
   return path ? assetUrl(path) : null;

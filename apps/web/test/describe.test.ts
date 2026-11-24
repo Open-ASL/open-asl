@@ -648,4 +648,24 @@ describe('fortification counters in the log (full ASL A12.33, B28.45, B28.47)', 
     for (const s of ['foxhole 2S O6 (hidden)', 'minefield (A-P 8 + A-T 1) P10 (recorded)', 'Known minefield (A-P 6) N9', 'Dummy minefield N10', 'roadblock O9 (hidden)', 'pillbox 1+3+5 O3 (hidden)', 'Wire O4 (hidden)']) expect(line, s).toContain(s);
     expect(russian.some((t) => /Dummy Minefield Secret dr/.test(t))).toBe(true);
   });
+  it('an Acquired Target counter coming off is logged, with the cause when its possessor fired its own FP (SK4 6.10, ASLRB C6.5)', () => {
+    const { engine, state } = makeEngine({
+      scenario: RU_VS_GE,
+      pieces: [
+        { id: 'sq', def: 'ge.467', side: 'ge', hex: 'yK5' },
+        { id: 'mtr', def: 'ge.MTR', side: 'ge', heldBy: 'sq' },
+      ],
+    });
+    const env = engine.env(state);
+    const fire = { seq: 1, type: 'sk1.fire.attack', payload: { attack: { mode: 'prep', target: 'yK8', parts: ['sq'] }, from: ['yK5'], fp: 4, column: 4, dr: [5, 4], drm: 0, explain: [] } };
+    const lost = (seq: number) => ({ seq, type: 'piece.tagged', payload: { id: 'mtr', tags: { acq: null, acqHex: null, acqUnits: null, acqLevel: null } } });
+    const text = (events: unknown[]) => describeEvents(env, events as never).map((l) => l.text);
+    const lines = text([fire, lost(2)]).filter((t) => /Acquired Target/.test(t));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/◎ .+ loses its Acquired Target counter \(its possessor fired its own FP, SK4 6\.10\)$/);
+    expect(text([lost(2)])[0]).toMatch(/loses its Acquired Target counter$/);
+    // A shot at a new target clears the old counter and places a new one: only the new one is logged.
+    const reacquired = { seq: 3, type: 'piece.tagged', payload: { id: 'mtr', tags: { acq: 'ATT', acqHex: 'yK8', acqUnits: '', acqLevel: 1 } } };
+    expect(text([lost(2), reacquired]).some((t) => /loses its Acquired Target/.test(t))).toBe(false);
+  });
 });

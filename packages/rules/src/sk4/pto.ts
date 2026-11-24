@@ -94,16 +94,26 @@ export const ptoModule: RuleModule = {
       when: ({ to, unit }, env) => isBamboo(env, to) && isInfantry(env, pieceOf(env, unit)),
       apply: (_v, { unit }, env) => Math.max(1, env.query('unit.mf', { unit, stack: [unit], doubleTime: false }, 0)),
     });
-    // The MPh step: the whole allowance of the stack's units, the leader bonus included ("including the MF bonus gained
-    // for moving with a leader"), so only a stack that has spent nothing yet can enter.
+    // The MPh step: "all of an Infantry unit's MF", each unit its own whole allowance, the leader bonus included
+    // ("including the MF bonus gained for moving with a leader"), so only a stack that has spent nothing yet can enter.
+    // Allowances in a stack can differ (portage, Double Time): the step is charged at the smallest, which every unit can
+    // pay, and entering then spends each unit's whole allowance (the bamboo MOVE_ENTERED below).
+    const bambooStep = ({ ms, to }: { ms: MoveState; to: string }, env: QueryEnv) => !ms.vehicle && isBamboo(env, hexOfLoc(to)) && !statics(env).map.offboardHex(hexOfLoc(to));
     r.contribute({
       id: 'sk4.pto.bamboo-step',
       query: 'move.stepCost',
       layer: 2,
       ref: 'SK4 8.2.1',
       label: 'all MF (bamboo)',
-      when: ({ ms, to }, env) => !ms.vehicle && isBamboo(env, to) && !statics(env).map.offboardHex(to),
-      apply: (_v, { ms }) => Math.max(1, ...ms.units.map((u) => ms.allowance[u] ?? 0)),
+      when: bambooStep,
+      apply: (_v, { ms }) => Math.max(1, Math.min(...ms.units.map((u) => ms.allowance[u] ?? 0))),
+    });
+    r.contribute({
+      id: 'sk4.pto.bamboo-fresh',
+      query: 'move.stepIllegal',
+      ref: 'SK4 8.2.1',
+      when: (q, env) => bambooStep(q, env) && q.ms.units.some((u) => (q.ms.spent[u] ?? 0) > 0),
+      apply: () => 'Entering bamboo costs all of a unit\'s MF: only a stack that has spent none may enter (SK4 8.2.1)',
     });
     // A Gun may not be manhandled into bamboo.
     r.contribute({
@@ -118,7 +128,9 @@ export const ptoModule: RuleModule = {
       next?.(ctx, ms);
       const cur = moveState(ctx);
       if (!cur || !cur.hex || cur.vehicle || !isBamboo(ctx, cur.hex)) return;
-      ctx.emit('sk1.move.state', { state: { ...cur, mfHere: cur.mfHere + 1 } });
+      // Each unit has spent its whole allowance; the defender sees the largest of them +1.
+      const all = Object.fromEntries(cur.units.map((u) => [u, Math.max(cur.spent[u] ?? 0, cur.allowance[u] ?? 0)]));
+      ctx.emit('sk1.move.state', { state: { ...cur, spent: all, mfHere: Math.max(cur.mfHere, ...Object.values(all)) + 1 } });
       ctx.emit('sk4.bamboo.entered', { units: cur.units, hex: cur.hex });
     });
     // "After all Defensive First Fire, mark an unbroken unit that entered bamboo with CX and Pin counters."

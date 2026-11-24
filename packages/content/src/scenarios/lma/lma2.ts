@@ -30,6 +30,7 @@ const GE_GROUP = 'Elements of the 6th Fallschirmjäger Regiment';
 /** LMA2 Frères d’arme 2: Carentan (Faubourg de Carentan, France, June 1944). */
 export const LMA_2: ScenarioDef = {
   id: 'lma-2',
+  service: { theatre: 'nw-europe', campaign: 'normandy' },
   product: 'lma',
   number: 'LMA2',
   title: 'LMA2 Frères d’arme 2: Carentan',

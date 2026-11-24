@@ -642,3 +642,23 @@ describe('turning without MP at the end of a fire phase (SK4 3.3.2, ASLRB C3.22)
     expect(face(e2, s2, { vca: 2 }, 't34')).toBeNull();
   });
 });
+
+describe('Lend-Lease To Hit numbers (SK3 Russian Vehicle Note 50)', () => {
+  // The Sherman III(a) prints "*75": the asterisk sends the player to its Vehicle Note ("Red TH#s (Pre44)" on the
+  // counter back), not to a short barrel (ASLRB C2.9). Its MA fires on the red numbers before 1944 and the black from 1944.
+  const sherman = (date: string) =>
+    makeEngine({ pieces: [{ id: 'sh', def: 'ru.ShermanIII', side: 'ru', hex: 'yM9', tags: { vca: 0, ca: 0 } }, pziv('yM4')], scenario: { ...RU_VS_GE, date }, extra, startPhase: 'PFPh', dice: [6, 6] });
+  it.each([
+    ['15 August 1943', true],
+    ['28 June 1944', false],
+  ])('a Sherman III(a) in a scenario dated %s fires its MA on the red numbers: %s', (date, red) => {
+    const { engine, state } = sherman(date);
+    const r = act(engine, state, { type: 'fire.ordnance', shot: { weapon: 'sh', target: 'yM4', targetType: 'VTT' } });
+    expect(ev(r, 'sk2.ordnance.shot')[0]).toMatchObject({ red });
+  });
+  it('a Russian MA without the note keeps the red numbers in 1944 (SK4 3.2.4)', () => {
+    const { engine, state } = makeEngine({ pieces: [t34('yM9'), pziv('yM4')], scenario: { ...RU_VS_GE, date: '28 June 1944' }, extra, startPhase: 'PFPh', dice: [6, 6] });
+    const r = act(engine, state, { type: 'fire.ordnance', shot: { weapon: 't34', target: 'yM4', targetType: 'VTT' } });
+    expect(ev(r, 'sk2.ordnance.shot')[0]).toMatchObject({ red: true });
+  });
+});

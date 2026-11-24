@@ -749,7 +749,8 @@ export const aslFireModule: RuleModule = {
           for (const [loc, f] of Object.entries(fireState(ctx)).sort()) for (const fl of f.flames) if (fl.hampered) ctx.emit('asl.fire.hampered', { loc, id: fl.id, hampered: false });
           for (const p of Object.values(ctx.state.pieces).sort(byId)) {
             const labor = parseLabor(p.tags['labor']);
-            if (!labor) continue;
+            // Only a Flame's Labor: other Tasks (Entrenching, Clearance, Manhandling) keep theirs until achieved (B24.8).
+            if (!labor || !labor.task.startsWith('flame:')) continue;
             const loc = labor.task.replace(/^flame:/, '');
             if (p.loc.kind !== 'hex' || locOf(ctx.state, p) !== loc || flamesAt(ctx, loc).length === 0) setTags(ctx, p.id, { labor: null });
           }

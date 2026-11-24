@@ -6,6 +6,7 @@ import { db } from '../firebase';
 import { useLobbyUsers } from '../lobby-v2/LobbyUsers';
 import { Avatar } from '../profile/Avatar';
 import { Modal } from '../ui/Modal';
+import { NOT_AVAILABLE } from '../lobby-v2/Availability';
 
 interface Props {
   title: string;
@@ -33,13 +34,13 @@ export function UserPicker({ title, onPick, onClose, busy }: Props) {
   const away = shown.filter((u) => !online.has(u.uid));
   const row = ({ uid, data }: { uid: string; data: PublicProfileDoc }) => (
     <li key={uid}>
-      <button className="user-row" disabled={busy} onClick={() => onPick(uid, data)}>
+      <button className="user-row" disabled={busy || !!data.notAvailable} onClick={() => onPick(uid, data)} title={data.notAvailable ? NOT_AVAILABLE : undefined}>
         <Avatar profile={{ ...data, displayName: data.nickname, gravatarHash: '' }} size={32} xp={data.xp} />
         <span className="user-name">
           <b>{data.nickname}</b>
-          <small>{rankFor(data.xp).title} · {data.elo} Elo · {data.wins}–{data.losses}–{data.draws}</small>
+          <small>{rankFor(data.xp).title} · {data.elo} Elo · {data.wins}–{data.losses}–{data.draws}{data.notAvailable ? <span className="not-available-tag"> · not available</span> : null}</small>
         </span>
-        {online.has(uid) && <span className="presence-dot" aria-label="In the Lobby" />}
+        {online.has(uid) && <span className={`presence-dot ${data.notAvailable ? 'not-available' : ''}`} aria-label={data.notAvailable ? 'In the Lobby, not available' : 'In the Lobby'} />}
       </button>
     </li>
   );

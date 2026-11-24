@@ -7,6 +7,7 @@ import { DiceIcon } from '../ui/DiceIcon';
 import { GearIcon } from '../ui/GearIcon';
 import { fmtSe, goalText, type SideTally } from '../panels/CasualtyLedger';
 import { WeatherChip, type AslWindView } from './WeatherChip';
+import { Emblem, chitStock } from '../fx/TurnChit';
 
 interface Props {
   /** The game's length in force (a rule may change it in play: S36's secret length, once revealed). */
@@ -199,6 +200,7 @@ export function northWords(north: number): string {
 export function Hud({ scenario, length, phases, phase, turn, attacker, acting, sideName, players, tally, onTally, pf, oba, weather, windAngle, aslWind, fx, onFx, onRotate, onSettings, onShortcuts, onCharts, onBriefing, diceLog, onToggleDiceLog, unitsHidden, onToggleUnits, markersHidden, onToggleMarkers, endPhase, tools }: Props) {
   const [code, ...rest] = scenario.title.split(' ');
   const defender = scenario.sides.find((s) => s.side !== attacker)?.side ?? attacker;
+  const attackerNat = scenario.sides.find((s) => s.side === attacker)?.nationality ?? attacker;
   const idx = phases.indexOf(phase);
   const setup = phase === 'setup';
   // The bar wraps onto more rows in a narrow window: what sits under it (the "your call" strip) reads its height.
@@ -225,9 +227,16 @@ export function Hud({ scenario, length, phases, phase, turn, attacker, acting, s
             {Array.from({ length: (length ?? scenario).turns }, (_, i) => i + 1).map((t) => (
               <span
                 key={t}
-                className={`pip ${!setup && t === turn ? 'now' : !setup && t < turn ? 'done' : ''} ${(length ?? scenario).halfFinalTurn && t === (length ?? scenario).turns ? 'half' : ''}`}
-                title={(length ?? scenario).halfFinalTurn && t === (length ?? scenario).turns ? `Turn ${t} is a half turn: only the side moving first plays it` : undefined}
+                className={`pip ${!setup && t === turn ? `now side-${attacker}` : !setup && t < turn ? 'done' : ''} ${(length ?? scenario).halfFinalTurn && t === (length ?? scenario).turns ? 'half' : ''}`}
+                style={!setup && t === turn ? { ['--chit' as string]: chitStock(attackerNat) } : undefined}
+                title={[!setup && t === turn ? `Turn ${t}: the ${sideName(attacker)} player turn` : '', (length ?? scenario).halfFinalTurn && t === (length ?? scenario).turns ? `Turn ${t} is a half turn: only the side moving first plays it` : ''].filter(Boolean).join(' · ') || undefined}
               >
+                {/* The turn marker, as at the table: turned to the side whose Player Turn it is, its emblem on the stock colour. */}
+                {!setup && t === turn && (
+                  <svg className="pip-emblem" viewBox="-24 -24 48 48" aria-hidden="true">
+                    <Emblem side={attackerNat} />
+                  </svg>
+                )}
                 {t}
               </span>
             ))}

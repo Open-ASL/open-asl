@@ -66,6 +66,19 @@ describe('Ordnance Smoke (SK4 1.2.5, 6.2)', () => {
     expect(env.query('move.cost', { unit: 'b1', from: 'yM5', to: 'yN5', viaRoad: false }, 1)).toBe(2);
   });
 
+  it('at a hex with no enemy unit takes no +2 (ASLRB C6.2 EXC); HE there still does (case 23)', () => {
+    const { engine, state } = gunGame({ def: 'ge.AT75Lsa', target: 'yN5', squads: { b1: 'yO5' } });
+    const env = engine.env(state);
+    const empty = (ammo: string) => env.explain('ordnance.thDrm', shotContextFor(env, { weapon: 'g', target: 'yN5', targetType: 'ATT', ammo }), 0);
+    expect(empty('SMOKE').value).toBe(-2);
+    expect(empty('SMOKE').trace.some((x) => x.id === 'sk2.th.hip-target' && !x.suppressedBy)).toBe(false);
+    expect(empty('HE').value).toBe(2);
+    // The shot itself: Smoke placed on the 7 with only the case 7 -2.
+    const fired = gunGame({ def: 'ge.AT75Lsa', target: 'yN5', squads: { b1: 'yO5' }, dice: [4, 3] });
+    const t = act(fired.engine, fired.state, { type: 'fire.ordnance', shot: { weapon: 'g', target: 'yN5', targetType: 'ATT', ammo: 'SMOKE' } });
+    expect(ev(t.events, 'sk2.ordnance.shot')[0]).toMatchObject({ ammo: 'SMOKE', outcome: 'hit', drm: -2 });
+  });
+
   it('disperses at the start of the placing side\'s next PFPh, then comes off', () => {
     const { engine, state } = gunGame({ def: 'ge.AT75Lsa', target: 'yN5', squads: { b1: 'yN5' }, dice: [3, 2] });
     let t = act(engine, state, { type: 'fire.ordnance', shot: { weapon: 'g', target: 'yN5', targetType: 'ATT', ammo: 'SMOKE' } });

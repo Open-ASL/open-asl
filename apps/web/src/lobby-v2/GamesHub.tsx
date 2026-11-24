@@ -46,7 +46,7 @@ export function GamesHub() {
           </div>
           <div className="hero-actions"><button className="btn" onClick={() => setBriefing(true)}>Read briefing</button><Link className="btn" to={atlasLink}>Change scenario</Link></div>
         </header>}
-      {scenario && playable ? <DeployPanel key={`${scenario.id}:${challenge ?? ''}`} scenario={scenario} challengeUid={challenge} /> : <StartPrompt challengeUid={challenge} atlasLink={atlasLink} unplayable={!!selected && !playable} />}
+      {scenario && playable ? <DeployPanel key={`${scenario.id}:${challenge ?? ''}:${params.get('side') ?? ''}:${params.get('vs') ?? ''}`} scenario={scenario} challengeUid={challenge} initialSide={params.get('side') ?? undefined} vsComputer={params.get('vs') === 'computer'} /> : <StartPrompt challengeUid={challenge} atlasLink={atlasLink} unplayable={!!selected && !playable} />}
       {briefing && scenario && <BriefingDialog scenario={scenario} onClose={() => setBriefing(false)} />}
 
       {!(scenario && playable) && <>
@@ -71,7 +71,7 @@ function StartPrompt({ challengeUid, atlasLink, unplayable }: { challengeUid?: s
   return <section className="command-card start-prompt">
     <div>
       {target
-        ? <><div className="challenge-target"><Avatar profile={{ ...target, displayName: target.nickname, gravatarHash: '' }} size={40} xp={target.xp} /><div><b>Challenge {target.nickname}</b><small>{rankFor(target.xp).title} · {target.elo} Elo · {target.wins}–{target.losses}–{target.draws}</small></div></div><p>Pick the scenario you want to fight on the atlas. You come straight back here to send the challenge.</p></>
+        ? <><div className="challenge-target"><Avatar profile={{ ...target, displayName: target.nickname, gravatarHash: '' }} size={40} xp={target.xp} /><div><b>Challenge {target.nickname}</b><small>{rankFor(target.xp).title} · {target.elo} Elo · {target.wins}–{target.losses}–{target.draws}</small></div></div><p>{target.notAvailable ? `${target.nickname} is not available for challenges right now. You can still chat with them in the Lobby.` : 'Pick the scenario you want to fight on the atlas. You come straight back here to send the challenge.'}</p></>
         : <><h2>Start a game</h2><p>{unplayable ? 'That scenario cannot be deployed from this lobby. Choose another on the atlas.' : `Choose a scenario on the atlas, then play it ${opponents}.`}</p></>}
     </div>
     <Link className="btn primary" to={atlasLink}>Open the atlas</Link>

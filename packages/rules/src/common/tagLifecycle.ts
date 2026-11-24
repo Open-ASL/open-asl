@@ -121,6 +121,8 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   banzai: 'playerTurn',
   recombined: 'lasting',
   deployedFrom: 'lasting',
+  /** Full ASL (asl/deploy): the setup group a squad deployed at setup counts against (ASLRB A2.9's 10%); setup data. */
+  deployedAt: 'lasting',
 };
 
 /** A tag's lifecycle; per-weapon variants such as `repairTried_ma` take their stem's. Undefined when unlisted. */

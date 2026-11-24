@@ -19,6 +19,7 @@ export const LMA4_BUILDINGS = [buildingAt('u', 'uI3'), buildingAt('u', 'uH7')];
 /** LMA4 Frères d’arme 4: Nuenen (the Netherlands, September 1944). */
 export const LMA_4: ScenarioDef = {
   id: 'lma-4',
+  service: { theatre: 'nw-europe', campaign: 'rhineland', battle: 'market-garden' },
   product: 'lma',
   number: 'LMA4',
   title: 'LMA4 Frères d’arme 4: Nuenen',

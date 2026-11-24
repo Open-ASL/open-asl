@@ -61,6 +61,21 @@ describe('chart binder', () => {
     expect(host.querySelector('.ch-tab.on .ch-tab-n')?.textContent).toBe('9');
   });
 
+  it("lists every LATW's own To Hit Table from the counter data, as printed on the counter backs (SK4 4.4)", () => {
+    act(() => root.render(createElement(ChartsDialog, { onClose: () => {} })));
+    press('6');
+    const rows = [...host.querySelectorAll('.ch-latw tbody tr')].map((tr) => [tr.querySelector('th')!.textContent!.trim(), ...[...tr.querySelectorAll('td')].map((td) => td.textContent)]);
+    const row = (name: RegExp) => rows.find((r) => name.test(r[0]!))!.slice(1);
+    // Range 0–5, FP column, removal, HEAT TK, Backblast.
+    expect(rows).toHaveLength(6);
+    expect(row(/BAZ ?43/)).toEqual(['11', '9', '8', '7', '4', '–', '8', 'X10', '13', '+2 or 1 FP']);
+    expect(row(/BAZ ?44/)).toEqual(['11', '9', '8', '7', '4', '–', '8', 'X11', '16', '+2 or 1 FP']);
+    expect(row(/BAZ ?45/)).toEqual(['11', '10', '9', '8', '6', '4', '8', 'X11', '16', '+2 or 1 FP']);
+    expect(row(/PSK/)).toEqual(['11', '9', '8', '7', '4', '–', '12', 'X10', '26', '+2 or 1 FP']);
+    expect(row(/PIAT/)).toEqual(['11', '9', '7', '5', '–', '–', '8', 'B10', '15', 'none']);
+    expect(row(/PF/)).toEqual(['10', '8', '6', '4', '–', '–', '16', 'one shot', '31', '+2 or 1 FP']);
+  });
+
   it('draws the Vehicle Target Type and AP To Kill rows from the engine tables', () => {
     act(() => root.render(createElement(ChartsDialog, { onClose: () => {}, nationalities: ['ru', 'ge'] })));
     press('7');

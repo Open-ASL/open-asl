@@ -26,7 +26,8 @@ import { bunkerMove } from './pillboxes';
  * leadership are untouched and only the rules below read the position:
  * - TEM (B27.3): +2 against any attack but CC and a FT, in place of the hex's positive TEM, together with an Air Burst's
  *   -1 (B13.3), reduced by a firer's elevation advantage (B9.33), never with Height Advantage (B10.31). The +4 against an
- *   OVR or OBA attack waits for vehicles and Chapter C.
+ *   OVR or OBA attack waits for vehicle Overrun (D7) and Chapter C1 OBA, neither of which exists here. A vehicle beneath a
+ *   trench is HD to Direct Fire ordnance instead of taking the +2 (B27.52, `asl/hullDown.ts`).
  * - Moving in and out (B27.4): one MF paid separately in the hex, after the hex's own cost and any Defensive First Fire
  *   it drew (A8.12 makes the MF a First Fire target of its own); two MF for an A-T Ditch (B27.56); nothing while the
  *   counter is a hidden one of the unit's own side (A12.33). Under Assault Movement, and in the RtPh, the MF may be
@@ -81,6 +82,13 @@ export type EntKind = (typeof ENTRENCH_KINDS)[number];
 
 /** Beneath the foxhole, trench or A-T Ditch of its hex. */
 export const isEntrenched = (p: Piece): boolean => p.loc.kind === 'hex' && !!p.loc.pos?.ent;
+/** A vehicle beneath a trench or A-T Ditch (B27.51, B27.52: only at setup, and it never leaves). */
+export const isEntrenchedVehicle = (env: QueryEnv, p: Piece | undefined): boolean => !!p && isEntrenched(p) && p.loc.kind === 'hex' && p.loc.pos?.ent !== 'foxhole' && isVehicleDef(defOf(env, p));
+
+/** The side's vehicles beneath the trench of `hex` (B27.52). */
+export const entrenchedVehiclesAt = (env: QueryEnv, hex: HexId, side?: SideId): Piece[] =>
+  Object.values(env.state.pieces).filter((p) => (!side || p.side === side) && p.loc.kind === 'hex' && p.loc.hex === hex && isEntrenchedVehicle(env, p)).sort(byId);
+
 /** The side's Infantry beneath the entrenchment of `hex`. */
 export const entrenchedAt = (env: QueryEnv, hex: HexId, side?: SideId): Piece[] => personnelAt(env, hex, side).filter(isEntrenched);
 
@@ -500,6 +508,11 @@ export const aslEntrenchmentsModule: RuleModule = {
       if (c.kind === 'trench' && !vehicle(env, pieceOf(env, vid))?.tracked) return `Wheeled vehicles and halftracks may not enter a trench hex (${c.hex}; ASLRB B27.55)`;
       return null;
     };
+    /** B27.43: a foxhole slows an Armored Car (2 MP + COT); a tracked vehicle pays nothing for it. */
+    const foxholeSlows = (env: QueryEnv, vid: PieceId, c: FortRecord): boolean => {
+      const d = vehicle(env, pieceOf(env, vid));
+      return c.kind === 'foxhole' && !!d && !d.tracked && !d.unarmored;
+    };
     r.contribute({
       id: 'asl.ent.ditchVehicle',
       query: 'vehicle.stepIllegal',
@@ -513,12 +526,47 @@ export const aslEntrenchmentsModule: RuleModule = {
     // unit with a LOS to its Location, A12.33), the step is not taken and nothing is spent; the vehicle moves on knowing.
     r.procedure<MoveEnterFn>(MOVE_ENTER, (next) => (ctx, ms, to, cost, woods, extra) => {
       const c = ms.vehicle && isGroundLoc(to) ? entrenchmentAt(ctx, hexOfLoc(to)) : null;
-      if (!c || shownCounter(c, ctx.state.attacker) || !vehicleBarred(ctx, ms.units[0]!, c)) return next?.(ctx, ms, to, cost, woods, extra);
+      if (!c || shownCounter(c, ctx.state.attacker) || (!vehicleBarred(ctx, ms.units[0]!, c) && !foxholeSlows(ctx, ms.units[0]!, c))) return next?.(ctx, ms, to, cost, woods, extra);
       revealFortification(ctx, c.id, 'attempt');
       ctx.emit('asl.ent.vehicleRefused', { vehicle: ms.units[0]!, hex: c.hex, kind: c.kind });
       moveInternals.reAskMover(ctx);
     });
     r.event<{ vehicle: PieceId; hex: HexId; kind: string }>({ type: 'asl.ent.vehicleRefused', apply() {} });
+    // B27.52: "Any vehicle beneath a trench counter is considered HD, but may not change its VCA or expend a Start MP" (HD:
+    // `asl/hullDown.ts`). Nor may it attempt Motion (Q&A [K33] to B27.52 & D2.401), or pivot its hull to fire (an NT
+    // vehicle's CA is its VCA, C3.22); the turret turns freely (D4.221 "the vehicle's TCA may be"). The Infantry in its
+    // Location get no +1 from it (D9.3: "that AFV/wreck is entrenched (B27.52)"); its Hindrance is unchanged.
+    const trenchVehicle = (env: QueryEnv, id: PieceId) => isEntrenchedVehicle(env, env.state.pieces[id]);
+    r.contribute({ id: 'asl.ent.vehicleNoStart', query: 'vehicle.cannotStart', ref: 'ASLRB B27.52', apply: (v, { vehicle: id }, env) => v ?? (trenchVehicle(env, id) && env.state.pieces[id]!.side === env.state.attacker && env.state.phase === 'MPh' ? 'Beneath the trench: no Start MP (ASLRB B27.52)' : null) });
+    r.contribute({ id: 'asl.ent.vehicleNoTurn', query: 'vehicle.cannotTurn', ref: 'ASLRB B27.52', apply: (v, { vehicle: id }, env) => v ?? (trenchVehicle(env, id) ? 'Beneath the trench: no VCA change (ASLRB B27.52)' : null) });
+    r.contribute({ id: 'asl.ent.vehicleNoMotion', query: 'vehicle.cannotAttemptMotion', ref: 'ASLRB B27.52, D2.401', apply: (v, { vehicle: id }, env) => v ?? (trenchVehicle(env, id) ? 'Beneath the trench: no Motion attempt (ASLRB B27.52; Q&A [K33] to B27.52 & D2.401)' : null) });
+    r.contribute({
+      id: 'asl.ent.vehicleNoPivot',
+      query: 'ordnance.illegal',
+      ref: 'ASLRB B27.52, C3.22',
+      apply(v, { shot }, env) {
+        if (v || shot.ca === undefined) return v;
+        const p = env.state.pieces[shot.weapon];
+        return p && trenchVehicle(env, p.id) && vehicle(env, p)?.turret === 'NT' && shot.ca !== (p.tags['ca'] as number | undefined) ? 'Beneath the trench: an NT vehicle may not pivot its hull to fire (ASLRB B27.52)' : null;
+      },
+    });
+    r.contribute({ id: 'asl.ent.vehicleNoCover', query: 'vehicle.givesCover', ref: 'ASLRB D9.3, B27.52', apply: (v, { vehicle: id }, env) => v && !trenchVehicle(env, id) });
+
+    // B27.43: "Foxholes are not a movement obstacle to tracked vehicles, but do slow down other vehicles": the Movement
+    // Costs Chart (Terrain Chart row 27) gives an Armored Car 2 MP + COT, a fully-tracked vehicle the COT alone, and no
+    // Bog Check on the foxhole line. A foxhole the vehicle's side knows of (its own hidden one too: A12.33's free entry is
+    // Infantry's, Q&A [K33] to A12.33 "This is not the case for vehicles", as for Wire) costs it the 2 MP; one it cannot
+    // know of is found by the attempt above. The chart's other vehicle types (Truck 4 + COT, Motorcycle 2 + COT,
+    // Halftrack COT, Cavalry and Horse Drawn 1 + COT) have no counters yet: only an armored, non-tracked vehicle pays.
+    r.contribute({
+      id: 'asl.ent.foxholeVehicleMp',
+      query: 'vehicle.extraMp',
+      ref: 'ASLRB B27.43',
+      apply(v, { vehicle: vid, hex }, env) {
+        const c = entrenchmentKnownTo(env, hex, pieceOf(env, vid).side);
+        return c && foxholeSlows(env, vid, c) ? v + 2 : v;
+      },
+    });
     // B27.55: a fully-tracked vehicle enters a trench hex at the COT of its other terrain, is never beneath the trench, and
     // chances a Bog DR on entering and on changing VCA there, hidden trench or not (Q&A [K33] to A12.33, B27.55).
     r.contribute({
@@ -608,6 +656,8 @@ export const aslEntrenchmentsModule: RuleModule = {
 
     // ---------------------------------------------------------------- B27.3: the TEM, per unit
     const partsFt = (env: QueryEnv, attack: FireAttackCtx) => attack.parts.some((p) => p.kind === 'sw' && (defOf(env, pieceOf(env, p.piece)) as { type?: string }).type === 'FT');
+    /** A Direct Fire ordnance attack on a vehicle beneath a trench: HD, not the +2 (B27.52, C3.331). */
+    const hdInstead = (env: QueryEnv, attack: FireAttackCtx, unit: PieceId) => !!attack.ordnance && !attack.ordnance.indirect && isEntrenchedVehicle(env, env.state.pieces[unit]);
     const elevationReduction = (env: QueryEnv, attack: FireAttackCtx, hex: HexId): number => {
       // B9.33: one per full level by which the firer's height above the target hex's base level exceeds the range; a Fire
       // Group from several heights takes the kindest for the target.
@@ -709,11 +759,12 @@ export const aslEntrenchmentsModule: RuleModule = {
         if (ffmoApplies(env, attack) && !isPinned(p)) notes.push('no FFMO beneath it');
         return notes.join(', ');
       },
-      when: ({ attack, unit }, env) => !attack.snap && isEntrenched(pieceOf(env, unit)) && !partsFt(env, attack) && !ittAttack(attack),
+      when: ({ attack, unit }, env) => !attack.snap && isEntrenched(pieceOf(env, unit)) && !partsFt(env, attack) && !ittAttack(attack) && !hdInstead(env, attack, unit),
       apply(v, { attack, unit }, env) {
         const hex = hexOfLoc(attack.target);
         const tem = env.query('hex.tem', { hex: attack.target }, 0);
-        // The +4 against an OVR or OBA attack (B27.3) waits for vehicles and Chapter C: neither attack exists here yet.
+        // The +4 against an OVR or OBA attack (B27.3) waits for vehicle Overrun (D7) and Chapter C1 OBA (radios, Battery
+        // Access, FFE): neither attack exists here. A scenario's off-board mortar special rule is no C1 OBA and takes the +2.
         let drm = v + 2 - Math.max(0, elevationReduction(env, attack, hex));
         // Not cumulative with other positive TEM (B27.3); an Air Burst's -1 stays (B13.3), as does FFNAM (A8.2's example).
         if (!attack.ordnance?.airBurst) drm -= Math.max(0, tem);
@@ -723,6 +774,17 @@ export const aslEntrenchmentsModule: RuleModule = {
         if (ffmoApplies(env, attack) && !isPinned(pieceOf(env, unit))) drm += 1;
         return drm;
       },
+    });
+    // A vehicle beneath a trench is HD to Direct Fire ordnance in place of the +2 (B27.52; no choice of the +2 instead, Q&A
+    // [K33] to B27.52; C3.331: TEM that grants HD does not reach the Effects DR), and keeps it against Indirect Fire and
+    // attacks on the IFT (Q&A [K33] to B27.52, C1.55 & D9.54: +2 against an on-board mortar). Its CE crew takes the +2 alone:
+    // the CE DRM "is not cumulative with any positive TEM" (D5.3).
+    r.suppress<'fire.unitDrm'>({
+      id: 'asl.ent.vehicleNoCe',
+      query: 'fire.unitDrm',
+      target: 'sk3.drm.ce',
+      ref: 'ASLRB D5.3, B27.3',
+      when: ({ attack, unit }, env) => isEntrenchedVehicle(env, env.state.pieces[unit]) && !attack.snap && !partsFt(env, attack) && !hdInstead(env, attack, unit),
     });
     // A hidden entrenchment is revealed when its TEM is claimed (A12.33): any attack resolved on a Location with a unit
     // beneath it, except one against which the TEM cannot be claimed: a Snap Shot (A8.15) or a FT (B27.3 EXC, A22.1).
@@ -735,7 +797,22 @@ export const aslEntrenchmentsModule: RuleModule = {
         const hex = hexOfLoc(attack.target);
         const c = entrenchmentAt(ctx, hex);
         if (!c || !c.hidden || c.revealed) return;
-        if (entrenchedAt(ctx, hex, c.side).length) revealFortification(ctx, c.id, 'tem');
+        // A vehicle beneath claims the +2 only for a crew it reaches: Crew Exposed (a Buttoned Up AFV is immune, B27.52's HD
+        // against Direct Fire ordnance being revealed by the shot itself, below).
+        if (entrenchedAt(ctx, hex, c.side).length || entrenchedVehiclesAt(ctx, hex, c.side).some((v) => v.tags['ce'] === true)) revealFortification(ctx, c.id, 'tem');
+      },
+    });
+    // ... and a Direct Fire ordnance shot at a vehicle beneath it, hit or miss, claims its HD (B27.52, A12.33).
+    r.on<{ target: LocId; targetType?: string; weapon: PieceId }>({
+      id: 'asl.ent.hdReveal',
+      event: 'sk2.ordnance.shot',
+      handler(ctx, ev) {
+        if (ev.payload.targetType !== 'VTT' && ev.payload.targetType !== 'ATT') return;
+        const w = ctx.state.pieces[ev.payload.weapon];
+        if (w && (defOf(ctx, w) as { type?: string }).type === 'MTR') return;
+        const hex = hexOfLoc(ev.payload.target);
+        const c = entrenchmentAt(ctx, hex);
+        if (c && c.hidden && !c.revealed && entrenchedVehiclesAt(ctx, hex, c.side).length) revealFortification(ctx, c.id, 'tem');
       },
     });
 

@@ -51,13 +51,26 @@ declare module '@asl/engine' {
     'rally.byLeaderIllegal': { ctx: { leader: PieceId; unit: PieceId }; value: string | null };
     /** Why the ATTACKER's self-rally of a MMC without self-rally capability is not allowed now, or null. */
     'rally.mmcSelfRallyIllegal': { ctx: { unit: PieceId }; value: string | null };
+    /**
+     * Why `unit` may not undertake this RPh action after what it has done already this RPh, or null. The Starter Kit
+     * answers null here (SK1 3.1 exempts leaders rallying; its own `rphAction` checks stay where they are); full ASL
+     * holds a leader to one action (A10.7) and makes a Transfer an action (A4.431).
+     */
+    'rally.actionIllegal': { ctx: { unit: PieceId; action: RphActionKind }; value: string | null };
   }
 }
 
 /** The Recovery drm for a unit where it stands (`recover.drm`). */
 export const recoverDrm = (env: QueryEnv, unit: PieceId) => env.query('recover.drm', { unit, hex: hexOf(env.state, pieceOf(env, unit)) ?? '' }, 0);
 
+/** The Rally Phase actions a unit (or a leader, for the units he rallies) may take. */
+export type RphActionKind = 'rally' | 'recover' | 'repair' | 'transfer' | 'deploy' | 'recombine';
+/** (ctx, unit, action) => void — after a unit acted in the RPh in a way the Starter Kit does not record (a leader rallying, a Transfer). */
+export type RphActedFn = (ctx: Ctx, unit: PieceId, action: RphActionKind) => void;
+
 export const RP = {
+  /** RphActedFn: nothing in the Starter Kit (SK1 3.1); full ASL records it (asl/deploy.ts, A10.7, A4.431). */
+  acted: 'sk1.rally.acted',
   /** (ctx, unit) => PieceId | null — Leader Creation (SK1 5.3). */
   fieldPromotion: 'sk1.fieldPromotion',
   /** (ctx, unit, leader) => void — after a failed rally attempt (not an original 12); nothing by default (a Commissar replaces the unit). */
@@ -158,7 +171,7 @@ function rallyIllegal(env: QueryEnv, side: string, leader: PieceId, unit: PieceI
   if (!isBroken(u)) return 'Unit is not broken';
   if (u.tags[T.rallyTried]) return 'Unit already attempted to rally this Player Turn';
   if (leader === unit) return 'Use self-rally';
-  return env.query('rally.byLeaderIllegal', { leader, unit }, null);
+  return env.query('rally.actionIllegal', { unit: leader, action: 'rally' }, null) ?? env.query('rally.byLeaderIllegal', { leader, unit }, null);
 }
 
 /** The broken units in the leader's Location he may still attempt to rally. */
@@ -229,6 +242,7 @@ export const rallyModule: RuleModule = {
 
     r.event<{ unit: PieceId; dr: number; leader: PieceId | null; defId: string | null }>({ type: 'sk1.leaderCreation', apply() {} });
     r.procedure<RallyFailedFn>(RP.rallyFailed, () => () => {});
+    r.procedure<RphActedFn>(RP.acted, () => () => {});
     r.procedure<FieldPromotionFn>(RP.fieldPromotion, () => (ctx, unit, morale, opts) => {
       const p = pieceOf(ctx, unit);
       const hex = hexOf(ctx.state, p);
@@ -394,6 +408,8 @@ export const rallyModule: RuleModule = {
         const u = env.state.pieces[a.unit];
         if (!u || u.side !== rallySide(env) || !goodOrderUnpinned(env, a.unit)) return 'Recovery needs a Good Order unit';
         if (!mmc(env, u) && !smc(env, u)) return 'Only Infantry may recover a weapon';
+        const acted = env.query('rally.actionIllegal', { unit: a.unit, action: 'recover' }, null);
+        if (acted) return acted;
         if (u.tags[T.rphAction]) return 'Unit already acted this RPh';
         const halted = actionIllegal(env, [a.unit]);
         if (halted) return halted;
@@ -431,6 +447,8 @@ export const rallyModule: RuleModule = {
         if (!goodOrderUnpinned(env, a.unit)) return 'Repair needs a Good Order unit';
         // "Each unit may undertake only one action per RPh" (SK1/SK4 3.1), so one repair attempt; full ASL lets a squad
         // try two (asl/swRepair.ts, A9.72). `rphAction` counts its repairs; `true` is a Recovery or rally, its sole action.
+        const acted = env.query('rally.actionIllegal', { unit: a.unit, action: 'repair' }, null);
+        if (acted) return acted;
         const repairs = u.tags[T.rphAction];
         if (repairs === true || (typeof repairs === 'number' && repairs >= env.query('rally.repairs', { unit: a.unit }, 1))) return 'Unit already acted this RPh';
         const halted = actionIllegal(env, [a.unit]);
@@ -471,6 +489,10 @@ export const rallyModule: RuleModule = {
         if (locOf(env.state, from) !== locOf(env.state, to)) return 'Units must be in the same location';
         const across = env.query('transfer.illegal', { sw: s.id, from: from.id, to: to.id }, null);
         if (across) return across;
+        if (env.state.phase === 'RPh') {
+          const acted = env.query('rally.actionIllegal', { unit: from.id, action: 'transfer' }, null) ?? env.query('rally.actionIllegal', { unit: to.id, action: 'transfer' }, null);
+          if (acted) return acted;
+        }
         const halted = actionIllegal(env, [from.id, to.id]);
         if (halted) return halted;
         if (!goodOrderUnpinned(env, from.id) || !goodOrderUnpinned(env, to.id)) return 'Both units must be Good Order (and unpinned)';
@@ -483,7 +505,12 @@ export const rallyModule: RuleModule = {
         return null;
       },
       resolve(ctx, a) {
+        const from = pieceOf(ctx, a.sw).loc;
         ctx.emit('piece.moved', { id: a.sw, loc: { kind: 'held', by: a.to } });
+        if (ctx.state.phase === 'RPh' && from.kind === 'held') {
+          ctx.proc<RphActedFn>(RP.acted)(ctx, from.by, 'transfer');
+          ctx.proc<RphActedFn>(RP.acted)(ctx, a.to, 'transfer');
+        }
         ctx.popDecision();
         if (ctx.state.phase === 'RPh') askPhaseOwner(ctx, a.side, { side: a.side });
         else askPhaseOwner(ctx, ctx.state.attacker);
@@ -502,6 +529,7 @@ export function attemptRally(ctx: Ctx, unit: PieceId, leader: PieceId | null, se
   const roll = ctx.roll(`Rally ${unit}`);
   const final = roll.total + drm;
   setTags(ctx, unit, { [T.rallyTried]: true, [T.rphAction]: true });
+  if (leader && !self) ctx.proc<RphActedFn>(RP.acted)(ctx, leader, 'rally');
   const outcome: RallyOutcome = roll.total === 12 ? 'reduced' : final <= morale ? 'rallied' : 'failed';
   ctx.emit('sk1.check', {
     unit,

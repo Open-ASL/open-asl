@@ -7,7 +7,7 @@ import { PHASE_FIRE_MODE, fireTargets, phaseOwner, swUsedThisPhase } from '../sk
 import { P, type CasualtyFn, type FlushFn, type UnitFn } from '../sk1/morale';
 import { FIRST_FIRE, finishDefensiveFire, firstFireLocations, firstFireTargets, firstFireView, moveState, movingInfo } from '../sk1/movement';
 import { T, gun, isCx, isGoodOrder, isPinned, mmc, pieceOf, setTags, smc } from '../sk1/status';
-import { OP, enemyVehicleAt, swDirectorIllegal, type OrdnanceFireFn, type OrdnanceShot } from '../sk2/ordnance';
+import { OP, enemyVehicleAt, swDirectorIllegal, type OrdnanceFireFn, type OrdnancePauseFn, type OrdnanceResumeFn, type OrdnanceShot } from '../sk2/ordnance';
 import { vehicle } from './status';
 
 /*
@@ -346,14 +346,17 @@ export const panzerfaustModule: RuleModule = {
         if (a.side !== phaseOwner(env)) return 'Not your fire phase';
         return pfIllegal(env, a.side, a.pf, mode);
       },
-      resolve(ctx, a) {
-        resolvePf(ctx, a.pf, PHASE_FIRE_MODE[ctx.state.phase]!);
-        if (!ctx.state.result) {
-          ctx.popDecision();
-          askPhaseOwner(ctx, phaseOwner(ctx));
-        }
+      resolve(ctx, a, d) {
+        if (!ctx.proc<OrdnancePauseFn>(OP.pause)(ctx, a, d)) resolveFirePf(ctx, a);
       },
     });
+    function resolveFirePf(ctx: Ctx, a: PfAction) {
+      resolvePf(ctx, a.pf, PHASE_FIRE_MODE[ctx.state.phase]!);
+      if (!ctx.state.result) {
+        ctx.popDecision();
+        askPhaseOwner(ctx, phaseOwner(ctx));
+      }
+    }
     r.action<PfAction>({
       type: 'defFire.pf',
       decisionKinds: [FIRST_FIRE],
@@ -379,15 +382,19 @@ export const panzerfaustModule: RuleModule = {
         if ((view.firedHere[a.pf.unit] ?? 0) >= view.mfHere) return `${a.pf.unit} cannot fire again at this location`;
         return null;
       },
-      resolve(ctx, a) {
-        const ms = moveState(ctx)!;
-        const view = firstFireView(ctx, ms, a.pf.target) ?? ms;
-        const targets = firstFireTargets(ctx, view);
-        const fired = resolvePf(ctx, a.pf, 'first', { moving: targets, movingInfo: movingInfo(ctx, view) });
-        // The PF check is a SW use even when it yields no shot (SK4 4.4.2): the unit has fired at this location. A
-        // leader directs only a shot.
-        finishDefensiveFire(ctx, [a.pf.unit, ...(fired && a.pf.director !== undefined ? [a.pf.director] : [])], view === ms ? undefined : a.pf.target);
+      resolve(ctx, a, d) {
+        if (!ctx.proc<OrdnancePauseFn>(OP.pause)(ctx, a, d)) resolveDefPf(ctx, a);
       },
     });
+    function resolveDefPf(ctx: Ctx, a: PfAction) {
+      const ms = moveState(ctx)!;
+      const view = firstFireView(ctx, ms, a.pf.target) ?? ms;
+      const targets = firstFireTargets(ctx, view);
+      const fired = resolvePf(ctx, a.pf, 'first', { moving: targets, movingInfo: movingInfo(ctx, view) });
+      // The PF check is a SW use even when it yields no shot (SK4 4.4.2): the unit has fired at this location. A
+      // leader directs only a shot.
+      finishDefensiveFire(ctx, [a.pf.unit, ...(fired && a.pf.director !== undefined ? [a.pf.director] : [])], view === ms ? undefined : a.pf.target);
+    }
+    r.procedure<OrdnanceResumeFn>(OP.resume, (next) => (ctx, a, d) => (a.type === 'fire.pf' ? resolveFirePf(ctx, a as PfAction) : a.type === 'defFire.pf' ? resolveDefPf(ctx, a as PfAction) : next?.(ctx, a, d)));
   },
 };

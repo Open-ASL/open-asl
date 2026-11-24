@@ -16,6 +16,8 @@ declare module '@asl/engine' {
   interface QueryCatalog {
     /** Whether a vehicle (or its wreck) gives cover and hinders LOS (an SSR may say not: S35's dug-in T-34). */
     'vehicle.isTerrain': { ctx: { vehicle: PieceId }; value: boolean };
+    /** Whether a vehicle that is terrain gives Infantry in its hex the +1 TEM (full ASL D9.3: not an entrenched AFV, B27.52); its Hindrance is apart. */
+    'vehicle.givesCover': { ctx: { vehicle: PieceId }; value: boolean };
   }
 }
 
@@ -28,6 +30,8 @@ export const wrecksModule: RuleModule = {
     /** A vehicle or wreck in `hex` that counts as cover/hindrance now (not a Moving Target this turn). */
     const coverAt = (env: Parameters<typeof vehiclesInHex>[0], hex: string, side?: string) =>
       vehiclesInHex(env, hex, side).filter((v) => (isWreck(v) || !isMovingTarget(v)) && env.query('vehicle.isTerrain', { vehicle: v.id }, true));
+    /** The vehicles and wrecks of `hex` that give the +1 TEM: those of `coverAt` a rule does not exclude. */
+    const tem = (env: Parameters<typeof vehiclesInHex>[0], hex: string) => coverAt(env, hex).filter((v) => env.query('vehicle.givesCover', { vehicle: v.id }, true));
     r.contribute({
       id: 'sk3.los.vehicles',
       query: 'los.trace',
@@ -66,7 +70,7 @@ export const wrecksModule: RuleModule = {
         if (env.query('hex.tem', { hex: attack.target }, 0) > 0) return false;
         // On the Infantry Target Type the TEM went on the To Hit DR.
         if (attack.ordnance?.targetType === 'ITT') return false;
-        return coverAt(env, p.loc.hex).some((v) => isWreck(v) || v.side === p.side);
+        return tem(env, p.loc.hex).some((v) => isWreck(v) || v.side === p.side);
       },
       apply: (v) => v + 1,
     });
@@ -78,7 +82,7 @@ export const wrecksModule: RuleModule = {
       ref: 'SK4 7.4',
       when: ({ attack }, env) => attack.targets.some((u) => {
         const p = env.state.pieces[u];
-        return !!p && p.loc.kind === 'hex' && !vehicle(env, p) && coverAt(env, p.loc.hex).some((v) => isWreck(v) || v.side === p.side);
+        return !!p && p.loc.kind === 'hex' && !vehicle(env, p) && tem(env, p.loc.hex).some((v) => isWreck(v) || v.side === p.side);
       }),
     });
   },

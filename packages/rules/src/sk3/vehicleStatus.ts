@@ -4,6 +4,7 @@ import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
 import { T } from '../sk1/status';
 import type { IftResult } from '../common/statics';
 import { moveState } from '../sk1/movement';
+import { P as MP, type CheckGroupFn } from '../sk1/morale';
 import { pieceOf, setTags } from '../sk1/status';
 import { T3, isCe, isWreck, vehicle } from './status';
 
@@ -249,6 +250,18 @@ export const vehicleStatusModule: RuleModule = {
           if (keys.length) setTags(ctx, p.id, Object.fromEntries(keys.map((k) => [k, null])));
         }
       },
+    });
+    // A morale check never falls on a vehicle as if it were Infantry: a WP hit spares a Buttoned Up, Closed-Topped AFV, and
+    // the crew of a CE or Open-Topped one takes the NMC with the CE DRM helping (ASLRB A24.31; SK4 6.2 is silent).
+    r.procedure<CheckGroupFn>(MP.checkGroup, (next) => (ctx, units, opts) => {
+      const vs = units.filter((u) => !!vehicle(ctx, pieceOf(ctx, u)));
+      const out = next!(ctx, units.filter((u) => !vs.includes(u)), opts);
+      for (const v of vs) {
+        const p = pieceOf(ctx, v);
+        const d = vehicle(ctx, p)!;
+        crewTakesResult(ctx, v, { kind: 'MC', n: opts.mod - (isCe(p) ? d.ceDrm : 0) }, opts.reason, !!d.openTopped);
+      }
+      return out;
     });
     // Crew morale: the inherent crew checks on the nationality's best elite MMC morale (7.9).
     r.contribute({

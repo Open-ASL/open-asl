@@ -83,3 +83,9 @@ credited to their designers. No scenario sold by Multi-Man Publishing is include
 
 The recordings in `apps/web/src/audio/sounds/` are CC0 (public domain dedication); their
 sources are credited in that directory.
+
+## Decorations
+
+The ribbon bars in `apps/web/art/ribbons/` come from Wikimedia Commons, each under the licence and with the credit
+listed in that directory's README. The medal pictures in `apps/web/art/medals/` were rendered from photographs of the
+real medals on Wikimedia Commons; their sources, licences and credits are listed in that directory's README.

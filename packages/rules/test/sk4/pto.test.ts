@@ -67,6 +67,24 @@ describe('PTO Terrain (SK4 8.2): movement', () => {
     expect(s.pieces['l']!.tags).toMatchObject({ cx: true, pinned: true });
   });
 
+  it('bamboo costs each unit of a stack its own whole allowance: a squad slowed by portage enters with its leader', () => {
+    // The squad carries an MMG (5 PP, over its IPC): 5 MF with the leader, who has 6. Each pays all of its own MF.
+    const terrain = { yK5: { terrain: 'bamboo' } };
+    const pieces = [sq('a', 'yK4'), { id: 'l', def: 'ru.L91', side: 'ru', hex: 'yK4' }, { id: 'm', def: 'ru.MMG', side: 'ru', heldBy: 'a' }, { id: 'g', def: 'ge.467', side: 'ge', hex: 'yK8' }];
+    const { engine, state } = makeEngine({ scenario: RU_VS_GE, extra, startPhase: 'MPh', terrain, pieces });
+    let s = play(engine, state, { type: 'move.start', units: ['a', 'l'] });
+    expect(moveState(engine.env(s))!.allowance).toMatchObject({ a: 5, l: 6 });
+    expect(steps(engine, s, 'ru')).toContain('yK5');
+    s = play(engine, s, { type: 'move.step', to: 'yK5' });
+    const ms = moveState(engine.env(s))!;
+    expect(ms.spent).toMatchObject({ a: 5, l: 6 });
+    expect(ms.mfHere).toBe(7);
+    s = settle(engine, s);
+    s = play(engine, s, ...(moveState(engine.env(s)) ? [{ type: 'move.end' }] : []));
+    expect(s.pieces['a']!.tags).toMatchObject({ cx: true, pinned: true });
+    expect(s.pieces['l']!.tags).toMatchObject({ cx: true, pinned: true });
+  });
+
   it('a CX unit may not advance into bamboo; one that does becomes CX', () => {
     const { engine, state } = makeEngine({ scenario: RU_VS_GE, extra, startPhase: 'APh', terrain: { yK5: { terrain: 'bamboo' } }, pieces: [sq('a', 'yK4', { cx: true }), sq('b', 'yK4')] });
     const d = engine.currentDecision(state)!;

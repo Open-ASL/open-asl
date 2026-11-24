@@ -10,8 +10,9 @@ const AP_ONLY_GUNS = new Set(['br.AA40L', 'br.AT40L']);
  * The SK3 PSW 234/1 (S22's card) has a front AF of 3 where VASL prints 4.
  */
 const SK_PRINTED: Record<string, (d: CounterDef) => CounterDef> = {
-  // The SK Sherman III(a) prints MG 2/4: no AAMG.
-  'ru.ShermanIII': (d) => (d.kind === 'vehicle' && d.mg ? { ...d, mg: { bmg: d.mg.bmg, cmg: d.mg.cmg } } : d),
+  // The SK Sherman III(a) prints MG 2/4: no AAMG. Its "*75" is a notice asterisk (ASLRB C2.9), not a short barrel: the
+  // counter back reads "Red TH#s (Pre44)" (SK3 Russian Vehicle Note 50); its AP stays on the 75 row of the To Kill Table.
+  'ru.ShermanIII': (d) => (d.kind === 'vehicle' && d.mg ? { ...d, mg: { bmg: d.mg.bmg, cmg: d.mg.cmg }, redThBefore: 1944 } : d),
   // The 88L AA Gun's M# is printed in red: a large target (SK4 6.7); the VASL piece leaves it normal.
   'ge.AA88L': (d) => (d.kind === 'gun' ? { ...d, targetSize: 'large' } : d),
   'ge.psw2341': (d) =>

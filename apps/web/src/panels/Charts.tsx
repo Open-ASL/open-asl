@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ATT_BANDS, COUNTERS, ITT_BANDS, IFT_COLUMNS, SK1_TABLES, TO_HIT, TO_KILL_AP, VTT_BANDS } from '@asl/content';
+import { ATT_BANDS, COUNTERS, ITT_BANDS, IFT_COLUMNS, IFT_HE, SK1_TABLES, TO_HIT, TO_KILL_AP, VTT_BANDS } from '@asl/content';
 import { SK4_TERRAIN, type IftResult, type SpecialAmmoDef, type ToHitEntry, type VehicleDef } from '@asl/rules';
 import { assetUrl, counterImage } from '../game/assets';
 import { NATION } from '../game/describe';
@@ -25,7 +25,7 @@ const SECTIONS: { id: SectionId; name: string; blurb: string }[] = [
   { id: 'morale', name: 'Morale & Rally', blurb: 'MC, Rally, Wounds, Leaders' },
   { id: 'move', name: 'Movement & Rout', blurb: 'MF, PP, Rout' },
   { id: 'terrain', name: 'Terrain', blurb: 'TEM, MF, LOS' },
-  { id: 'guns', name: 'Guns', blurb: 'To Hit, TH DRM, Manhandling' },
+  { id: 'guns', name: 'Guns', blurb: 'To Hit, LATW, TH DRM, Manhandling' },
   { id: 'vehicles', name: 'Vehicles', blurb: 'To Kill, AFV Destruction, Bog, MP' },
   { id: 'afv', name: 'AFV Counter', blurb: 'Reading a vehicle counter' },
   { id: 'sequence', name: 'Sequence of Play', blurb: 'Phase by phase' },
@@ -265,6 +265,14 @@ function FireSection() {
         <div className="ch-scroll">
           <table className="ch-ift" onMouseLeave={() => setHover(null)}>
             <thead>
+              <tr className="he">
+                <th className="corner">HE →</th>
+                {IFT_COLUMNS.map((c, ci) => (
+                  <th key={c} className={hover?.[1] === ci ? 'hl' : ''}>
+                    {IFT_HE[c]}
+                  </th>
+                ))}
+              </tr>
               <tr>
                 <th className="corner">
                   <span>FP →</span>
@@ -613,11 +621,73 @@ function GunsSection({ nationalities }: { nationalities?: string[] }) {
         </div>
         <Bullets items={D.TH_KEY} />
       </Card>
+      <LatwCard />
       <Lists lists={D.GUN_LISTS} />
       <Card title="Firing a Gun" refs="SK4 3.2">
         <Bullets items={D.GUN_PROCESS} />
       </Card>
     </div>
+  );
+}
+
+/** Every Light Anti-Tank Weapon in the counter data: its To Hit Table is printed on the back of its counter, not on the Gun chart. */
+const LATWS = Object.values(COUNTERS)
+  .filter((d) => d.kind === 'sw' && !!d.latw)
+  .sort((a, b) => a.nationality.localeCompare(b.nationality) || a.id.localeCompare(b.id));
+/** The model as printed on the counter: "BAZ 44" (its id "am.BAZ44"), so the three Bazookas read apart. */
+const latwName = (id: string) => id.slice(id.indexOf('.') + 1).replace(/(\D)(\d)/, '$1 $2');
+const LATW_RANGES = Math.max(...LATWS.map((d) => (d.kind === 'sw' && d.latw ? d.latw.th.length : 0)));
+
+/** The LATW To Hit Tables (SK4 4.4), read from the counters as the cardboard player flips them over. */
+function LatwCard() {
+  return (
+    <Card title="LATW To Hit" refs="SK4 4.4, 4.4.3" wide>
+      <div className="ch-scroll">
+        <table className="ch-th ch-latw">
+          <thead>
+            <tr className="band">
+              <th rowSpan={2}>LATW</th>
+              <th colSpan={LATW_RANGES}>TH# by range</th>
+              <th rowSpan={2}>
+                FP column
+                <span className="sub">Infantry in a building</span>
+              </th>
+              <th rowSpan={2}>Removal</th>
+              <th rowSpan={2}>HEAT TK</th>
+              <th rowSpan={2}>Backblast</th>
+            </tr>
+            <tr>
+              {Array.from({ length: LATW_RANGES }, (_, r) => (
+                <th key={r} className="rng">
+                  {r}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {LATWS.map((d) =>
+              d.kind === 'sw' && d.latw ? (
+                <tr key={d.id}>
+                  <th className="gun">
+                    {latwName(d.id)} <span className="muted small">{NATION[d.nationality] ?? d.nationality}</span>
+                  </th>
+                  {Array.from({ length: LATW_RANGES }, (_, r) => (
+                    <td key={r} className="th">
+                      {d.latw!.th[r] ?? '–'}
+                    </td>
+                  ))}
+                  <td className="fp">{d.fp}</td>
+                  <td>{d.x ? `X${d.x}` : d.b ? `B${d.b}` : d.type === 'PF' ? 'one shot' : '–'}</td>
+                  <td>{d.latw.tk ?? '–'}</td>
+                  <td>{d.type === 'PIAT' ? 'none' : '+2 or 1 FP'}</td>
+                </tr>
+              ) : null,
+            )}
+          </tbody>
+        </table>
+      </div>
+      <Bullets items={D.LATW_KEY} />
+    </Card>
   );
 }
 

@@ -6,6 +6,7 @@ import { hasLos, isVisibleTo } from '../sk1/known';
 import { MOVE_ENTER, moveInternals, moveState, type MoveEnterFn } from '../sk1/movement';
 import { ROUT_ENTER, type RoutEnterFn } from '../sk1/rout';
 import { gun, isGoodOrder, mmc, pieceOf, setTags, smc } from '../sk1/status';
+import { isSmokeAmmo } from './ammo';
 import { REVEAL_GUN } from './guns';
 import { T2, gunManner, isHidden } from './status';
 
@@ -305,7 +306,9 @@ export const hipModule: RuleModule = {
       label: '+2 firing at a hex with no known enemy',
       // An empty hex as far as the firer can tell: nothing there but hidden units. A concealed stack's "?" is on the
       // board, and its +2 is concealment's own (SK4 8.3.2); the chart has one case for both, so they never stack.
-      when: (sc, env) => !sc.moving && unitsAt(env, sc.target, otherSide(env.state, sc.side)).every(isHidden),
+      // Smoke or WP takes it only at a hex holding a non-hidden enemy unit none of which is Known, which is that
+      // concealed case, never at an empty or hidden-only hex (ASLRB C6.2 EXC; SK is silent).
+      when: (sc, env) => !sc.moving && !isSmokeAmmo(sc.ammo) && unitsAt(env, sc.target, otherSide(env.state, sc.side)).every(isHidden),
       apply: (v) => v + 2,
     });
 

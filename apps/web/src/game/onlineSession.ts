@@ -5,6 +5,7 @@ import { engineFor } from '@asl/content';
 import type { ScenarioDef } from '@asl/rules';
 import { COL, PUBLIC_VIEWER, type ViewDoc, type ViewStepDoc } from '@asl/platform';
 import { api, db, errorOf } from '../firebase';
+import { recordError } from '../diagnostics/errorLog';
 import { useOnlineExtras } from './onlineExtras';
 import type { Session } from './session';
 
@@ -149,6 +150,7 @@ export function useOnlineGame(matchId: string, scenario: ScenarioDef, mySide: st
           } catch (e) {
             generation.current++;
             setSendError(errorOf(e).message);
+            recordError('refused', `${full.type} (order ${seq}): ${errorOf(e).message}`);
           }
         })
         .finally(() => setOutstanding((n) => n - 1));

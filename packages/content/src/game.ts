@@ -82,7 +82,8 @@ export function rulesetFor(scenario: ScenarioDef) {
     if (!ssr.includes(m)) ssr.push(m);
   }
   const panzerfaust = needsPanzerfaust(scenario) && !ssr.includes(panzerfaustModule) ? [panzerfaustModule] : [];
-  if (scenarioRuleset(scenario) === 'full-asl') return buildRuleset('asl-full', [piecesModule, turnModule, ...sk1CoreModules, ...sk2CoreModules, ...sk3CoreModules, ...panzerfaust, ...aslCoreModules, ...ssr]);
+  // A card's SSR module that full ASL installs as a core rule (the A2.9 setup Deployment) is installed once.
+  if (scenarioRuleset(scenario) === 'full-asl') return buildRuleset('asl-full', [piecesModule, turnModule, ...sk1CoreModules, ...sk2CoreModules, ...sk3CoreModules, ...panzerfaust, ...aslCoreModules, ...ssr.filter((m) => !aslCoreModules.includes(m))]);
   if (needsSk4(scenario)) {
     // SK4 installs some SSR modules as core rules (hidden units for the Japanese 10%, SK4 8.1.8.5): a card listing the same module adds nothing.
     const core = [piecesModule, turnModule, ...sk1CoreModules, ...sk2CoreModules, ...sk3CoreModules, ...panzerfaust, ...sk4CoreModules];

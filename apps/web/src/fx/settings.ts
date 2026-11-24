@@ -83,6 +83,28 @@ export function useStackCard(): [boolean, (on: boolean) => void] {
   return [on, set];
 }
 
+const FOLLOW_KEY = 'asl.followAction';
+
+/** Whether the map pans to show the other side's moves and fire when they happen out of view. On by default. */
+export function useFollowAction(): [boolean, (on: boolean) => void] {
+  const [on, setOn] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(FOLLOW_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const set = useCallback((v: boolean) => {
+    setOn(v);
+    try {
+      localStorage.setItem(FOLLOW_KEY, v ? 'on' : 'off');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  return [on, set];
+}
+
 const WEATHER_KEY = 'asl.weatherFx';
 
 /** Whether the map shows the weather (falling snow, rain, fog) as a visual effect. On by default. */

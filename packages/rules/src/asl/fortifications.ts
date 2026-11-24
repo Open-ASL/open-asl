@@ -526,7 +526,13 @@ export function fortSetupIllegal(env: QueryEnv, side: SideId, action: SetupActio
     if (isPillboxLoc(loc)) return `${id} cannot be both in the pillbox and beneath a counter`;
     const target = beneathTarget(env, side, hexOfLoc(loc));
     if (!target) return `No foxhole, trench or Wire of yours in ${hexOfLoc(loc)} to set up beneath`;
-    if (isVehicleDef(defOf(env, u))) return `A vehicle cannot set up beneath a ${fortKindName(target)}`;
+    // B27.51: "Any counter may start a scenario beneath a trench counter", an A-T Ditch being a trench (B27.56); B27.55 and
+    // B27.56 bar a vehicle from entering one, not from starting beneath it, so an Armored Car may too. A foxhole takes
+    // Infantry, SW and a mortar only (B27.1); "Vehicles are never placed beneath Wire" (B26.43).
+    if (isVehicleDef(defOf(env, u))) {
+      if (target.kind === 'trench' || target.kind === 'ditch') continue;
+      return target.kind === 'wire' ? 'Vehicles are never placed beneath Wire (ASLRB B26.43)' : `A vehicle cannot set up beneath a ${fortKindName(target)}: only Infantry, SW and a mortar may (ASLRB B27.1)`;
+    }
     // Only Infantry and SW beneath a foxhole; a mortar is the one 5/8" counter allowed (B27.1). Any counter may start beneath a trench (B27.51).
     if (target.kind === 'foxhole' && gun(env, u) && gun(env, u)!.type !== 'MTR') return `${id} cannot be placed beneath a foxhole: only Infantry, SW and a mortar may (ASLRB B27.1)`;
     if (target.kind === 'foxhole') for (const w of heldBy(id)) if (gun(env, w) && gun(env, w)!.type !== 'MTR') return `${w.id} cannot be placed beneath a foxhole: only Infantry, SW and a mortar may (ASLRB B27.1)`;
@@ -894,9 +900,11 @@ export const fortificationsModule: RuleModule = {
         const wire = wireAt(ctx, hex);
         if (!ent && !wire) continue;
         const pos: { ent?: 'foxhole' | 'trench' | 'ditch'; wire?: 'on' | 'beneath' } = {};
+        // A vehicle beneath a trench is beneath that counter alone (B27.52; never beneath Wire, B26.43).
+        const isVehicle = isVehicleDef(defOf(ctx, u));
         if (beneath.has(id)) {
           if (ent) pos.ent = ent.kind as 'foxhole' | 'trench' | 'ditch';
-          if (wire) pos.wire = 'beneath';
+          if (wire && !isVehicle) pos.wire = 'beneath';
         } else if (wire) pos.wire = 'on';
         if (Object.keys(pos).length) ctx.emit('piece.moved', { id, loc: { ...u.loc, pos } });
       }

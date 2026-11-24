@@ -776,3 +776,17 @@ describe('More foxhole cases (B27.1, B27.13, B27.3, B27.4, A12.33)', () => {
     for (const u of ['g', 'g2']) expect(loc(t.state, u).pos?.ent).toBe(t.state.pieces[u]!.tags['pinned'] ? undefined : 'foxhole');
   });
 });
+
+describe('Labor across Player Turns (B24.8)', () => {
+  it('an Entrenching Labor stays on its unit past the end of the CCPh: only a Flame\'s comes off there', () => {
+    const { engine, state } = game([ru('r', 'uN5'), ge('g', 'uY1'), ...far], { phase: 'PFPh', first: 'ru' });
+    let s = act(engine, state, { type: 'test.tag', id: 'r', tags: { labor: 'entrench:uN5@-1' } }).state;
+    for (let i = 0; i < 300 && !(s.attacker === 'ge' && s.phase === 'RPh'); i++) {
+      const d = engine.currentDecision(s)!;
+      const l = engine.legalActions(s, d.owner);
+      s = act(engine, s, l.find((x) => x.type === 'defPass') ?? l.find((x) => x.type === 'endPhase') ?? l.find((x) => x.type === 'wa.done') ?? l[0]!).state;
+    }
+    expect(s.attacker).toBe('ge');
+    expect(parseLabor(s.pieces['r']!.tags['labor'])).toEqual({ task: 'entrench:uN5', drm: -1 });
+  });
+});

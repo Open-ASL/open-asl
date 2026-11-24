@@ -17,6 +17,7 @@ const LMA10_GE_ELITE = ['ge.548', 'ge.468', 'ge.238h', 'ge.248h'];
 /** LMA10 Putot-en-Bessin 2 (Putot en Bessin, Normandy, 8 June 1944). Board z upright, hexrows I-GG. */
 export const LMA_10: ScenarioDef = {
   id: 'lma-10',
+  service: { theatre: 'nw-europe', campaign: 'normandy', armies: { br: 'canadian' } },
   product: 'lma',
   number: 'LMA10',
   title: 'LMA10 Putot-en-Bessin 2',

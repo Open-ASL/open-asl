@@ -48,6 +48,10 @@ export interface PublicProfileDoc {
   losses: number;
   draws: number;
   medals: import('./types').AwardedMedal[];
+  /** Progress toward each decoration, as its headline count and goal, so others see how close a player is. */
+  awardProgress?: Partial<Record<import('./types').MedalId, [number, number]>>;
+  /** Not taking challenges (mirrors `UserDoc.notAvailable`): the Lobby shows it and offers no challenge. */
+  notAvailable?: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

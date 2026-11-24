@@ -118,8 +118,36 @@ export interface ControlState {
   /** Control of the Locations above ground level (ASLRB A26.11); absent when there is none. */
   locations?: Record<LocId, SideId>;
 }
-export const controlState = (env: QueryEnv): ControlState =>
-  (env.state.ext[CONTROL] as ControlState | undefined) ?? { hexes: {}, buildings: {} };
+/**
+ * Control as recorded: what was gained in play (and the card's own at-start Control). Writers of Control build on this,
+ * not on `controlState`, so that the setup areas' start Control adds no event: decision ids count events, and recorded
+ * games keep replaying.
+ */
+export const storedControl = (env: QueryEnv): ControlState => (env.state.ext[CONTROL] as ControlState | undefined) ?? { hexes: {}, buildings: {} };
+
+/**
+ * Control now: what each side had at scenario start from its setup area (`setupAreaControl`, A26.11), overlaid by
+ * what is recorded (`storedControl`), then passed through the rules that amend Control (`control.adjust`: a building
+ * wholly rubbled is nobody's, B24.1). A hex whose recorded Control is withdrawn (an AFV leaving) is back to its start.
+ */
+export const controlState = (env: QueryEnv): ControlState => {
+  const cached = MERGED.get(env.state);
+  if (cached) return cached;
+  const stored = env.state.ext[CONTROL] as ControlState | undefined;
+  const start = startControl(env);
+  const merged: ControlState = stored ? { ...stored, hexes: { ...start.hexes, ...stored.hexes }, buildings: { ...start.buildings, ...stored.buildings } } : start;
+  const out = env.query('control.adjust', { next: merged, prev: stored ?? { hexes: {}, buildings: {} } }, merged);
+  MERGED.set(env.state, out);
+  return out;
+};
+const MERGED = new WeakMap<object, ControlState>();
+const START = new WeakMap<object, ControlState>();
+const startControl = (env: QueryEnv): ControlState => {
+  const st = statics(env);
+  let c = START.get(st);
+  if (!c) START.set(st, (c = setupAreaControl(env)));
+  return c;
+};
 
 /**
  * Every hex a side Controls, for display: hex control plus every hex of a Controlled building
@@ -1053,10 +1081,10 @@ export const scenarioModule: RuleModule = {
             });
           });
         });
-        // Control the card hands a side at the start, before anyone sets up.
+        // Control the card hands a side at the start, before anyone sets up (over the setup areas', see `controlState`).
         if (sc.initialControl?.length) {
           const map = statics(ctx).map;
-          const prev = controlState(ctx);
+          const prev = storedControl(ctx);
           const hexes = { ...prev.hexes };
           for (const c of sc.initialControl) for (const h of c.hexes) hexes[map.hex(h)?.id ?? h] = c.side;
           ctx.emit('sk1.control', { state: { ...prev, hexes } });
@@ -1411,7 +1439,7 @@ const CONTROL_TAGS = ['broken', 'wreck'];
 
 /** Update hex/building Control: Good Order MMC in a location with no enemy units (SK1 2.0). */
 export function updateControl(ctx: Ctx) {
-  const prev = controlState(ctx);
+  const prev = storedControl(ctx);
   let next: ControlState = { hexes: prev.hexes, buildings: { ...prev.buildings } };
   // Hex Control is copied on the first change only: the map of hexes held grows all game.
   let hexesChanged = false;
@@ -1500,6 +1528,53 @@ export function updateControl(ctx: Ctx) {
 
 const buildingsOf = new WeakMap<GameMap, Map<string, HexId[]>>();
 /** Each building's hexes (once per map: Control is re-evaluated after every piece event). */
+/**
+ * Control at scenario start: "a side gains Control of all hexes/buildings within its set-up area (except for those
+ * within both sides' set-up areas), as well as all hexes/buildings on a board if that side is the only side which may
+ * set up on that board" (SK4 Definitions "Control"; ASLRB A26.11). A force that enters, or appears later, sets up
+ * nowhere at the start; one scattered around a hex chosen in play (`scatter`) may set up anywhere, so it denies the
+ * other side every whole board. A building is Controlled with its hexes only when all of them are the side's.
+ * Upper-level Locations follow their hex until a unit gains one (A26.11 Locations are not seeded).
+ */
+export function setupAreaControl(env: QueryEnv): ControlState {
+  const sc = statics(env).scenario;
+  const map = statics(env).map;
+  const area = new Map<SideId, Set<HexId>>();
+  const boards = new Map<SideId, Set<string>>();
+  const everywhere = new Set<SideId>();
+  for (const f of sc.forces) {
+    if (f.setup.kind === 'enter') continue;
+    if (f.setup.kind === 'scatter') {
+      everywhere.add(f.side);
+      continue;
+    }
+    for (const h of f.setup.hexes) {
+      const hex = map.hex(h);
+      if (!hex) continue;
+      if (!area.has(f.side)) area.set(f.side, new Set());
+      area.get(f.side)!.add(hex.id);
+      if (!boards.has(f.side)) boards.set(f.side, new Set());
+      boards.get(f.side)!.add(hex.board);
+    }
+  }
+  const sides = [...new Set([...area.keys(), ...everywhere])];
+  const hexes: Record<HexId, SideId> = {};
+  for (const h of map.hexes()) {
+    const owners = sides.filter((s) => area.get(s)?.has(h.id));
+    if (owners.length === 1) hexes[h.id] = owners[0]!;
+    else if (owners.length === 0) {
+      const alone = sides.filter((s) => everywhere.has(s) || boards.get(s)?.has(h.board));
+      if (alone.length === 1 && !everywhere.has(alone[0]!)) hexes[h.id] = alone[0]!;
+    }
+  }
+  const buildings: Record<string, SideId> = {};
+  for (const [b, bh] of buildingHexes(map)) {
+    const side = hexes[bh[0]!];
+    if (side && bh.every((h) => hexes[h] === side)) buildings[b] = side;
+  }
+  return { hexes, buildings };
+}
+
 function buildingHexes(map: GameMap): Map<string, HexId[]> {
   let buildings = buildingsOf.get(map);
   if (!buildings) {

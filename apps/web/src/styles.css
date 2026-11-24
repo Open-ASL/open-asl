@@ -572,12 +572,46 @@ input[type='checkbox'] { accent-color: var(--brass); width: 16px; height: 16px; 
 .log-total { margin-left: 2px; }
 .log-fire { color: #f0d9a0; }
 /* each entry (a shot with its results, a check, a move) set off from the one before */
-.log li.opens:not(:first-child) { margin-top: 4px; padding-top: 5px; border-top: 1px solid rgba(255, 255, 255, 0.09); }
-/* a shot whose LOS can be drawn on the map by clicking its line */
-.log li.has-los { cursor: pointer; }
-.log li.has-los:hover { border-left-color: var(--line-hi); background: rgba(255, 255, 255, 0.03); }
+.log li.log-entry:not(:first-child) { margin-top: 4px; padding-top: 5px; border-top: 1px solid rgba(255, 255, 255, 0.09); }
+/* a line: its nationality's emblem, then the text; a result sits indented under the shot that caused it */
+.log-line { display: flex; align-items: flex-start; gap: 6px; }
+.log-line.cont { padding-left: 14px; }
+.log-txt { flex: 1; min-width: 0; }
+.log-nat { flex: none; display: inline-grid; place-items: center; width: 15px; height: 15px; margin-top: 1px; border: 1px solid #1a1a14; border-radius: 2px; background: #e5e2d0; }
+.log-nat svg { display: block; width: 12px; height: 12px; }
+.log-nat.none { visibility: hidden; }
+.log-head .log-nat { align-self: center; }
+.log-chev { flex: none; color: var(--muted); font-size: 10px; margin-top: 2px; }
+/* an entry with more to show (every modifier, its LOS) opens on a click */
+.log li.clickable { cursor: pointer; }
+.log li.clickable:hover { border-left-color: var(--line-hi); background: rgba(255, 255, 255, 0.03); }
+.log li.clickable:hover .log-chev { color: var(--brass); }
+.log li.clickable:focus-visible { outline: 1px solid var(--brass); outline-offset: -1px; }
 .log li.reviewing { border-left-color: #7cfc00 !important; background: rgba(124, 252, 0, 0.07); }
 .log li.reviewing::after { content: 'LOS on the map'; display: block; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #9be36a; }
+/* the entry spelled out: who fired at what, then labelled rows, each modifier its own chip */
+.log li.open { padding-left: 0; padding-right: 6px; }
+.log li.open.reviewing::after { padding: 2px 8px 0; }
+.log-card { border: 1px solid #2b3326; border-left: 3px solid var(--side, var(--brass)); border-radius: 3px; background: #121612; color: var(--text); }
+.log-card-title {
+  display: flex; align-items: flex-start; gap: 6px; width: 100%; padding: 5px 8px; border: 0; border-radius: 0; text-align: left; cursor: pointer;
+  font: 600 12px var(--font-head); letter-spacing: 0.03em; color: var(--text);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--side, var(--brass)) 18%, #121612), #121612);
+}
+.log-card-title:hover .log-chev { color: var(--brass); }
+.log-card-name { flex: 1; min-width: 0; }
+.log-row { display: grid; grid-template-columns: 68px 1fr; gap: 8px; padding: 3px 8px; border-top: 1px solid #1f261c; }
+.log-k { color: var(--muted); font: 600 10px var(--font-head); letter-spacing: 0.08em; text-transform: uppercase; padding-top: 2px; }
+.log-v { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; }
+.log-mod { padding: 0 5px; border-radius: 2px; background: #1e241c; border: 1px solid #2f382a; font-size: 11px; color: var(--text); }
+.log-mod.plus { color: #f0b27a; }
+.log-mod.minus { color: #9be36a; }
+.log-mod.zero { color: var(--muted); }
+.log-out { padding: 0 6px; border-radius: 2px; background: color-mix(in srgb, var(--brass) 22%, #121612); border: 1px solid var(--brass); color: var(--brass-hi); font-size: 11px; font-weight: 700; }
+.log-card-line { display: flex; gap: 0; align-items: flex-start; border-top: 1px solid #1f261c; }
+.log-card-line > .log-nat { margin: 5px 0 0 6px; }
+.log-card-line > div { flex: 1; min-width: 0; }
+.log-card-line .log-row { border-top: 0; grid-template-columns: 54px 1fr; }
 .log-check { color: #cfd6c0; }
 .log-cc { color: #f3a77a; }
 .log-end { color: var(--brass-hi); font-weight: 700; }

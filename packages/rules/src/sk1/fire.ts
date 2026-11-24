@@ -1205,7 +1205,8 @@ function basicIllegal(env: QueryEnv, decl: FireDeclaration, mode: FireMode, side
       // after one unit fires on the first MF, two units of that Location may not form a FG on the second).
       const times = (id: PieceId) => used.filter((u) => u === id).length;
       const most = Math.max(...used.map(times));
-      const late = [...decl.units, ...decl.sw].filter((id) => !(env.state.pieces[id] && isFt(env, id)) && !vehicleArmament(env, id) && times(id) < most);
+      // Only this Location's units: those of another hex of a multi-hex FG answer to their own Location's record.
+      const late = [...decl.units, ...decl.sw].filter((id) => firerLoc(env, id) === hex && !(env.state.pieces[id] && isFt(env, id)) && !vehicleArmament(env, id) && times(id) < most);
       if (late.length) return `Units in ${hex} already fired at this stack on this MF expenditure without ${late.join(', ')} (must form one Fire Group)`;
       continue;
     }
@@ -1742,7 +1743,12 @@ export function simpleDeclarations(env: QueryEnv, side: SideId, targets: LocId[]
       // fires (or enemies walk past an LMG in range that is never offered the shot).
       const reaches = (id: PieceId) => !env.query('fire.illegal', { decl: { units: [id], sw: [], target: t }, mode, side, ...(moving ? { moving } : {}) }, null);
       const base: FireDeclaration = { units: units.filter((id) => !forfeits(id) && (iftSw.length === 0 || reaches(id))), sw: iftSw, target: t };
-      const variants: FireDeclaration[] = [base];
+      // Each FT fires alone (SK1 4.2), at the Location or predesignating an enemy vehicle there (SK4 4.2): a leader
+      // holding one is the stack's only firer, and with no FT attack offered he was never asked to First Fire it.
+      const fts = sws.filter((id) => sw(env, pieceOf(env, id))?.type === 'FT');
+      const enemyVehicles = fts.length ? vehiclesAt(env, t, otherSide(env.state, side), true) : [];
+      const variants: FireDeclaration[] = fts.flatMap((ft) => [{ units: [], sw: [ft], target: t }, ...enemyVehicles.map((v) => ({ units: [], sw: [ft], target: t, vsVehicle: v.id }))]);
+      variants.push(base);
       if (leader) variants.push({ ...base, directors: [leader.id] });
       // A SW that kept ROF fires again on its own (SK1 1.2.4): its holder, having fired, may not join it anew.
       const rof = base.sw.filter((id) => pieceOf(env, id).tags[T.rofFired] !== undefined);

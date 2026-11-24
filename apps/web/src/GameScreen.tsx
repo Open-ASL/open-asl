@@ -172,7 +172,7 @@ import { BoardView, type BoardOverlay, type FireHex, type FortHex, type Fortifie
 import { ActionWheel, action, group, type WheelItem } from './board/ActionWheel';
 import { StackPeek, hasPeek, stackIn } from './board/StackPeek';
 import { NATION, PHASE_NAME, defLabel, describeEvents, hexLabel, humanize, phaseSections, pieceLabel } from './game/describe';
-import { LogText } from './game/LogText';
+import { LogSections } from './game/LogEntries';
 import { pillboxRoutMarks } from './game/pillboxRout';
 import { RofChoice, type RofChoiceItem } from './panels/RofChoice';
 import { dmChoices, type DmChoice } from './game/dmChoice';
@@ -6700,38 +6700,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           }}
         >
           <h3>Log</h3>
-          {sections.map((sec) => (
-            <section key={sec.head ? `p${sec.head.seq}` : 'pre'} className={`log-sec ${sec.lines.length ? '' : 'empty'}`}>
-              {sec.head?.phase ? (
-                <h4 className={`log-head side-${sec.head.phase.side}`}>
-                  <span className="log-turn">Turn {sec.head.phase.turn}</span>
-                  <span className="log-side">{sideName(sec.head.phase.side)}</span>
-                  <span className="log-phase-name">{sec.head.phase.name}</span>
-                </h4>
-              ) : sec.head ? (
-                <h4 className="log-head">{sec.head.text}</h4>
-              ) : null}
-              {sec.lines.length > 0 && (
-                <ol>
-                  {sec.lines.map((l) => (
-                    <li
-                      key={l.seq + l.text}
-                      className={`log-${l.kind} ${l.opens ? 'opens' : ''} ${l.los ? 'has-los' : ''} ${l.seq === losReview ? 'reviewing' : ''}`}
-                      onClick={l.los ? () => setLosReview((r) => (r === l.seq ? null : l.seq)) : undefined}
-                      title={l.los ? (l.seq === losReview ? 'Hide the LOS' : l.kind === 'fire' ? 'Show this shot\'s LOS on the map' : 'Show the Interdiction LOS on the map') : undefined}
-                    >
-                      <LogText text={l.text} />
-                      {l.detail && (
-                        <div className="muted small">
-                          <LogText text={l.detail} />
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </section>
-          ))}
+          <LogSections sections={sections} sideName={sideName} losReview={losReview} onLosReview={setLosReview} />
         </section>
       </aside>
     </div>

@@ -90,7 +90,7 @@ export const SK_S7: ScenarioDef = {
           side: 'am',
           of: [
             { kind: 'controlHexes', side: 'am', hexes: hexesWhere('z', { rows: ['H', 'R'], terrain: 'building-stone' }), atLeast: 15 },
-            { kind: 'noGoodOrderEnemyIn', side: 'am', hexes: hexesWhere('z', { rows: ['H', 'GG'], terrain: 'building-stone' }), mmcOnly: true },
+            { kind: 'noGoodOrderEnemyIn', side: 'am', hexes: hexesWhere('z', { rows: ['H', 'GG'], terrain: 'building-stone' }), mmcOnly: true, unbroken: true },
           ],
         },
       ],

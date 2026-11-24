@@ -40,13 +40,13 @@ describe('Crews (SK4 1.2.2, 3.3.1, 5.1)', () => {
     const env = engine.env(state);
     expect(squadEquivalents(env, [state.pieces['c1']!])).toBe(1);
     expect(squadEquivalents(env, [state.pieces['h1']!])).toBe(0.5);
-    // Two squads and a half-squad leave room for a half-squad but not for a crew with its Gun.
-    let s = act(engine, state, { type: 'move.start', units: ['c1'] }).state;
-    expect(() => act(engine, s, { type: 'move.step', to: 'yN4' })).toThrow(/Stacking limit/);
-    s = act(engine, s, { type: 'move.end' }).state;
-    s = act(engine, s, { type: 'move.start', units: ['h1'] }).state;
+    // A crew with its Gun leaves room for two squads, and then none for a half-squad.
+    let s = act(engine, state, { type: 'move.start', units: ['b1', 'b2'] }).state;
     s = settle(engine, act(engine, s, { type: 'move.step', to: 'yO4' }).state);
-    expect(s.pieces['h1']!.loc).toEqual({ kind: 'hex', hex: 'yO4' });
+    expect(s.pieces['b1']!.loc).toEqual({ kind: 'hex', hex: 'yO4' });
+    s = settle(engine, act(engine, s, { type: 'move.end' }).state);
+    s = act(engine, s, { type: 'move.start', units: ['h1'] }).state;
+    expect(() => act(engine, s, { type: 'move.step', to: 'yO4' })).toThrow(/Stacking limit/);
   });
 
   it('Casualty Reduction eliminates a crew, worth 1 CVP', () => {

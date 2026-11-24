@@ -49,9 +49,16 @@ if (usingEmulators) {
   connectSameOriginStorageEmulator(storage, location);
 }
 
+/**
+ * Calls that may take longer than the SDK's 70 s default, given as long as the function itself may run (its
+ * `timeoutSeconds`): scoring a long game replays every action on the server.
+ */
+const SLOW_CALLS: Partial<Record<CallableName, number>> = { completeHotseatMatch: 300_000 };
+
 /** Call a Cloud Function by name with the request/response types from @asl/platform. */
 export async function api<N extends CallableName>(name: N, data: Callables[N]['req']): Promise<Callables[N]['res']> {
-  const fn = httpsCallable<Callables[N]['req'], Callables[N]['res']>(functions, name);
+  const timeout = SLOW_CALLS[name];
+  const fn = httpsCallable<Callables[N]['req'], Callables[N]['res']>(functions, name, timeout ? { timeout } : undefined);
   const { data: res } = await fn(data);
   return res;
 }

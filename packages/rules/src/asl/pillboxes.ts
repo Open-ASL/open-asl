@@ -3,7 +3,7 @@ import { defOf, isVehicleDef, otherSide, personnelAt, statics, vehiclesAt } from
 import { adjacentFor, hexOfLoc, isGroundLoc, locOf, parseLoc, type AdjacentPurpose, type LocId } from '../common/location';
 import { cornerBetween, mod6, sideToward } from '../common/hexCorners';
 import { gunHeldBy, isBroken, isGoodOrder, mmc, pieceOf, smc } from '../sk1/status';
-import { controlState as controlStateOf, type ControlState } from '../sk1/scenario';
+import { storedControl as controlStateOf, type ControlState } from '../sk1/scenario';
 import { FP, buildAttack, directorsOf, type ApplyResultFn, type AttackResolvedFn, type FireAttackCtx, type FireDeclaration, type FireMode, type ResolveFireFn } from '../sk1/fire';
 import { eliminate } from '../sk1/morale';
 import type { ShotCtx } from '../sk2/ordnance';

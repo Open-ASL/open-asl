@@ -46,7 +46,7 @@ const profiles: Record<string, Profile> = {
 // Measurements in the upright view: front edge of the hull and clearance for fuzzy
 // barrel ink. Below the hull the repair borrows deck texture. Ahead of it, the
 // neighboring stock along the printed border supplies matching background ink.
-const barrelRepairs: Record<string, { hullFront: number; radius: number; squareFrame?: boolean; textLeft?: number }> = {
+const barrelRepairs: Record<string, { hullFront: number; radius: number; squareFrame?: boolean; textLeft?: number; stockPoint?: readonly [number, number] }> = {
   pzvie: { squareFrame: true, hullFront: 36, radius: 6, textLeft: 130 },
   pzviel: { squareFrame: true, hullFront: 36, radius: 6, textLeft: 106 },
   pzvg: { squareFrame: true, hullFront: 30, radius: 5, textLeft: 106 },
@@ -56,7 +56,7 @@ const barrelRepairs: Record<string, { hullFront: number; radius: number; squareF
   cromiv: { hullFront: 30, radius: 7.5 },
   sheriiaa: { hullFront: 33, radius: 6 },
   T3485: { hullFront: 39, radius: 6 },
-  IS2: { squareFrame: true, hullFront: 47, radius: 6 },
+  IS2: { squareFrame: true, hullFront: 47, radius: 6, stockPoint: [71, 24], textLeft: 106 },
   psw2342: { squareFrame: true, hullFront: 33, radius: 5 },
 };
 
@@ -158,7 +158,9 @@ function buildPrintedHull(front: Texture, url: string): Layers | null {
     if (detail.squareFrame) {
       // The square frame runs horizontally under the muzzle. Only sample its
       // center where it is clear of the armor values, deck and gun caliber.
-      repair.fillStyle = `rgb(${sample[0]} ${sample[1]} ${sample[2]})`;
+      // The IS-2's B11 and side values cross the usual stock samples.
+      const stock = detail.stockPoint ? upright.getImageData(...detail.stockPoint, 1, 1).data : sample;
+      repair.fillStyle = `rgb(${stock[0]} ${stock[1]} ${stock[2]})`;
       repair.fillRect(-90, -90, PX, PX);
       repair.drawImage(image, image.width / 2, image.height * 0.86, 1, image.height * 0.14,
         -90, PX * 0.86 - 90, PX, PX * 0.14);

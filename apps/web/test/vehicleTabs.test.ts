@@ -15,7 +15,7 @@ describe('vehicle status tabs (in place of full-size marker counters)', () => {
     return vehicleTabs(env, state.pieces['v']!).map((t) => `${t.text}:${t.tone}`);
   };
 
-  it('shows only a departure from the usual crew posture regardless of turret facing', () => {
+  it('shows only a departure from the usual crew posture regardless of turret facing (SK4 3.3.2, 7.13)', () => {
     expect(at({})).toEqual([]);
     expect(at({ ce: true })).toEqual(['CE:ce']);
     expect(at({ ce: true }, 'am.M8AC')).toEqual([]);

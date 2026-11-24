@@ -95,7 +95,9 @@ describe('the stack card on hover is a setting', () => {
         }),
       ),
     );
-    const box = document.querySelector<HTMLInputElement>('input[aria-label="Stack card on hover"]')!;
+    act(() => document.querySelector<HTMLButtonElement>('#settings-tab-Visuals')!.click());
+    expect(document.querySelector<HTMLElement>('#settings-panel-Visuals')!.hidden).toBe(false);
+    const box = document.querySelector<HTMLInputElement>('#settings-panel-Visuals input[aria-label="Stack card on hover"]')!;
     expect(box.checked).toBe(true);
     act(() => box.click());
     expect(set).toBe(false);

@@ -1,4 +1,3 @@
-import { useTurretArtwork } from '../settings/turretArtwork';
 import { useEffect, useRef } from 'react';
 import { Application, Assets, Color, Container, Graphics, Rectangle, Sprite, Text, Texture, UPDATE_PRIORITY } from 'pixi.js';
 import { cubeDistance, cubeNeighbors, type GameState, type HexId, type Piece, type QueryEnv, type SideId } from '@asl/engine';
@@ -7,6 +6,7 @@ import { CAVE_GONE, UNKNOWN_DEF_ID, cavesParams, caveLoc, cornerOffset, hexPixel
 import { playableBounds, playableRect, printedRect, type CropPlacement } from './crop';
 import { assetUrl, boardImage, counterImage, cxMarker, loadTurrets, markerImage, splitTurret } from '../game/assets';
 import { identColor } from './ident';
+import { useTurretArtwork } from '../settings/turretArtwork';
 import { printedTankLayers, turretMarkerSprite, STOCK_COLOR } from './printedTankArt';
 import { WRECK_PREFIX, wreckTexture } from './wreckArt';
 import type { BoardFx } from '../fx/useGameFx';
@@ -544,7 +544,12 @@ const TAB_STYLE: Record<VehicleTab['tone'], { fill: number; stroke: number; text
   out: { fill: 0x1b1b1b, stroke: 0xc0392b, text: 0xf3a59c },
 };
 
-/** Crew posture and vehicle conditions shown as small tabs on a live vehicle. */
+/**
+ * The status tabs a vehicle wears in place of full-size marker counters, as VASL draws them: the crew's posture when it
+ * differs from the vehicle's usual one (an AFV is Buttoned Up, an Open-Topped one Crew Exposed: SK4 3.3.2, 7.13), and each
+ * state that hampers it (Bog and Mired SK4 3.3.2; Immobilized 7.2; Low Ammo 7.6; Shock, UK, Stun and Recall 7.7; a
+ * malfunctioned or disabled MA or MG 7.10). Motion and the fire markers stay counters.
+ */
 export function vehicleTabs(env: { state: GameState; statics: Statics }, p: Piece): VehicleTab[] {
   const t = p.tags;
   if (t['vca'] === undefined || t['wreck']) return [];
@@ -2977,6 +2982,8 @@ export function BoardView({
           box.addChild(new Graphics().roundRect(ms.x + 2, ms.y + 3, MARKER, MARKER, 3).fill({ color: 0x000000, alpha: 0.4 }));
           box.addChild(ms);
         }
+        // Vehicle posture and impairment tabs sit above the markers (SK4 7.7).
+        // The hover card names them all; keep the crew tab clear of the rotating turret.
         if (veh && !bare) {
           const tabs = vehicleTabs(env, p);
           const posture = showTurretArt ? tabs.find(tab => tab.tone === 'ce' || tab.tone === 'bu') : undefined;

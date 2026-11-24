@@ -61,7 +61,8 @@ export function faceIllegal(env: QueryEnv, a: { vehicle: PieceId; vca?: number; 
     if (a.vca === vcaOf(v)) return 'The hull already faces that way';
     // An Immobilized or Bogged vehicle may not turn its VCA (SK4 glossary), nor a dug-in one (S28/S35 SSR).
     if (isImmobile(v)) return 'An Immobilized or Bogged vehicle may not turn its hull';
-    if (v.tags[T3.dugIn]) return 'A dug-in vehicle never changes its VCA';
+    const never = env.query('vehicle.cannotTurn', { vehicle: v.id }, null);
+    if (never) return never;
     const bow = (d.turret === 'NT' && d.ma && ready(v.id)) || mgs.some((x) => x.kind === 'bmg' && ready(x.id));
     if (!bow) return 'Only a vehicle that could still fire a bow-mounted weapon (an NT Main Armament or the BMG) turns its hull at the end of the phase';
   }

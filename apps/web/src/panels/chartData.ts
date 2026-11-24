@@ -289,6 +289,15 @@ export const TH_KEY: Bullet[] = [
   { lead: 'FP column', text: 'is the IFT column of a hit: Infantry Target / Area Target / Critical Hit.', ref: 'SK4 3.2.4' },
 ];
 
+export const LATW_KEY: Bullet[] = [
+  { lead: 'Own table', text: 'a LATW rolls on the To Hit Table on the back of its counter, not the Gun chart. At Infantry only when they can claim building TEM (or at a Gun), on the FP column shown, doubled on a Critical Hit (an original 2).', ref: 'SK4 4.4, 4.4.1' },
+  { lead: 'Vehicle', text: 'the same TH#, then HEAT To Kill less the Armor Factor struck; range does not change it.', ref: 'SK4 4.4, 7.3' },
+  { lead: 'X#', text: 'a BAZ or PSK is removed on an original TH DR ≥ its X#.', ref: 'SK4 4.4.1' },
+  { lead: 'PIAT', text: 'B10 instead of an X#: repaired on a dr of 1–2, removed on a 6. Full effect for one SMC; never at a unit one level lower in an adjacent hex.', ref: 'SK4 4.4.5' },
+  { lead: 'PF', text: 'TH 10, less 2 per hex; range 1 before June 1944, 2 through 1944, 3 from 1945. One shot after a PF check; an original 12 TH DR also Casualty-Reduces the firer.', ref: 'SK4 4.4.2' },
+  { lead: 'Backblast', text: 'a BAZ, PSK or PF fired from inside a building takes +2 To Hit, or fires without it and attacks everyone in its hex on the 1 FP column (colored dr, no TEM). A PIAT has none.', ref: 'SK4 4.4.3' },
+];
+
 export const GUN_LISTS: DrmList[] = [
   {
     title: 'To Hit DRM',
@@ -310,7 +319,7 @@ export const GUN_LISTS: DrmList[] = [
       { v: '−1/−2', label: 'Acquired target (not for a LATW)', ref: 'SK4 6.10' },
       { v: '−2', label: 'Target in Hazardous Movement', ref: 'SK4 6.5' },
       { v: '∓1', label: 'Large target −1, small target +1', ref: 'SK4 6.7' },
-      { v: '+2', label: 'Concealed, hidden, or firing at an empty hex', ref: 'SK4 8.3.2, 6.4' },
+      { v: '+2', label: 'Concealed, hidden, or firing at an empty hex (Smoke/WP: concealed only)', ref: 'SK4 8.3.2, 6.4; C6.2' },
     ],
   },
   {
@@ -415,7 +424,7 @@ export const VEHICLE_LISTS: DrmList[] = [
 export const TK_KEY: Bullet[] = [
   { lead: 'AP', text: 'the black number; APCR or APDS in brackets. The Russian 76L has its own row; a MG MA uses the MG row at any range.', ref: 'SK4 7.3' },
   { lead: 'HE', text: 'by caliber: 20+ 3, 30+ 4, 40+ 5, 50+ 6, 70+ 7, 80+ 8, 100+ 10, 120+ 12, 150+ 16. A Flamethrower 8, a DC 16 (placed against an AFV).', ref: 'SK4 7.3' },
-  { lead: 'HEAT', text: 'by caliber, range not counted: 37 26, 75–76 13, 95 16, 105 15, 122 17; a LATW carries its own (BAZ43 13, BAZ44/45 16, PSK 26, PF 31).', ref: 'SK4 4.4, 7.3' },
+  { lead: 'HEAT', text: 'by caliber, range not counted: 37 26, 75–76 13, 95 16, 105 15, 122 17; a LATW carries its own (BAZ43 13, BAZ44/45 16, PIAT 15, PSK 26, PF 31).', ref: 'SK4 4.4, 7.3' },
   { lead: 'Area Target hit', text: 'on the IFT at half the FP column, −1 DRM against a vehicle whose every AF is ≤ 4 and +1 when every AF is ≥ 8; KIA kills, a K result or the one above it Shocks (turret) or Immobilizes (hull).', ref: 'SK4 7.11' },
 ];
 

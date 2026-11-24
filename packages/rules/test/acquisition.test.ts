@@ -83,6 +83,44 @@ describe('Acquired Target counters (SK4 6.10, 6.11)', () => {
     expect(t.state.pieces['g88']!.tags).toMatchObject({ acqHex: 'yN4', acqUnits: 'b2' });
   });
 
+  // SK4 6.11; ASLRB C6.521: a 5/8" counter belongs to its hex and cannot track a moving unit, which must be
+  // re-acquired in its new hex. ASLRB C6.52: in the same hex it becomes a 1/2" counter at the level it had.
+  describe('Area Acquisition belongs to the hex (SK4 6.11; ASLRB C6.52, C6.521)', () => {
+    const mk = () => {
+      const base = makeEngine({ pieces: [] });
+      const ca = spineFor(base.engine, base.state, 'yK5', 'yO5');
+      return makeEngine({
+        scenario: GE_VS_BR,
+        extra,
+        dice: [6, 3],
+        startPhase: 'PFPh',
+        pieces: [
+          { id: 'c1', def: 'ge.228c', side: 'ge', hex: 'yK5' },
+          { id: 'g88', def: 'ge.AA88L', side: 'ge', heldBy: 'c1', tags: { ca, acq: 'ATT', acqHex: 'yO5', acqUnits: '', acqLevel: 2 } },
+          { id: 'b1', def: 'br.457', side: 'br', hex: 'yO5' },
+        ],
+      });
+    };
+    const acquiredDrm = (t: { events: { type: string; payload: unknown }[] }) =>
+      (t.events.find((e) => e.type === 'sk2.ordnance.shot')!.payload as { explain: { id: string }[] }).explain.some((x) => x.id === 'sk2.th.acquired');
+
+    it('stays in its hex when the unit there moves on in LOS; a shot at the unit\'s new hex has no Acquisition DRM and gains a -1', () => {
+      const { engine, state } = mk();
+      let t = act(engine, state, { type: 'test.teleport', id: 'b1', hex: 'yO4' });
+      expect(t.state.pieces['g88']!.tags).toMatchObject({ acq: 'ATT', acqHex: 'yO5', acqLevel: 2 });
+      t = act(engine, t.state, { type: 'fire.ordnance', shot: { weapon: 'g88', target: 'yO4', targetType: 'ITT' } });
+      expect(acquiredDrm(t)).toBe(false);
+      expect(t.state.pieces['g88']!.tags).toMatchObject({ acq: 'ITT', acqHex: 'yO4', acqUnits: 'b1', acqLevel: 1 });
+    });
+
+    it('becomes a 1/2" counter on the unit when the Gun fires the Infantry Target Type into the same hex', () => {
+      const { engine, state } = mk();
+      const t = act(engine, state, { type: 'fire.ordnance', shot: { weapon: 'g88', target: 'yO5', targetType: 'ITT' } });
+      expect(acquiredDrm(t)).toBe(true);
+      expect(t.state.pieces['g88']!.tags).toMatchObject({ acq: 'ITT', acqHex: 'yO5', acqUnits: 'b1', acqLevel: 2 });
+    });
+  });
+
   it('drops each acquired unit that is eliminated and goes with the last of them', () => {
     const base = makeEngine({ pieces: [] });
     const ca = spineFor(base.engine, base.state, 'yK5', 'yO5');
@@ -202,6 +240,39 @@ describe('Acquired Target counters (SK4 6.10, 6.11)', () => {
       expect(m.engine.currentDecision(s)?.kind).toBe('firstFire');
       expect(s.decisions.some((d) => d.kind === 'acqChoice')).toBe(false);
       expect(s.pieces['g40']!.tags).toMatchObject({ acqHex: 'yP5', acqUnits: 'e1,e2' });
+    });
+
+    // ASLRB C6.51: the counter is on the units it acquired; one that only passes through the acquired hex is not
+    // acquired, so it neither takes the counter with it nor offers the firer a choice. While it is in that hex the
+    // DRM applies to it too (C6.51: "to all Known units ... in that target Location").
+    it('a unit that was not acquired passes through the acquired hex: the counter stays on the acquired unit, nothing is asked', () => {
+      const probe = makeEngine({ scenario: GE_VS_BR, extra, pieces: [{ id: 'x', def: 'ge.467', side: 'ge', hex: 'yK5' }] });
+      const ca = spineFor(probe.engine, probe.state, 'yR5', 'yO5');
+      const { engine, state } = makeEngine({
+        scenario: GE_VS_BR,
+        extra,
+        startPhase: 'MPh',
+        dice: [5, 4],
+        pieces: [
+          { id: 'c1', def: 'br.228c', side: 'br', hex: 'yR5' },
+          { id: 'g40', def: 'br.AA40L', side: 'br', heldBy: 'c1', tags: { ca, acq: 'ITT', acqHex: 'yO5', acqUnits: 'e1', acqLevel: 1 } },
+          { id: 'e1', def: 'ge.467', side: 'ge', hex: 'yO5' },
+          { id: 'e2', def: 'ge.467', side: 'ge', hex: 'yO6' },
+        ],
+      });
+      let s = act(engine, state, { type: 'move.start', units: ['e2'] }).state;
+      s = act(engine, s, { type: 'move.step', to: 'yO5' }).state;
+      expect(s.pieces['g40']!.tags).toMatchObject({ acqHex: 'yO5', acqUnits: 'e1' });
+      // In O5 with the acquired squad, a shot at it there takes the DRM (5+4 misses).
+      expect(engine.currentDecision(s)?.kind).toBe('firstFire');
+      const shot = act(engine, s, { type: 'defFire.ordnance', shot: { weapon: 'g40', target: 'yO5', targetType: 'ITT' } });
+      expect((shot.events.find((e) => e.type === 'sk2.ordnance.shot')!.payload as { explain: { label: string }[] }).explain.map((n) => n.label)).toContain('-1 Acquired Target');
+      // Without that shot, it moves on to P5, still in the Gun's LOS: the counter stays in O5 on e1, and no choice is offered.
+      s = act(engine, s, { type: 'defPass', side: 'br' }).state;
+      s = act(engine, s, { type: 'move.step', to: 'yP5' }).state;
+      expect(s.pieces['g40']!.tags).toMatchObject({ acqHex: 'yO5', acqUnits: 'e1' });
+      expect(s.decisions.some((d) => d.kind === 'acqChoice')).toBe(false);
+      expect(engine.currentDecision(s)?.kind).toBe('firstFire');
     });
 
     it('in the MPh the firer chooses as soon as the step is made, before Defensive First Fire, which then fires with or without the DRM', () => {

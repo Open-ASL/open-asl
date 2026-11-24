@@ -46,7 +46,8 @@ describe('A18.2: the Leader Creation Table is NA to Finns or Japanese', () => {
   const env = (asl: boolean) => {
     const { engine, state } = makeEngine({
       scenario: { firstSide: 'ja', sides: [{ side: 'ja', name: 'Japanese', nationality: 'ja', elr: 3 }, { side: 'am', name: 'American', nationality: 'am', elr: 3 }] },
-      modules: [piecesModule, turnModule, ...sk1CoreModules, ...sk2CoreModules, ...sk3CoreModules, ...sk4CoreModules, ...(asl ? aslCoreModules : [])],
+      // No real ruleset mixes SK4 and full ASL: the U.S.M.C. and the full ASL Deployment (and its setup rule) are left to SK4 here.
+      modules: [piecesModule, turnModule, ...sk1CoreModules, ...sk2CoreModules, ...sk3CoreModules, ...sk4CoreModules, ...(asl ? aslCoreModules.filter((m) => !sk4CoreModules.includes(m) && m.id !== 'asl.deploy') : [])],
       startPhase: 'RPh',
       pieces: [
         { id: 'j1', def: 'ja.447', side: 'ja', hex: 'yO5', tags: { broken: true } },

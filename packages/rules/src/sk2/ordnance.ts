@@ -1,5 +1,5 @@
-import type { Action, Ctx, HexId, Piece, PieceId, QueryEnv, RuleModule, SideId } from '@asl/engine';
-import { byId, defOf, hexOf, isPersonnelDef, otherSide, personnelAt, statics, swHeldBy } from '../common/pieces';
+import type { Action, Ctx, Decision, HexId, Piece, PieceId, QueryEnv, RuleModule, SideId } from '@asl/engine';
+import { byId, defOf, hexOf, isPersonnelDef, isVehicleDef, otherSide, personnelAt, statics, swHeldBy } from '../common/pieces';
 import { hexOfLoc, locExists, locOf, type LocId } from '../common/location';
 import { capturedUseExempt, targetThDrm } from '../sk1/forceRules';
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
@@ -187,6 +187,12 @@ declare module '@asl/engine' {
     'ordnance.noUnitTarget': { ctx: { shot: OrdnanceShot; mode: FireMode; side: SideId }; value: string | null };
     /** What else the shot attacks, for the shot composer and log (ASLRB B29.5: the roadblock and the To Hit DR it needs). */
     'ordnance.alsoAttacks': { ctx: ShotCtx; value: string[] };
+    /**
+     * Whether an Infantry Target Type hit in `target`, fired from `from`, attacks this vehicle's crew (SK4 3.2.4: "All enemy
+     * targets except for BU AFV in the target hex can be affected by a hit including any Crew Exposed (7.7) units"; 7.12;
+     * ASLRB C3.32, D.8B). The AFV itself is never harmed. None without the vehicle rules.
+     */
+    'ordnance.ittCrew': { ctx: { vehicle: PieceId; target: LocId; from?: LocId }; value: boolean };
     /** Why a vehicle's Main Armament may not fire this shot, or null (SK3; replaces the Gun's manning checks). */
     'ordnance.maIllegal': { ctx: { shot: OrdnanceShot; mode: FireMode; side: SideId; moving?: PieceId[] }; value: string | null };
   }
@@ -197,7 +203,17 @@ export const OP = {
   fire: 'sk2.ordnance.fire',
   /** (ctx, sc, hit, targets, results) => IFT columns used (for Residual FP): the effect of a To Hit roll. SK3 wraps it for the Vehicle Target Type. */
   resolveHit: 'sk2.ordnance.resolveHit',
+  /**
+   * (ctx, action, decision) => boolean: asked first by every action that fires ordnance; true holds the action back
+   * (full ASL: the target's owner first chooses between Hull Down and in-hex TEM, ASLRB B9.36, D4.2). The Starter Kit
+   * never holds one back.
+   */
+  pause: 'sk2.ordnance.pause',
+  /** (ctx, action, decision) => void: resolves an ordnance action that was held back, each module its own action types. */
+  resume: 'sk2.ordnance.resume',
 } as const;
+export type OrdnancePauseFn = (ctx: Ctx, action: Action, decision: Decision) => boolean;
+export type OrdnanceResumeFn = (ctx: Ctx, action: Action, decision: Decision) => void;
 export type ResolveHitFn = (ctx: Ctx, sc: ShotCtx, hit: HitInfo, targets: PieceId[], results: Record<PieceId, IftResult>) => number[];
 
 export type OrdnanceFireFn = (
@@ -298,15 +314,17 @@ export function toHitNumber(env: QueryEnv, sc: ShotCtx): { th: number; ch: numbe
 
 /**
  * Targets of a shot at a hex: the moving stack during the MPh, otherwise the personnel there (`fireTargetsAt`: everyone in a
- * Melee hex; the firer's own Infantry too unless the shot comes from inside that Location).
+ * Melee hex; the firer's own Infantry too unless the shot comes from inside that Location). An Area Target Type hit "can
+ * potentially affect all units in the hex" (SK4 3.2.4), so it attacks the vehicles there too (SK4 7.11, 7.12). An Infantry
+ * Target Type hit attacks the vulnerable crews of the AFV there, never the AFV (`ordnance.ittCrew`; SK4 3.2.4, 7.12).
  */
-function shotTargets(env: QueryEnv, side: SideId, target: HexId, moving?: PieceId[], targetVehicle?: PieceId, from?: LocId): PieceId[] {
+function shotTargets(env: QueryEnv, side: SideId, target: HexId, moving?: PieceId[], targetVehicle?: PieceId, from?: LocId, area = false): PieceId[] {
   // A Vehicle Target Type hit affects that vehicle alone (SK4 3.2.4).
   if (targetVehicle) return env.state.pieces[targetVehicle]?.loc.kind === 'hex' ? [targetVehicle] : [];
   // A mover wrecked on its way is no longer a target (sk1 buildAttack).
   if (moving) return moving.filter((u) => env.state.pieces[u]?.loc.kind === 'hex' && env.state.pieces[u]?.tags['wreck'] !== true);
   return fireTargetsAt(env, target, side, from === target)
-    .filter((p) => isPersonnelDef(defOf(env, p)))
+    .filter((p) => isPersonnelDef(defOf(env, p)) || (isVehicleDef(defOf(env, p)) && p.tags['wreck'] !== true && (area || env.query('ordnance.ittCrew', { vehicle: p.id, target, ...(from ? { from } : {}) }, false))))
     .map((p) => p.id)
     .sort();
 }
@@ -778,7 +796,7 @@ function fireOrdnance(ctx: Ctx, shot: OrdnanceShot, mode: FireMode, opts: { movi
   const drm = drmRes.value;
   const final = original + drm + extra;
   const ammo = sc.ammo;
-  const targets = blind ? [] : pfTarget(ctx, sc, shotTargets(ctx, side, shot.target, opts.moving, sc.targetVehicle, sc.loc ?? sc.hex));
+  const targets = blind ? [] : pfTarget(ctx, sc, shotTargets(ctx, side, shot.target, opts.moving, sc.targetVehicle, sc.loc ?? sc.hex, shot.targetType === 'ATT'));
 
   // Breakdown (SK4 6.12): on the original TH DR.
   const b = ctx.query('ordnance.breakdown', sc, 12);
@@ -957,7 +975,7 @@ function resolveHitBase(ctx: Ctx, sc: ShotCtx, h: HitInfo, targets: PieceId[], r
   const hitLocs = shot.targetType === 'ATT' && !h.movingInfo ? ctx.query('fire.areaLocations', { target: shot.target, from: sc.loc ?? sc.hex }, indirectLocs) : indirectLocs;
   const groups = [
     ...hitGroups.filter((g) => hitLocs.includes(g.loc)),
-    ...hitLocs.filter((l) => l !== shot.target).map((loc) => ({ ch: false, units: shotTargets(ctx, side, loc, undefined, undefined, sc.loc ?? sc.hex), loc })),
+    ...hitLocs.filter((l) => l !== shot.target).map((loc) => ({ ch: false, units: shotTargets(ctx, side, loc, undefined, undefined, sc.loc ?? sc.hex, shot.targetType === 'ATT'), loc })),
   ].filter((g) => g.units.length > 0 || g.loc === shot.target);
   const planned = groups.flatMap((grp) => {
     const column = ammoColumn(ctx, sc.def, ammo as Exclude<AmmoKind, 'SMOKE' | 'WP'>, shot.targetType as 'ITT' | 'ATT', grp.ch);
@@ -1124,6 +1142,12 @@ export const ordnanceModule: RuleModule = {
     r.event<{ gun: PieceId; dr: number; removed: boolean }>({ type: 'sk2.gun.malf', apply() {} });
 
     r.procedure<OrdnanceFireFn>(OP.fire, () => (ctx, shot, mode, opts) => fireOrdnance(ctx, shot, mode, opts));
+    r.procedure<OrdnancePauseFn>(OP.pause, () => () => false);
+    r.procedure<OrdnanceResumeFn>(OP.resume, (next) => (ctx, a, d) => {
+      if (a.type === 'fire.ordnance') resolveFire(ctx, a as OrdnanceAction);
+      else if (a.type === 'defFire.ordnance') resolveDefFire(ctx, a as OrdnanceAction);
+      else next?.(ctx, a, d);
+    });
     r.procedure<ResolveHitFn>(OP.resolveHit, () => (ctx, sc, hit, targets, results) => resolveHitBase(ctx, sc, hit, targets, results));
 
     // ---------------------------------------------------------------- legality
@@ -1156,9 +1180,13 @@ export const ordnanceModule: RuleModule = {
         if (sc.captured || sc.nonQualified) return true;
         // Nationality picks red only for a MA or Gun; an Infantry MG uses the black numbers (SK4 3.2.4; ASLRB A9.61).
         if (isMgOrdnance(sc.def)) return false;
+        const year = scenarioYear(env);
+        // U.S.-built ordnance used by another nationality (the "(a)" in its name) is red before 1944 and black after
+        // (ASLRB A25.32), shown as "Red TH#s (Pre44)" on its counter back (SK3 Russian Vehicle Note 50).
+        const v = statics(env).counters[sc.def.id];
+        if (v?.kind === 'vehicle' && v.redThBefore !== undefined) return year !== undefined && year < v.redThBefore;
         const nat = sc.def.nationality;
         if (['ru', 'it', 'al', 'ax'].includes(nat)) return true;
-        const year = scenarioYear(env);
         return nat === 'am' && year !== undefined && year < 1944;
       },
     });
@@ -1572,14 +1600,17 @@ export const ordnanceModule: RuleModule = {
         if (a.side !== phaseOwner(env)) return 'Not your fire phase';
         return env.query('ordnance.illegal', { shot: a.shot, mode, side: a.side }, null);
       },
-      resolve(ctx, a) {
-        ctx.proc<OrdnanceFireFn>(OP.fire)(ctx, a.shot, PHASE_FIRE_MODE[ctx.state.phase]!);
-        if (!ctx.state.result) {
-          ctx.popDecision();
-          askPhaseOwner(ctx, phaseOwner(ctx));
-        }
+      resolve(ctx, a, d) {
+        if (!ctx.proc<OrdnancePauseFn>(OP.pause)(ctx, a, d)) resolveFire(ctx, a);
       },
     });
+    function resolveFire(ctx: Ctx, a: OrdnanceAction) {
+      ctx.proc<OrdnanceFireFn>(OP.fire)(ctx, a.shot, PHASE_FIRE_MODE[ctx.state.phase]!);
+      if (!ctx.state.result) {
+        ctx.popDecision();
+        askPhaseOwner(ctx, phaseOwner(ctx));
+      }
+    }
 
     r.action<OrdnanceAction>({
       type: 'defFire.ordnance',
@@ -1604,20 +1635,23 @@ export const ordnanceModule: RuleModule = {
         if (!firstFireView(env, ms, a.shot.target)) return 'Defensive First Fire must target the moving stack';
         return defShotIllegal(env, a.shot, a.side);
       },
-      resolve(ctx, a) {
-        const ms = moveState(ctx)!;
-        const view = firstFireView(ctx, ms, a.shot.target) ?? ms;
-        const mode = gunFirstFireMode(ctx, a.shot);
-        const targets = firstFireTargets(ctx, view);
-        const out = ctx.proc<OrdnanceFireFn>(OP.fire)(ctx, a.shot, mode, { moving: targets, movingInfo: movingInfo(ctx, view) });
-        const g = ctx.state.pieces[a.shot.weapon];
-        const firer = g && g.loc.kind === 'held' ? g.loc.by : a.shot.weapon;
-        recordRofChoice(ctx, a.shot.target, [a.shot.weapon], out.rofResidual !== undefined ? [{ sws: [a.shot.weapon], residual: out.rofResidual }] : undefined);
-        // A Gun that never had the Special Ammo has not fired (SK4 6.2), so the shot does not count
-        // against this location: it may fire again here with other ammo.
-        finishDefensiveFire(ctx, out.noAmmo ? [] : [a.shot.weapon, firer, ...(a.shot.director !== undefined ? [a.shot.director] : [])], view === ms ? undefined : a.shot.target);
+      resolve(ctx, a, d) {
+        if (!ctx.proc<OrdnancePauseFn>(OP.pause)(ctx, a, d)) resolveDefFire(ctx, a);
       },
     });
+    function resolveDefFire(ctx: Ctx, a: OrdnanceAction) {
+      const ms = moveState(ctx)!;
+      const view = firstFireView(ctx, ms, a.shot.target) ?? ms;
+      const mode = gunFirstFireMode(ctx, a.shot);
+      const targets = firstFireTargets(ctx, view);
+      const out = ctx.proc<OrdnanceFireFn>(OP.fire)(ctx, a.shot, mode, { moving: targets, movingInfo: movingInfo(ctx, view) });
+      const g = ctx.state.pieces[a.shot.weapon];
+      const firer = g && g.loc.kind === 'held' ? g.loc.by : a.shot.weapon;
+      recordRofChoice(ctx, a.shot.target, [a.shot.weapon], out.rofResidual !== undefined ? [{ sws: [a.shot.weapon], residual: out.rofResidual }] : undefined);
+      // A Gun that never had the Special Ammo has not fired (SK4 6.2), so the shot does not count
+      // against this location: it may fire again here with other ammo.
+      finishDefensiveFire(ctx, out.noAmmo ? [] : [a.shot.weapon, firer, ...(a.shot.director !== undefined ? [a.shot.director] : [])], view === ms ? undefined : a.shot.target);
+    }
 
     function defShotIllegal(env: QueryEnv, shot: OrdnanceShot, side: SideId): string | null {
       const moving = moveState(env);

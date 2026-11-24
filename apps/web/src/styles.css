@@ -25,6 +25,7 @@
   --br: #d9c38a;
   --al: #8fb36a;
   --it: #aab4ba;
+  --ja: #e9c22a;
   --side: var(--brass);
   --font-display: 'Black Ops One', 'Oswald', Impact, sans-serif;
   --font-head: 'Oswald', 'Barlow Condensed', sans-serif;
@@ -40,6 +41,7 @@
 .side-br { --side: var(--br); }
 .side-al { --side: var(--al); }
 .side-it { --side: var(--it); }
+.side-ja { --side: var(--ja); }
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
@@ -310,7 +312,12 @@ input[type='checkbox'] { accent-color: var(--brass); width: 16px; height: 16px; 
   font: 700 12px var(--font-head); color: #6b7360; background: #1e241e; border: 1px solid var(--line);
 }
 .turn-track .pip.done { color: #a5ad94; background: #2b322b; }
-.turn-track .pip.now { color: var(--brass-ink); background: var(--brass); border-color: var(--brass-hi); box-shadow: 0 0 12px rgba(201, 162, 74, 0.6); }
+/* The current turn is the turn marker: the moving side's counter stock with its emblem, ringed in its colour. */
+.turn-track .pip.now {
+  width: auto; padding: 0 5px 0 3px; display: flex; gap: 3px; color: #1a1a14; background: var(--chit, var(--brass));
+  border: 1px solid #1a1a14; box-shadow: 0 0 0 2px var(--side), 0 0 12px color-mix(in srgb, var(--side) 70%, transparent);
+}
+.turn-track .pip-emblem { width: 15px; height: 15px; display: block; }
 /* A final half turn (the card's Turn Record Chart): a triangle in the corner of its box, as in the briefing. */
 .turn-track .pip.half::after,
 .brief-turn.half::after {
@@ -517,6 +524,11 @@ input[type='checkbox'] { accent-color: var(--brass); width: 16px; height: 16px; 
 .piece.broken { box-shadow: inset 3px 0 0 #e0504a; }
 .piece label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .piece img { border-radius: 3px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
+/* A counter that can be turned over to look at its other side: a view only, the piece itself is unchanged. */
+.turn-over { position: relative; display: inline-flex; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 3px; }
+.turn-over::after { content: "⟲"; position: absolute; right: -4px; bottom: -4px; width: 14px; height: 14px; border-radius: 50%; display: grid; place-items: center; font: 700 11px/1 system-ui, sans-serif; color: #1a1a14; background: var(--brass); opacity: 0; transition: opacity 0.15s; }
+.piece:hover .turn-over::after, .turn-over:focus-visible::after, .turn-over.on::after { opacity: 1; }
+.turn-over.on img { outline: 2px solid var(--brass); outline-offset: 1px; }
 .noimg { width: 36px; height: 36px; background: var(--panel-2); border-radius: 3px; display: inline-block; }
 .pname { font-family: var(--font-head); letter-spacing: 0.02em; font-size: 14px; }
 .nat { font-weight: 700; }
@@ -869,7 +881,12 @@ input[type='checkbox'] { accent-color: var(--brass); width: 16px; height: 16px; 
 .gameover .kicker { font-family: var(--font-head); letter-spacing: 0.4em; text-transform: uppercase; color: var(--brass); font-size: 16px; }
 .gameover .big { font-family: var(--font-display); font-size: 96px; line-height: 0.95; color: var(--side); text-shadow: 0 4px 0 #000, 0 0 60px color-mix(in srgb, var(--side) 60%, transparent); }
 .gameover .reason { color: var(--muted); font-family: var(--font-head); letter-spacing: 0.1em; text-transform: uppercase; }
+.gameover .decided { display: grid; gap: 6px; justify-items: center; max-width: min(560px, 90vw); }
+.gameover .decided-kicker { font-family: var(--font-head); letter-spacing: 0.3em; text-transform: uppercase; color: var(--brass); font-size: 12px; }
+.gameover .decided ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.gameover .decided li { color: var(--text); font-size: 15px; line-height: 1.35; }
 .gameover .buttons { margin-top: 20px; }
+.panel.result .result-decided { margin: 6px 0 0; padding-left: 18px; color: var(--text); font-size: 13px; line-height: 1.4; }
 
 /* ================================================================== close combat overlay (SK1 3.8) */
 .cc-overlay {
@@ -1541,36 +1558,55 @@ button.google:hover:not(:disabled) { filter: none; background: #f2f2f2; }
 .edit-name { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .edit-name input { font-size: 18px; padding: 6px 10px; }
 .avatar-upload { display: grid; gap: 6px; }
-.rack { display: grid; justify-items: center; gap: 5px; padding: 22px 24px; border: 1px solid var(--line); border-radius: 6px; background: radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.05), transparent 60%), linear-gradient(180deg, #3a4432, #2b3327); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 24px rgba(0, 0, 0, 0.35); }
-.rack-row { display: flex; justify-content: center; gap: 5px; }
+/* Decorations: ribbons with their devices, the supreme medals, the rack. */
+.ribbon { position: relative; display: block; flex: none; width: 96px; height: 28px; border: 1px solid #000; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15), 0 2px 4px rgba(0, 0, 0, 0.5); }
+.ribbon-rack { width: 84px; height: 24px; }
+.ribbon-large { width: 240px; height: 70px; }
+.ribbon-image img { display: block; width: 100%; height: 100%; object-fit: fill; }
+.ribbon-devices { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 2px; pointer-events: none; }
+.device { display: block; width: 10px; height: 10px; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7)); }
+.ribbon-large .device { width: 24px; height: 24px; }
+.device.star { clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
+.device.star.bronze { background: linear-gradient(160deg, #e7c48a, #9a6b32); }
+.device.star.silver { background: linear-gradient(160deg, #ffffff, #9aa3ab); }
+.device.oak { width: 16px; background: linear-gradient(160deg, #e7c48a, #9a6b32); clip-path: polygon(0 55%, 20% 35%, 30% 45%, 45% 20%, 55% 40%, 70% 15%, 78% 40%, 100% 45%, 80% 62%, 60% 58%, 45% 78%, 30% 62%, 12% 72%); }
+.ribbon-large .device.oak { width: 36px; }
+.medal-art { display: block; object-fit: contain; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.55)); }
+.medal-art-rack { height: 150px; width: auto; max-width: 150px; }
+.medal-art-card { height: 72px; width: 64px; }
+.medal-art-large { height: 300px; width: auto; max-width: 300px; }
+.rack { display: grid; justify-items: center; gap: 4px; }
+.rack-row { display: flex; justify-content: center; gap: 4px; }
 .ribbon-btn { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; line-height: 0; }
 .ribbon-btn:hover:not(:disabled) { filter: none; outline: 2px solid var(--brass); outline-offset: 2px; }
 .ribbon-btn:active:not(:disabled) { transform: none; }
-.ribbon.large { width: 240px; height: 70px; }
-.rack-empty { margin: 0; color: var(--muted); }
-.rack-foot { margin-top: 10px; text-align: right; }
-.rack-foot .text-button { color: var(--brass); }
-.decoration-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; max-height: 65vh; overflow: auto; padding-right: 4px; }
-.decoration { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); opacity: 0.55; filter: grayscale(0.7); }
-.decoration.earned { opacity: 1; filter: none; border-color: var(--brass); }
-.decoration .ribbon { margin-top: 2px; }
-.decoration-text { display: grid; gap: 3px; min-width: 0; }
-.decoration-text b { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-family: var(--font-head); font-size: 14px; font-weight: 600; }
-.decoration-text > span, .decoration-text small { color: var(--muted); font-size: 13px; line-height: 1.4; }
-.decoration-award { color: var(--brass) !important; font-family: var(--font-head); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px !important; }
-.decoration.closed .ribbon-tag { color: var(--muted); background: var(--panel-3); }
+.rack-empty { margin: 0; color: var(--muted); text-align: center; }
 .medal-detail { display: grid; justify-items: center; gap: 12px; padding: 8px 0 4px; text-align: center; }
 .medal-detail p { margin: 0; line-height: 1.5; }
 .medal-detail small { color: var(--muted); font-family: var(--font-head); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+.decoration-award { color: var(--brass) !important; font-family: var(--font-head); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px !important; }
+.award-parts { display: grid; gap: 6px; }
+.award-part { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 3px 10px; font-size: 12px; }
+.award-part-label { color: var(--muted); }
+.award-part-count { font-family: var(--font-mono); font-size: 12px; color: var(--text); white-space: nowrap; }
+.award-part .xp-bar { grid-column: 1 / -1; height: 6px; }
+@media (max-width: 760px) {
+  .ribbon-rack { width: 64px; height: 18px; }
+  .device { width: 8px; height: 8px; }
+  .medal-art-rack { height: 110px; }
+}
+.gameover-awards { display: grid; gap: 10px; justify-items: center; margin-top: 6px; padding: 14px 18px; min-width: min(460px, 90vw); border: 1px solid var(--line-hi); border-radius: 6px; background: rgba(13, 16, 14, 0.82); }
+.gameover-earned { display: grid; justify-items: center; gap: 2px; }
+.gameover-earned-kicker { font-family: var(--font-head); font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--brass); }
+.gameover-earned b { font-family: var(--font-head); font-size: 20px; color: var(--brass-hi); }
+.gameover-advanced { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; width: 100%; }
+.gameover-advanced li { display: grid; grid-template-columns: minmax(0, 1fr) 90px auto; align-items: center; gap: 10px; font-size: 13px; text-align: left; }
+.gameover-advanced .xp-bar { height: 6px; }
+.gameover-advanced small { font-family: var(--font-mono); color: var(--muted); }
 .avatar-wrap { position: relative; display: inline-block; flex: none; line-height: 0; }
 .avatar-wrap .insignia { position: absolute; right: -9%; bottom: -9%; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6)); }
 .rank-line { display: flex; align-items: center; gap: 10px; }
 .rank-line .insignia { flex: none; }
-.ribbon { display: block; width: 96px; height: 28px; border: 1px solid #000; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15), 0 2px 4px rgba(0, 0, 0, 0.5); }
-.ribbon-name { font-family: var(--font-head); font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ribbon-tag { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--brass-ink); background: var(--brass); padding: 2px 6px; border-radius: 2px; }
-.ribbon-progress { display: grid; gap: 4px; margin-top: 4px; }
-.ribbon-progress .xp-bar { height: 6px; }
 .service { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; margin: 0; }
 .service dt { color: var(--muted); }
 .service dd { margin: 0; font-family: var(--font-head); }
@@ -1722,6 +1758,9 @@ button.google:hover:not(:disabled) { filter: none; background: #f2f2f2; }
 .ch-ift thead th { font: 600 14px/1 var(--font-head); color: var(--brass-hi); background: var(--panel-3); position: sticky; top: 0; }
 .ch-ift tbody th { font: 600 13px/1 var(--font-head); color: var(--brass-hi); background: var(--panel-3); width: 44px; }
 .ch-ift th.corner { display: grid; gap: 2px; font-size: 10px; color: var(--muted); text-align: left; padding: 4px 6px; }
+.ch-ift tr.he th { font: 600 11px/1 var(--font-mono); color: var(--muted); top: 0; }
+.ch-ift tr.he th.corner { display: table-cell; }
+.ch-ift tr.he + tr th { top: 24px; }
 .ch-ift th.hl { background: var(--brass); color: var(--brass-ink); }
 .res-KIA { background: #6e1f1a; color: #ffd9d4; }
 .res-K { background: #8a3a1c; color: #ffe2cc; }

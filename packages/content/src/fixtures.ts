@@ -40,7 +40,7 @@ export interface DevFixture {
 }
 
 /** Answers that decline or end a decision, in the order the fixture runner tries them. */
-const PASSES = ['defPass', 'defRofDecline', 'defMotion.done', 'move.end', 'cc.arranged', 'blaze.stay', 'endPhase'];
+const PASSES = ['defPass', 'defRofDecline', 'defMotion.done', 'move.end', 'cc.arranged', 'blaze.stay', 'hd.choose', 'endPhase'];
 
 /** Builds a fixture by submitting actions to an engine, collecting them in order. */
 export class FixtureBuilder {
@@ -382,6 +382,115 @@ function pillboxSetup(f: FixtureBuilder, forts: FortPlacement[], ru: Record<stri
   f.setup('ru', Object.fromEntries(Object.entries(ruAt).map(([k, hex]) => [id('ru', k), hex])), {}, { ...(opts.beneath?.length ? { beneath: opts.beneath.map((k) => id('ru', k)) } : {}), guns: Object.fromEntries(Object.entries(guns).map(([g, ca]) => [f.sw('ru', g), { ca }])) });
   const geAt: Record<string, string> = { 'ge.L92': 'uT3', 'ge.838': 'uT3', 'ge.548': 'uT3', 'ge.467#1': 'uU4', 'ge.467#2': 'uT4', 'ge.467#3': 'uS5', 'ge.L80': 'uS5', 'ge.447#1': 'uS5', 'ge.447#2': 'uV4', 'ge.pzivf2': 'uT6', 'ge.psw2341': 'uU7', ...ge };
   f.setup('ge', Object.fromEntries(Object.entries(geAt).map(([k, hex]) => [id('ge', k), hex])));
+}
+
+/**
+ * Drive `vehicle` (of the side moving) along `path` (adjacent hexes) and stop there, the other side declining all fire;
+ * the hull turns first, to the first hexspine that lets the next step be taken, wherever a step needs it.
+ */
+function drive(f: FixtureBuilder, vehicle: PieceId, path: HexId[]): void {
+  const side = f.state.pieces[vehicle]!.side;
+  f.act({ type: 'vmove.start', vehicle });
+  f.settle(side);
+  const ok = (state: GameState, a: Record<string, unknown>) => {
+    const d = f.engine.currentDecision(state)!;
+    return !f.engine.validate(state, { ...a, side: d.owner, decisionId: d.id } as Action);
+  };
+  for (const to of path) {
+    if (!ok(f.state, { type: 'move.step', to })) {
+      const vca = [0, 1, 2, 3, 4, 5].find((v) => {
+        if (!ok(f.state, { type: 'vmove.turn', vca: v })) return false;
+        const d = f.decision;
+        let turned = f.engine.submit(f.state, { type: 'vmove.turn', vca: v, side: d.owner, decisionId: d.id } as Action).state;
+        // The other side passes its First Fire chance at the turn, as `settle` will.
+        for (let guard = 0; guard < 20 && f.engine.currentDecision(turned) && f.engine.currentDecision(turned)!.owner !== side; guard++) {
+          const od = f.engine.currentDecision(turned)!;
+          const pass = f.engine.legalActions(turned, od.owner).find((a) => PASSES.includes(a.type));
+          if (!pass) break;
+          turned = f.engine.submit(turned, { ...pass, side: od.owner, decisionId: od.id } as Action).state;
+        }
+        return ok(turned, { type: 'move.step', to });
+      });
+      if (vca === undefined) throw new Error(`Fixture: ${vehicle} cannot turn to enter ${to}`);
+      f.act({ type: 'vmove.turn', vca });
+      f.settle(side);
+    }
+    f.act({ type: 'move.step', to });
+    f.settle(side);
+  }
+  if (f.engine.legalActions(f.state, side).some((a) => a.type === 'vmove.stop')) f.act({ type: 'vmove.stop' });
+  f.settle(side);
+  if (f.engine.legalActions(f.state, side).some((a) => a.type === 'vmove.end')) f.act({ type: 'vmove.end' });
+  f.settle(side);
+}
+
+/**
+ * The vehicle test bed (T5) counters: an open 1S foxhole in O10, open trenches in P6 and N10 (woods), a second trench
+ * hidden instead in L10 (woods) when `hiddenTrench`, Wire in P9 (open), and the roadblock on the O9–P8 hexside (open).
+ */
+function vehicleForts(f: FixtureBuilder, opts: { hiddenTrench?: boolean; wire?: boolean } = {}): FortPlacement[] {
+  const map = statics(f.engine.env(f.state)).map;
+  return [
+    { kind: 'foxhole', hex: 'uO10', hidden: false, capacity: 1 },
+    { kind: 'trench', hex: opts.hiddenTrench ? 'uL10' : 'uP6', hidden: !!opts.hiddenTrench },
+    { kind: 'trench', hex: 'uN10', hidden: false },
+    ...(opts.wire === false ? [] : [{ kind: 'wire' as const, hex: 'uP9', hidden: false }]),
+    { kind: 'roadblock', hex: 'uO9', hidden: false, hexside: sideToward(map, 'uO9', 'uP8')! },
+  ];
+}
+
+/**
+ * The vehicle test bed (T5) setup: the counters of `vehicleForts`, the Russians as in the test bed (the T-34 M41 in M10, the
+ * 45L AT Gun's crew in L7) with `ru` moving some ("def#n": Location) and `beneath` naming the ones set up beneath their hex's
+ * trench or foxhole; the Germans as in the test bed (the PzKpfw IVF2 in T6, the PSW 234/1 in U7, the 4-6-8 with the
+ * Mortar in T4) with `ge` moving some.
+ */
+function vehicleSetup(f: FixtureBuilder, forts: FortPlacement[], ru: Record<string, string> = {}, ge: Record<string, string> = {}, opts: { beneath?: string[]; gunCa?: number } = {}) {
+  const id = (side: SideId, key: string) => f.unit(side, key.split('#')[0]!, Number(key.split('#')[1] ?? 1));
+  f.fortify(TESTBED_FORTIFIED);
+  f.fortPlace(forts);
+  const ruAt: Record<string, string> = { 'ru.L91': 'uK4', 'ru.458#1': 'uK4', 'ru.447#1': 'uK5', 'ru.458#2': 'uI4', 'ru.447#2': 'uM5', 'ru.447#3': 'uN7', 'ru.527': 'uP3', 'ru.426#1': 'uM8', 'ru.L70': 'uH5', 'ru.426#2': 'uH5', 'ru.T34M41': 'uM10', 'ru.228c': 'uL7', ...ru };
+  f.setup('ru', Object.fromEntries(Object.entries(ruAt).map(([k, hex]) => [id('ru', k), hex])), {}, { ...(opts.beneath?.length ? { beneath: opts.beneath.map((k) => id('ru', k)) } : {}), guns: { [f.sw('ru', 'ru.AT45L')]: { ca: opts.gunCa ?? 0 } } });
+  const geAt: Record<string, string> = { 'ge.L92': 'uT3', 'ge.838': 'uT3', 'ge.548': 'uT3', 'ge.467#1': 'uU4', 'ge.467#2': 'uT4', 'ge.467#3': 'uS5', 'ge.L80': 'uS5', 'ge.447#1': 'uS5', 'ge.447#2': 'uV4', 'ge.pzivf2': 'uT6', 'ge.psw2341': 'uU7', 'ge.468': 'uT4', ...ge };
+  f.setup('ge', Object.fromEntries(Object.entries(geAt).map(([k, hex]) => [id('ge', k), hex])));
+}
+
+/**
+ * The Deploy test bed (T6) setup: the test bed's Russians and Germans as usual, the two Russian 2-2-6 HS where `hs` says
+ * (with `beneath` naming the ones set up beneath their hex's entrenchment), the 7-0 where `l70` says, and the counters
+ * `forts` down first. The German reinforcement group (the 8-1 and three 4-6-7) waits to enter on Turn 2.
+ */
+function deploySetup(f: FixtureBuilder, opts: { hs?: [string, string]; l70?: string; forts?: FortPlacement[]; beneath?: number[] } = {}) {
+  const ru = (def: string, n = 1) => f.unit('ru', def, n);
+  f.fortify(TESTBED_FORTIFIED);
+  if (opts.forts) f.fortPlace(opts.forts);
+  const [h1, h2] = opts.hs ?? ['uH5', 'uH5'];
+  f.setup('ru', {
+    [ru('ru.L91')]: 'uK4',
+    [ru('ru.458', 1)]: 'uK4',
+    [ru('ru.447', 1)]: 'uK5',
+    [ru('ru.458', 2)]: 'uI4',
+    [ru('ru.447', 2)]: 'uM5',
+    [ru('ru.447', 3)]: 'uN7',
+    [ru('ru.527')]: 'uP3',
+    [ru('ru.426', 1)]: 'uP5',
+    [ru('ru.L70')]: opts.l70 ?? 'uH5',
+    [ru('ru.426', 2)]: 'uH5',
+    [ru('ru.226h', 1)]: h1,
+    [ru('ru.226h', 2)]: h2,
+  }, {}, opts.beneath?.length ? { beneath: opts.beneath.map((n) => ru('ru.226h', n)) } : {});
+  const ge = (def: string, n = 1) => f.unit('ge', def, n);
+  f.setup('ge', {
+    [ge('ge.L92')]: 'uT3',
+    [ge('ge.838')]: 'uT3',
+    [ge('ge.548')]: 'uT3',
+    [ge('ge.467', 1)]: 'uU4',
+    [ge('ge.467', 2)]: 'uT4',
+    [ge('ge.467', 3)]: 'uS5',
+    [ge('ge.L80')]: 'uS5',
+    [ge('ge.447', 1)]: 'uS5',
+    [ge('ge.447', 2)]: 'uV4',
+  });
 }
 
 export const DEV_FIXTURES: DevFixture[] = [
@@ -1101,6 +1210,171 @@ export const DEV_FIXTURES: DevFixture[] = [
       f.until('PFPh', { turn: 1, attacker: 'ge' });
     },
   },
+  {
+    id: 'trench-tank',
+    scenarioId: 'asl-testbed-vehicles',
+    title: 'Vehicles: a tank beneath a trench',
+    description:
+      'German Turn 1 Prep Fire Phase on the vehicle test bed. The Russian T-34 M41 set up beneath the P6 trench with a 4-5-8 (ASLRB B27.51): it is Hull Down (B27.52). The PzKpfw IVF2 in T6 has it in LOS four hexes off: its shot on the Vehicle Target Type counts only as a turret hit (colored dr less than the white dr); a hull hit has no effect, a CH is a turret hit (D4.2, C3.9). In the Russian turn the T-34 may not start, turn its hull or attempt Motion (B27.52), turns its turret freely, cannot fire its bow MG at a target it is HD to (D4.223), and gives the 4-5-8 no +1 TEM (D9.3).',
+    build(f) {
+      vehicleSetup(f, vehicleForts(f), { 'ru.T34M41': 'uP6', 'ru.458#2': 'uP6' }, {}, { beneath: ['ru.T34M41', 'ru.458#2'] });
+      f.until('PFPh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'trench-tank-woods',
+    scenarioId: 'asl-testbed-vehicles',
+    title: 'Vehicles: Hull Down or the woods TEM',
+    description:
+      'German Turn 1 Prep Fire Phase on the vehicle test bed. The T-34 M41 set up beneath the trench in the N10 woods. Fire the PzKpfw IVF2 in T7 at it on the Vehicle Target Type: before the To Hit DR the Russian player is asked to take Hull Down (only a turret hit counts) or the woods TEM (+1 To Hit, every hit counts), with the To Hit numbers of both (ASLRB B9.36, D4.2). Hull Down is the answer when time runs out.',
+    build(f) {
+      vehicleSetup(f, vehicleForts(f), { 'ru.T34M41': 'uN10' }, { 'ge.pzivf2': 'uT7' }, { beneath: ['ru.T34M41'] });
+      f.until('PFPh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'trench-tank-hidden',
+    scenarioId: 'asl-testbed-vehicles',
+    title: 'Vehicles: a tank beneath a hidden trench',
+    description:
+      'German Turn 1 Movement Phase on the vehicle test bed. The T-34 M41 set up beneath a hidden trench in the L10 woods: the German seat sees the tank in L10 and no trench, no position, no Hull Down (ASLRB A12.33). Walk the 4-6-7 and the 8-0 in U4 through U5 and U6 to U7: within 16 hexes of the woods with a LOS to them (past the roadblock), they reveal the trench (A12.33), and from then on German shots see the HD status. (A first Direct Fire ordnance shot at the tank from beyond 16 hexes would reveal it too.)',
+    build(f) {
+      vehicleSetup(f, vehicleForts(f, { hiddenTrench: true }), { 'ru.T34M41': 'uL10' }, { 'ge.pzivf2': 'uT3', 'ge.psw2341': 'uU3', 'ge.467#3': 'uU4', 'ge.L80': 'uU4', 'ge.447#1': 'uV4' }, { beneath: ['ru.T34M41'] });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'foxhole-car',
+    scenarioId: 'asl-testbed-vehicles',
+    title: 'Vehicles: an Armored Car and a foxhole',
+    description:
+      'German Turn 2 Movement Phase on the vehicle test bed. The PSW 234/1 drove to P10 in Turn 1, beside the open 1S foxhole in O10. Start it and enter O10: an Armored Car pays 2 MP + COT into a foxhole hex, with no Bog Check (ASLRB B27.43); the PzKpfw IVF2 would pay the COT alone. An enemy foxhole it could not have known of would be found by the attempt: revealed, the step refused with nothing spent.',
+    build(f) {
+      vehicleSetup(f, vehicleForts(f), {}, { 'ge.psw2341': 'uS9' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      drive(f, f.unit('ge', 'ge.psw2341'), ['uR9', 'uQ10', 'uP10']);
+      f.until('MPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'roadblock-armor',
+    scenarioId: 'asl-testbed-vehicles',
+    title: 'Vehicles: armor behind the roadblock',
+    description:
+      'German Turn 2 Prep Fire Phase on the vehicle test bed. The Russian T-34 M41 stands in O9 behind the roadblock on the O9–P8 hexside: with no in-hex TEM it claims Wall Advantage (mandatory, ASLRB B9.323). The PzKpfw IVF2 drove to R7 in Turn 1: its shot at the T-34 crosses the roadblock, so the T-34 is Hull Down to it (B9.36, D4.21), only a turret hit counting, with no Case Q TEM; it is not HD to a shot from beside the wall. A vehicle in a hex with in-hex TEM of +1 or more has no WA (B9.32) but is HD to a firer without WA across the wall, its owner choosing that or the in-hex TEM (B9.36). A unit holding WA over the hexside denies it to an enemy vehicle across it, and the vehicle is then not HD to that unit (B9.321, B9.31).',
+    build(f) {
+      vehicleSetup(f, vehicleForts(f, { wire: false }), { 'ru.T34M41': 'uO9' }, { 'ge.pzivf2': 'uT6' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      drive(f, f.unit('ge', 'ge.pzivf2'), ['uS7', 'uR7']);
+      f.until('PFPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'gun-push',
+    scenarioId: 'asl-testbed-vehicles',
+    title: 'Vehicles: pushing the Gun',
+    description:
+      'Russian Turn 1 Movement Phase on the vehicle test bed. The 45L AT Gun and its crew stand in P8 with a 4-4-7 to help (-2). Start the crew and the 4-4-7 pushing the Gun: into O9, across the roadblock hexside, the Manhandling DR takes the roadblock\'s +2 (ASLRB C10.3 "+X"); into the Open Ground of P9 it does not. A Final DR above the M# leaves them where they are under a Labor -1 counter, the Gun too, for their next attempt (B24.8); whatever the outcome the crew, the helper and the Gun are TI for the rest of the Player Turn (C10.3, A4.8). Under Double Time the CX pushers add +1 (A4.51).',
+    build(f) {
+      vehicleSetup(f, vehicleForts(f, { wire: false }), { 'ru.228c': 'uP8', 'ru.447#3': 'uP8' });
+      f.until('MPh', { turn: 1, attacker: 'ru' });
+    },
+  },
+  {
+    id: 'wire-armor',
+    scenarioId: 'asl-testbed-vehicles',
+    title: 'Vehicles: armor into Wire',
+    description:
+      'German Turn 2 Movement Phase on the vehicle test bed. The PzKpfw IVF2 drove to Q9 in Turn 1, beside the Wire in P9. Start it and enter P9: a fully-tracked vehicle pays 2 MP + COT and makes a Bog Check at +2 (ASLRB B26.43, D8.21); if it passes with a colored dr of 1 the Wire is removed (B26.53). Vehicles are never beneath Wire.',
+    build(f) {
+      vehicleSetup(f, vehicleForts(f), {}, { 'ge.pzivf2': 'uS10' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      drive(f, f.unit('ge', 'ge.pzivf2'), ['uR10', 'uQ10', 'uQ9']);
+      f.until('MPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'mortar-armor',
+    scenarioId: 'asl-testbed-vehicles',
+    title: 'Vehicles: Mortar and HE at a Crew Exposed tank',
+    description:
+      "German Turn 2 Prep Fire Phase on the vehicle test bed. The Russian T-34 M41 stands stopped in the open in O6 with a 4-4-7, and went Crew Exposed in its Turn 1 MPh. The German 4-6-8 with the 50mm Mortar in S7 has both in its sights: a hit on the Area Target Type (the Mortar's only one) attacks the squad and the T-34 itself with one effects DR on half the 50mm column (SK4 7.11, ASLRB C3.33; no armor DRM: the T-34's Armor Factors are neither all 4 or less nor all 8 or more). A KIA destroys the tank, a K or one more Shocks it (turret hit) or immobilizes it (hull hit), and its CE crew takes any other result (no CE DRM on the ATT). The PzKpfw IVF2 in T6 may fire HE on the Infantry Target Type at O6: a hit attacks the 4-4-7 and the T-34's CE crew (+2 CE DRM), never the tank (SK4 3.2.4, 7.12; ASLRB C3.32). Buttoned Up, the T-34 would be immune to that hit.",
+    build(f) {
+      vehicleSetup(f, vehicleForts(f), { 'ru.T34M41': 'uO6', 'ru.447#3': 'uO6' }, { 'ge.468': 'uS7' });
+      f.until('MPh', { turn: 1, attacker: 'ru' });
+      f.act({ type: 'vmove.ce', vehicle: f.unit('ru', 'ru.T34M41'), ce: true });
+      f.until('PFPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'deploy-setup',
+    scenarioId: 'asl-testbed',
+    title: 'Deploy: squads split at setup (A2.9)',
+    description:
+      'German setup; the Russians have set up. Seven German squads set up on board, so one of them (10%, rounded up) may be Deployed into two half-squads before it is placed, free, without leader or Task Check (ASLRB A2.9): the setup panel offers it, then disables the other squads with the count. The Russians could not have: Russian squads may not Deploy (A25.2).',
+    build(f) {
+      f.fortify(TESTBED_FORTIFIED);
+      const ru = (def: string, n = 1) => f.unit('ru', def, n);
+      f.setup('ru', { [ru('ru.L91')]: 'uK4', [ru('ru.458', 1)]: 'uK4', [ru('ru.447', 1)]: 'uK5', [ru('ru.458', 2)]: 'uI4', [ru('ru.447', 2)]: 'uM5', [ru('ru.447', 3)]: 'uN7', [ru('ru.527')]: 'uP3', [ru('ru.426', 1)]: 'uP5', [ru('ru.L70')]: 'uH5', [ru('ru.426', 2)]: 'uH5' });
+    },
+  },
+  {
+    id: 'deploy-rph',
+    scenarioId: 'asl-testbed',
+    title: 'Deploy: a leader-directed NTC in the Rally Phase (A1.31)',
+    description:
+      'German Turn 1 Rally Phase. The 9-2 is with the 8-3-8 (FT, DC) and the 5-4-8 in T3; the 8-0 with a 4-6-7 and a 4-4-7 in S5. Deploy the 8-3-8 under the 9-2 (a NTC at -2): choose which half-squad takes the FT and which the DC. Pass or fail, neither the squad nor the 9-2 may do anything else this RPh: try to have the 9-2 rally or recover afterwards (A1.31, A10.7). The 8-0 may direct one squad of his own.',
+    build(f) {
+      testbedSetup(f, TESTBED_FORTIFIED);
+      f.until('RPh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'deploy-ru',
+    scenarioId: 'asl-testbed',
+    title: 'Deploy: Russian squads may not (A25.2)',
+    description: 'Russian Turn 1 Rally Phase. The 9-1 is with a 4-5-8 (MMG) and a 4-4-7 in K4-K5: the hex wheel shows Deploy disabled, with the reason "Russian squads may not Deploy (A25.2)".',
+    build(f) {
+      testbedSetup(f, TESTBED_FORTIFIED);
+      f.until('RPh', { turn: 1, attacker: 'ru' });
+    },
+  },
+  {
+    id: 'recombine-ru',
+    scenarioId: 'asl-testbed-deploy',
+    title: 'Recombine: the Russian HS in the German Rally Phase (A1.32)',
+    description:
+      'German Turn 1 Rally Phase, the Russians to act (the German has ended his part). The two Russian 2-2-6 are with the 7-0 and a 4-2-6 in H5: Recombine them into a 4-2-6 (A1.32; Russians may, A25.2), in either player\'s RPh (ASOP 1.13B). The 7-0 may then do nothing but permit other Recombinations.',
+    build(f) {
+      deploySetup(f);
+      f.until('RPh', { turn: 1, attacker: 'ge' });
+      f.pass();
+    },
+  },
+  {
+    id: 'recombine-foxhole',
+    scenarioId: 'asl-testbed-deploy',
+    title: 'Recombine: not across the foxhole rim (A1.32, A2.8)',
+    description:
+      'German Turn 1 Rally Phase, the Russians to act. In O10 one Russian 2-2-6 is beneath the 1S foxhole and the other on top of it, with the 7-0 on top: the Recombine entry is disabled with the reason (A2.8 EX: "the same Location" is not enough; A1.32 asks for the same terrain).',
+    build(f) {
+      deploySetup(f, { hs: ['uO10', 'uO10'], l70: 'uO10', forts: [{ kind: 'foxhole', hex: 'uO10', hidden: false, capacity: 1 }], beneath: [1] });
+      f.until('RPh', { turn: 1, attacker: 'ge' });
+      f.pass();
+    },
+  },
+  {
+    id: 'deploy-offboard',
+    scenarioId: 'asl-testbed-deploy',
+    title: 'Deploy: the entering group (A2.9, A2.52)',
+    description:
+      'German Turn 2 Rally Phase: the reinforcements (an 8-1 and three 4-6-7) are to be set up offboard along the east edge. One of the three may be Deployed first, free (A2.9: 10% of the turn\'s entering squads, rounded up). Set them up together in one offboard hex: then the 8-1 may direct a NTC Deploy of another (A2.52), and the half-squads enter in the MPh.',
+    build(f) {
+      deploySetup(f);
+      f.until('RPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+
 ];
 
 /** The dev fixtures of a scenario. */

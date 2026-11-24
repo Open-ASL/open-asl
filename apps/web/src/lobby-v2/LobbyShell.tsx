@@ -6,10 +6,11 @@ import { Avatar } from '../profile/Avatar';
 import { Emblem } from '../ui/Emblem';
 import { GearIcon } from '../ui/GearIcon';
 import { SettingsPanel } from '../settings/SettingsPanel';
-import { useFxLevel, useStackCard, useWeatherFx, useYourCallStrip } from '../fx/settings';
+import { useFollowAction, useFxLevel, useStackCard, useWeatherFx, useYourCallStrip } from '../fx/settings';
 import { usePublicProfile } from '../profile/usePublicProfile';
 import { LobbyIdleGuard } from './LobbyIdleGuard';
 import { OutgoingInvites } from '../invites/InviteListener';
+import { AvailabilityToggle } from './Availability';
 import { LobbyChatDock } from './LobbyChatDock';
 import { rulesetName, useFullAslGate } from './ruleset';
 
@@ -30,6 +31,7 @@ export function LobbyShell() {
   const [weatherFx, setWeatherFx] = useWeatherFx();
   const [callStrip, setCallStrip] = useYourCallStrip();
   const [stackCard, setStackCard] = useStackCard();
+  const [followAction, setFollowAction] = useFollowAction();
   const rank = rankFor(profile.xp);
   const publicRecord = usePublicProfile(user.uid, true).profile;
   // Full ASL is open only behind the development gate; anything else unknown goes back to the choice.
@@ -51,6 +53,7 @@ export function LobbyShell() {
             <Avatar profile={profile} size={36} xp={profile.xp} />
             <span><b>{publicRecord?.nickname ?? profile.displayName}</b><small>{rank.title} · {profile.elo}</small></span>
           </Link>
+          {publicRecord && <AvailabilityToggle notAvailable={!!publicRecord.notAvailable} />}
           <button className="icon-button" onClick={() => setSettings(true)} aria-label="Settings"><GearIcon /></button>
           <button className="text-button" onClick={() => signOut()}>Sign out</button>
         </div>
@@ -59,7 +62,7 @@ export function LobbyShell() {
         <span>Ruleset</span><b>{rulesetName(ruleset)}</b>{ruleset === 'full-asl' && <small className="ruleset-dev">In development</small>}
         <Link to="/app?change=1">Change</Link>
       </div>
-      {settings && <SettingsPanel fx={fx} onFx={setFx} weatherFx={weatherFx} onWeatherFx={setWeatherFx} callStrip={callStrip} onCallStrip={setCallStrip} stackCard={stackCard} onStackCard={setStackCard} onClose={() => setSettings(false)} />}
+      {settings && <SettingsPanel fx={fx} onFx={setFx} weatherFx={weatherFx} onWeatherFx={setWeatherFx} callStrip={callStrip} onCallStrip={setCallStrip} stackCard={stackCard} onStackCard={setStackCard} followAction={followAction} onFollowAction={setFollowAction} onClose={() => setSettings(false)} />}
       <div className="shell-notices"><OutgoingInvites /></div>
       <Outlet />
       <LobbyChatDock />

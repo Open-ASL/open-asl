@@ -27,6 +27,7 @@ export const LMA5_ITEM_ENTRY = edgeHexesWhere('y', 'N', ['A', 'E']);
 /** LMA5 Frères d’arme 5: Foy (Foy, Belgium, 13 January 1945). */
 export const LMA_5: ScenarioDef = {
   id: 'lma-5',
+  service: { theatre: 'nw-europe', campaign: 'ardennes-alsace' },
   product: 'lma',
   number: 'LMA5',
   title: 'LMA5 Frères d’arme 5: Foy',

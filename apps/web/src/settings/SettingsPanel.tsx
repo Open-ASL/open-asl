@@ -17,13 +17,16 @@ interface Props {
   /** The stack card that opens beside the pointer when it lingers over a hex. */
   stackCard: boolean;
   onStackCard(on: boolean): void;
+  /** The map pans to the other side's moves and fire. */
+  followAction: boolean;
+  onFollowAction(on: boolean): void;
   /** Settings of this screen alone, shown last (a commentator's switch for the match). */
   extra?: ReactNode;
   onClose(): void;
 }
 
 /** Settings: sound volumes and mute, how much motion the interface plays, and the weather on the map. */
-export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, callStrip, onCallStrip, stackCard, onStackCard, extra, onClose }: Props) {
+export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, callStrip, onCallStrip, stackCard, onStackCard, followAction, onFollowAction, extra, onClose }: Props) {
   const [audio, setAudio] = useAudioSettings();
   const samples = useSampleStatus();
   const [tab, setTab] = useState<'General' | 'Visuals'>('General');
@@ -117,6 +120,14 @@ export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, callStrip, onC
               </label>
             </div>
             <p className="muted small">The strip over the board when the game waits on you mid-phase (Defensive First Fire, a ROF choice). Off, the board edge still glows and Pass waits in the top bar, on the action wheel and in the orders panel.</p>
+            <div className="set-row toggle">
+              <span className="set-label">Follow the action</span>
+              <label className="switch">
+                <input type="checkbox" checked={followAction} onChange={(e) => onFollowAction(e.target.checked)} aria-label="Follow the action" />
+                <span className="knob" />
+              </label>
+            </div>
+            <p className="muted small">The map pans, gently, to your opponent's moves and shots when they happen out of view. Panning or zooming the map yourself pauses it for a few seconds.</p>
           </section>
           {extra}
         </div>

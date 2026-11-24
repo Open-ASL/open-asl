@@ -42,6 +42,11 @@ export async function readUser(tx: Transaction, uid: string): Promise<{ ref: Doc
   return { ref, data };
 }
 
+/** A player who has set themselves not available takes no challenges (they still show online and chat). */
+export function requireAvailable(user: UserDoc) {
+  if (user.notAvailable) throw new HttpsError('failed-precondition', 'That player is not available for challenges right now.', { code: 'target-unavailable' });
+}
+
 /** A player may be in only one vs-human match at a time. */
 export function requireFree(user: UserDoc, who: 'you' | 'they') {
   if (user.activeMatchId)

@@ -221,6 +221,13 @@ export const vehicleMgModule: RuleModule = {
       const out = next!(ctx, decl, mode, opts);
       if (decl.sw.some((id) => vehicleMgOf(ctx, id)))
         for (const id of decl.sw) if (ifeOf(ctx, id)) setTags(ctx, id, { ...ACQ_CLEAR, [T2.firedNonSmoke]: true });
+      // A CMG fired at a different hex loses its MA's Acquisition (SK4 6.10; ASLRB C6.5 "or its CMG"); the BMG, AAMG
+      // and RMG are named in neither.
+      for (const id of decl.sw) {
+        const mg = vehicleMgOf(ctx, id);
+        const v = mg?.kind === 'cmg' ? ctx.state.pieces[mg.vehicle] : undefined;
+        if (v && v.tags[T2.acqHex] !== undefined && v.tags[T2.acqHex] !== hexOfLoc(decl.target)) setTags(ctx, v.id, ACQ_CLEAR);
+      }
       if (tw && ctx.state.pieces[tw.v.id]?.loc.kind === 'hex') {
         if (decl.caChange && decl.caChange.spines > 0 && decl.caChange.weapon === tw.v.id) {
           // The turret turned for this attack (the MGs' own turn, or the MA's IFE fired with a new CA).

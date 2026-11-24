@@ -49,12 +49,31 @@ const MARGIN = 72;
  * the pane on each axis, so it can be pushed well aside but never lost.
  */
 function clampView(w: Container, mapW: number, mapH: number, screenW: number, screenH: number) {
+  const at = clampedPos(w.x, w.y, w.scale.x, mapW, mapH, screenW, screenH);
+  w.position.set(at.x, at.y);
+}
+
+function clampedPos(x: number, y: number, scale: number, mapW: number, mapH: number, screenW: number, screenH: number) {
   const axis = (pos: number, size: number, screen: number) => {
     const keep = Math.min(size, screen * 0.4);
     return Math.min(screen - keep, Math.max(keep - size, pos));
   };
-  w.position.set(axis(w.x, mapW * w.scale.x, screenW), axis(w.y, mapH * w.scale.y, screenH));
+  return { x: axis(x, mapW * scale, screenW), y: axis(y, mapH * scale, screenH) };
 }
+
+/**
+ * Following the action: the map pans to the other side's moves and fire when they happen outside the middle of the
+ * pane (`FOLLOW_INSET` of it, at least `FOLLOW_INSET_MIN` px, on each side), easing there over a time that grows with
+ * the distance. A new pan waits `FOLLOW_DWELL` ms after the last one began, so a quick run of actions (the computer
+ * opponent's) reads as a few calm moves rather than a jitter; only the latest waiting one is taken. Any pan or zoom of
+ * the player's own stops it and keeps it off for `FOLLOW_HOLD` ms.
+ */
+const FOLLOW_INSET = 0.15;
+const FOLLOW_INSET_MIN = 60;
+const FOLLOW_DWELL = 1500;
+const FOLLOW_HOLD = 4000;
+const followMs = (dist: number) => Math.min(1400, Math.max(600, 450 + dist * 0.7));
+const easeInOut = (t: number) => (1 - Math.cos(Math.PI * t)) / 2;
 
 function viewTransform(placements: Placement[], rotation: number): ViewTransform {
   const bounds = playableBounds(placements);
@@ -198,6 +217,8 @@ interface Props {
   fx?: BoardFx[];
   /** Play movement/effect animations (false = everything snaps). */
   animate?: boolean;
+  /** Whether the map follows (pans to show) a move or shot by this side; absent, it never does. */
+  follow?(side: SideId): boolean;
   /**
    * A counter whose face is about to be animated by a `face` effect keeps its old face (or stays
    * on the board, if eliminated) until that effect plays, so the change lands with its dice.
@@ -342,6 +363,12 @@ const sizeOf = (d: { kind: string }) => (d.kind === 'gun' || d.kind === 'vehicle
 const SPENT_TINT = 0x6e6e6e;
 /** A broken unit's frame, so even the edge of it showing under the rest of a stack reads as broken. */
 const BROKEN_RED = 0xe0504a;
+/**
+ * A malfunctioned weapon's frame and chip: it may still be repaired (SK1 4.1, SK3; ASLRB A9.72). Amber on a dark
+ * ground, since the counters' own colours (the Russian tan, the American olive) would swallow amber alone.
+ */
+const MALF_AMBER = 0xffb732;
+const MALF_DARK = 0x16120a;
 /** Status markers (pin, DM, CX, fire…) sit on their unit like real counters, big enough to read. */
 const MARKER = 40;
 /** Stacks stay compact: each counter a small step up and right, and never further than this. */
@@ -436,6 +463,12 @@ function spineAngle(cube: { q: number; r: number; s: number }, spine: number): n
  */
 const ART_FRONT = (150 * Math.PI) / 180;
 
+/** How far a Pillbox counter turns so its printed arrow (lower right, as `ART_FRONT`) points at hex corner `ca` (ASLRB B30.1). */
+export function pillboxArtTurn(ca: number): number {
+  const o = cornerOffset(ca);
+  return Math.atan2(o.x, -o.y) - ART_FRONT;
+}
+
 /** A counter sprite centred in its box, so it can flip and bob about its own middle. */
 /**
  * Shows or hides everything drawn for the units, so hiding them leaves the bare terrain: the counters, Control
@@ -480,7 +513,6 @@ function hipFaint(s: GameState, p: Piece): boolean {
   return p.loc.kind === 'held' && s.pieces[p.loc.by]?.tags['hip'] === true;
 }
 
-/** How many broken units a stack hides under other counters: a red chip at its lower left corner. */
 /** The Collapsed Hut marker (SK4 8.2.1): a brown chit, since VASL has no counter for it. */
 function collapsedHutChit(): Container {
   const c = new Container();
@@ -494,12 +526,16 @@ function collapsedHutChit(): Container {
   return c;
 }
 
-function brokenChip(n: number): Container {
+/**
+ * How many broken units a stack hides under other counters: a red chip at its lower left corner; beside it, an amber
+ * one for the malfunctioned weapons it does not show, so the Repair attempt is not forgotten.
+ */
+function brokenChip(n: number, color = BROKEN_RED, ring = 0xffd0c8, ink = 0xffffff): Container {
   const c = new Container();
   const r = 8;
   c.addChild(new Graphics().circle(1, 2, r).fill({ color: 0x000000, alpha: 0.5 }));
-  c.addChild(new Graphics().circle(0, 0, r).fill({ color: BROKEN_RED }).stroke({ color: 0xffd0c8, width: 1.5 }));
-  const tx = new Text({ text: String(n), style: { fontSize: 11, fill: 0xffffff, fontWeight: 'bold' } });
+  c.addChild(new Graphics().circle(0, 0, r).fill({ color }).stroke({ color: ring, width: color === BROKEN_RED ? 1.5 : 2 }));
+  const tx = new Text({ text: String(n), style: { fontSize: 11, fill: ink, fontWeight: 'bold' } });
   tx.anchor.set(0.5);
   tx.position.set(0, 0.5);
   c.addChild(tx);
@@ -1127,6 +1163,7 @@ export function BoardView({
   rotation = 0,
   fx = [],
   animate = true,
+  follow,
   objectives = [],
   control = {},
   fortified = [],
@@ -1169,11 +1206,18 @@ export function BoardView({
   const playedFx = useRef(new Set<number>());
   const animateRef = useRef(animate);
   animateRef.current = animate;
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  /** The camera's pan under way, the action waiting out the dwell, when the last pan began, and until when the player's own pan holds it off. */
+  const cam = useRef<{ from: { x: number; y: number }; to: { x: number; y: number }; start: number; dur: number } | null>(null);
+  const camPending = useRef<{ x: number; y: number }[] | null>(null);
+  const camLast = useRef(0);
+  const camHold = useRef(0);
   const weatherRef = useRef(weather);
   weatherRef.current = weather;
   const weatherSim = useRef<WeatherSim>({ kind: null, drops: [], t: 0 });
   /** Dev/test counters: how often the canvas was (re)built and how many effects of each kind have played. */
-  const stats = useRef({ builds: 0, frames: 0, fxPlayed: 0, fx: {} as Record<string, number> });
+  const stats = useRef({ builds: 0, frames: 0, fxPlayed: 0, fx: {} as Record<string, number>, follows: [] as number[] });
   const centers = useRef<{ id: HexId; x: number; y: number }[]>([]);
   const xf = useRef<ViewTransform>(viewTransform(placements, rotation));
   /** Hex centre in view coordinates. */
@@ -1601,6 +1645,14 @@ export function BoardView({
           console.warn('[board] weather dropped after error', err);
           weatherRef.current = null;
         }
+        const c = cam.current;
+        if (c) {
+          const t = Math.min(1, (now - c.start) / c.dur);
+          const e = easeInOut(t);
+          w.position.set(c.from.x + (c.to.x - c.from.x) * e, c.from.y + (c.to.y - c.from.y) * e);
+          if (t >= 1) cam.current = null;
+        }
+        if (camPending.current && now - camLast.current >= FOLLOW_DWELL) followAction(camPending.current);
         const list = anims.current;
         for (let i = list.length - 1; i >= 0; i--) {
           const a = list[i]!;
@@ -1669,7 +1721,7 @@ export function BoardView({
       // when recording the app (screenshots, trailers).
       if (import.meta.env.DEV) {
         (window as unknown as { aslBoard: unknown }).aslBoard = {
-          stats: () => ({ ...stats.current, fx: { ...stats.current.fx }, ink: inkRef.current.length, heat: heatRef.current?.length ?? 0 }),
+          stats: () => ({ ...stats.current, fx: { ...stats.current.fx }, follows: [...stats.current.follows], ink: inkRef.current.length, heat: heatRef.current?.length ?? 0 }),
           /** Whether the render loop runs, and what keeps it running. */
           loop: () => ({
             running: app.ticker.started,
@@ -1785,6 +1837,11 @@ export function BoardView({
     if (fresh.length === 0) return;
     // Only the ids still in the list can come back: forget the rest.
     playedFx.current = new Set(fx.map((f) => f.id));
+    // A shot by a side the map follows: the firers and the target are brought into view.
+    for (const f of fresh) {
+      if (f.kind !== 'tracer' || !f.side || !followRef.current?.(f.side)) continue;
+      followAction([...f.from, f.to].map((h) => fxPos(h)).filter((v): v is { x: number; y: number } => !!v));
+    }
     if (!animateRef.current) return;
     for (const f of fresh) playFx(f);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2066,9 +2123,55 @@ export function BoardView({
     if (!app || !w) return;
     const { width: mapW, height: mapH } = xf.current;
     const scale = Math.min(app.screen.width / mapW, app.screen.height / mapH) * 0.98;
+    cam.current = null;
+    camPending.current = null;
     w.scale.set(scale);
     w.position.set((app.screen.width - mapW * scale) / 2, (app.screen.height - mapH * scale) / 2);
     drawControls();
+  }
+
+  /** Pan to show these view-space points (the action) if they lie outside the middle of the pane: see `FOLLOW_INSET`. */
+  function followAction(points: { x: number; y: number }[]) {
+    const app = appRef.current;
+    const w = world.current;
+    if (!app || !w || points.length === 0) return;
+    const now = performance.now();
+    if (now < camHold.current) return;
+    if (now - camLast.current < FOLLOW_DWELL) {
+      camPending.current = points;
+      wakeRef.current(FOLLOW_DWELL);
+      return;
+    }
+    camPending.current = null;
+    const s = w.scale.x;
+    const sw = app.screen.width;
+    const sh = app.screen.height;
+    const pad = COUNTER / 2;
+    const x0 = Math.min(...points.map((p) => p.x)) - pad;
+    const x1 = Math.max(...points.map((p) => p.x)) + pad;
+    const y0 = Math.min(...points.map((p) => p.y)) - pad;
+    const y1 = Math.max(...points.map((p) => p.y)) + pad;
+    // Judged from where the camera is heading, so a pan under way is not undone by the next step of the same move.
+    const at = cam.current?.to ?? { x: w.x, y: w.y };
+    const ix = Math.max(FOLLOW_INSET_MIN, sw * FOLLOW_INSET);
+    const iy = Math.max(FOLLOW_INSET_MIN, sh * FOLLOW_INSET);
+    if (at.x + x0 * s >= ix && at.x + x1 * s <= sw - ix && at.y + y0 * s >= iy && at.y + y1 * s <= sh - iy) return;
+    // More than the pane can show (a replay jump, a view turned): nothing to centre on.
+    if ((x1 - x0) * s > sw || (y1 - y0) * s > sh) return;
+    const to = clampedPos(sw / 2 - ((x0 + x1) / 2) * s, sh / 2 - ((y0 + y1) / 2) * s, s, xf.current.width, xf.current.height, sw, sh);
+    const dist = Math.hypot(to.x - w.x, to.y - w.y);
+    if (dist < 2) return;
+    camLast.current = now;
+    stats.current.follows.push(Math.round(now));
+    if (!animateRef.current) {
+      cam.current = null;
+      w.position.set(to.x, to.y);
+      wakeRef.current();
+      return;
+    }
+    const dur = followMs(dist);
+    cam.current = { from: { x: w.x, y: w.y }, to, start: now, dur };
+    wakeRef.current(Math.max(dur, FOLLOW_DWELL) + 50);
   }
 
   /** Show the finder arrow at the pane's edge, aimed at the map's centre, while little or none of the map is in view. */
@@ -2150,7 +2253,14 @@ export function BoardView({
     /** A two-finger pinch in progress: the fingers' last midpoint (pane pixels) and separation. */
     let pinch: { mx: number; my: number; dist: number } | null = null;
     /** Zoom to `next` about the pane point (mx, my), which stays over the same spot of the map. */
+    /** The player's own pan or zoom: the map stops following the action for a while (`FOLLOW_HOLD`). */
+    const holdFollow = () => {
+      cam.current = null;
+      camPending.current = null;
+      camHold.current = performance.now() + FOLLOW_HOLD;
+    };
     const zoomAt = (mx: number, my: number, next: number) => {
+      holdFollow();
       const old = w.scale.x;
       next = Math.min(4, Math.max(0.25, next));
       w.position.set(mx - ((mx - w.x) / old) * next, my - ((my - w.y) / old) * next);
@@ -2368,6 +2478,7 @@ export function BoardView({
             drag.ghost.position.set(e.clientX - rect.left, e.clientY - rect.top);
           }
         } else if (drag.moved) {
+          holdFollow();
           w.position.set(drag.wx + dx, drag.wy + dy);
           clamp();
         }
@@ -2605,7 +2716,7 @@ export function BoardView({
       if (split) urls.push(split.hull, split.turret);
       for (const m of markersOf(p)) urls.push(markerImage(m));
     }
-    for (const m of ['Smk12', 'Smk2', 'Smk3', 'WP1', 'WP2', 'CC', 'Melee', 'RFP01', 'RFP02', 'RFP04', 'RFP06', 'RFP08', 'RFP12', 'acq1wh', 'acq2wh', 'Lev1', 'Lev2', 'Cave', 'CaveOG', 'Blaze', 'Flame', 'Rubble', 'TI', 'Labor1', 'Labor2']) urls.push(markerImage(m));
+    for (const m of ['Smk12', 'Smk2', 'Smk2gr', 'Smk3', 'WP1', 'WP2', 'CC', 'Melee', 'RFP01', 'RFP02', 'RFP04', 'RFP06', 'RFP08', 'RFP12', 'acq1wh', 'acq2wh', 'Lev1', 'Lev2', 'Cave', 'CaveOG', 'Blaze', 'Flame', 'Rubble', 'TI', 'Labor1', 'Labor2']) urls.push(markerImage(m));
     for (const f of fortifications) urls.push(markerImage(f.marker));
     if (o.declaredFire) for (const m of new Set(o.declaredFire.units.values())) urls.push(markerImage(m));
     await preload(urls);
@@ -2698,6 +2809,8 @@ export function BoardView({
     const prev = lastPos.current;
     const nextPos = new Map<string, { x: number; y: number; url: string | null }>();
     const doAnim = animateRef.current;
+    /** Where the other side's counters moved from and to this redraw: the map follows them (`followAction`). */
+    const moved: { x: number; y: number }[] = [];
     // Hex markers (Smoke, Melee, Residual FP) belong to the hex, so empty hexes are drawn too; so do
     // the Acquired Target counters Guns have placed (SK4 6.10: on the target, where they wait for it).
     const markedHexes = Object.entries(s.hexMarkers)
@@ -2808,7 +2921,11 @@ export function BoardView({
         const box = new Container();
         box.position.set(c.x - COUNTER / 2 + offsets[0]!.x, c.y - COUNTER / 2 + offsets[0]!.y);
         box.addChild(new Graphics().roundRect(2, 3, COUNTER, COUNTER, 4).fill({ color: 0x000000, alpha: 0.45 }));
-        box.addChild(counterSprite(chit, COUNTER));
+        const sp = counterSprite(chit, COUNTER);
+        // A Pillbox counter's arrow points at the hexspine that defines its CA (ASLRB B30.1): the art's arrow is printed
+        // to the lower right like a vehicle's front, so it turns from there to corner `ca`.
+        if (inPillbox && pillboxHere?.ca !== undefined) sp.rotation = pillboxArtTurn(pillboxHere.ca) + xf.current.angle;
+        box.addChild(sp);
         if (inPillbox && pillboxHere?.hidden) {
           box.alpha = 0.62;
           box.addChild(hipChip());
@@ -2960,6 +3077,7 @@ export function BoardView({
           }
         }
         if (p.tags['broken'] === true) box.addChild(new Graphics().roundRect(1, 1, size - 2, size - 2, 4).stroke({ color: BROKEN_RED, width: 2.5 }));
+        else if (p.tags['malf'] === true && isWeaponDef(d)) box.addChild(new Graphics().roundRect(1.5, 1.5, size - 3, size - 3, 4).stroke({ color: MALF_DARK, width: 4.5 }).roundRect(1.5, 1.5, size - 3, size - 3, 4).stroke({ color: MALF_AMBER, width: 2 }));
         if (o.selectedPieces?.has(p.id)) {
           // Turned with the counter: a vehicle or Gun is drawn facing its Covered Arc.
           const sel = new Graphics().roundRect(-size / 2 - 1, -size / 2 - 1, size + 2, size + 2, 5).stroke({ color: 0xffe066, width: 3 });
@@ -3012,6 +3130,8 @@ export function BoardView({
         });
         // Slide from where the counter was last drawn (or is right now, if it was mid-slide).
         const from = inFlight.get(p.id) ?? was;
+        // A move to another hex (not a shuffle inside its stack) by a side the map follows.
+        if (from && Math.hypot(from.x - x, from.y - y) > COUNTER && followRef.current?.(p.side)) moved.push({ x: from.x + size / 2, y: from.y + size / 2 }, { x: x + size / 2, y: y + size / 2 });
         if (doAnim && from && (Math.abs(from.x - x) > 1 || Math.abs(from.y - y) > 1)) {
           const far = Math.hypot(from.x - x, from.y - y) > COUNTER;
           box.position.set(from.x, from.y);
@@ -3055,6 +3175,16 @@ export function BoardView({
       if (hiddenBroken > 0) {
         const chip = brokenChip(hiddenBroken);
         chip.position.set(c.x - COUNTER / 2 - 2, c.y + COUNTER / 2 - 2);
+        L.pieces.addChild(chip);
+      }
+      // Malfunctioned weapons the stack does not show: a SW under other counters, and a vehicle's MA or MGs (its
+      // counter never shows them: the MGs are part of it, and a malfunctioned MA leaves its face as it is).
+      const hiddenMalf =
+        stack.slice(0, -1).filter((p) => p.tags['malf'] === true && isWeaponDef(defOf(env, p))).length +
+        stack.filter((p) => vehicleDef(env as never, p)).reduce((n, v) => n + (v.tags['malf'] === true ? 1 : 0) + Object.values(s.pieces).filter((x) => x.loc.kind === 'held' && x.loc.by === v.id && isFixedMg(defOf(env, x)) && x.tags['malf'] === true).length, 0);
+      if (hiddenMalf > 0) {
+        const chip = brokenChip(hiddenMalf, MALF_DARK, MALF_AMBER, MALF_AMBER);
+        chip.position.set(c.x - COUNTER / 2 - 2 + (hiddenBroken > 0 ? 18 : 0), c.y + COUNTER / 2 - 2);
         L.pieces.addChild(chip);
       }
       // Location markers.
@@ -3146,6 +3276,7 @@ export function BoardView({
       burn(tex, was.x + COUNTER / 2, was.y + COUNTER / 2);
     }
     lastPos.current = nextPos;
+    followAction(moved);
 
     // LOS threads: green where the thread sees, red from the pixel where it is blocked.
     L.top.clear();

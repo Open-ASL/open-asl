@@ -405,6 +405,19 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         // A weapon breaking down (SK1 1.2.4, SK4 7.8): the counter flips, or for a vehicular MG the
         // vehicle wears the marker, so the log says so. Guns have their own line (sk2.gun.malf).
         const tags = p['tags'] as Record<string, unknown>;
+        // An Acquired Target counter coming off (SK4 6.10, 6.11; ASLRB C6.5) is said, with the cause when it was the
+        // possessor firing its own FP, so the counter does not seem to vanish. A new acquisition in the same action
+        // (a shot at another target) has its own line.
+        if ('acq' in tags && tags['acq'] === null && !hiddenFrom(p['id'] as string)) {
+          const id = p['id'] as string;
+          const reacquired = events.slice(at + 1).some((x) => x.type === 'piece.tagged' && (x.payload as { id: string }).id === id && typeof (x.payload as { tags: Record<string, unknown> }).tags['acq'] === 'string');
+          if (reacquired) break;
+          const pc = env.state.pieces[id];
+          const holder = pc?.loc.kind === 'held' ? pc.loc.by : undefined;
+          const ownFp = !!holder && events.slice(0, at).some((x) => x.type === 'sk1.fire.attack' && ((x.payload as { attack: { parts: string[] } }).attack.parts.includes(holder) && !(x.payload as { attack: { parts: string[] } }).attack.parts.includes(id)));
+          out.push({ seq: e.seq, kind: 'info', text: `  ◎ ${name(id)} loses its Acquired Target counter${ownFp ? ' (its possessor fired its own FP, SK4 6.10)' : ''}` });
+          break;
+        }
         if (tags['malf'] !== true) break;
         const pc = env.state.pieces[p['id'] as string];
         const d = pc && defOf(env, pc);
@@ -483,7 +496,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         break;
       }
       case 'asl.ent.vehicleRefused': {
-        const what = p['kind'] === 'ditch' ? 'an A-T Ditch: no vehicle may enter it (ASLRB B27.56)' : 'a trench: no wheeled vehicle or halftrack may enter its hex (ASLRB B27.55)';
+        const what = p['kind'] === 'ditch' ? 'an A-T Ditch: no vehicle may enter it (ASLRB B27.56)' : p['kind'] === 'foxhole' ? 'a foxhole: entering its hex costs an Armored Car 2 MP more (ASLRB B27.43)' : 'a trench: no wheeled vehicle or halftrack may enter its hex (ASLRB B27.55)';
         out.push({ seq: e.seq, kind: 'move', text: `  ▣ ${name(p['vehicle'] as string)} finds ${what} in ${hexLabel(p['hex'] as string)}; nothing is spent` });
         break;
       }
@@ -1288,9 +1301,22 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
       }
       case 'sk3.areaHit': {
         const eff = p['effect'] as string;
+        if (p['spared']) {
+          out.push({ seq: e.seq, kind: 'fire', text: `${name(p['vehicle'] as string)} takes an Area Target Type ${p['location']} hit: ${p['spared'] as string}` });
+          break;
+        }
         out.push({ seq: e.seq, kind: 'fire', text: `${name(p['vehicle'] as string)} takes an Area Target Type ${p['location']} hit: ${eff === 'kill' ? 'destroyed' : eff === 'shock' ? 'Shock' : eff === 'immobilized' ? 'Immobilized' : 'no effect on the AFV'}` });
         break;
       }
+      case 'asl.hd.hullHit':
+        out.push({ seq: e.seq, kind: 'fire', text: `  hull hit on ${name(p['target'] as string)}: no effect, it is Hull Down ${p['kind'] === 'trench' ? 'beneath the trench (ASLRB B27.52, D4.2)' : 'behind the roadblock (ASLRB B9.36, D4.2)'}` });
+        break;
+      case 'asl.hd.chosen':
+        if (p['choice']) out.push({ seq: e.seq, kind: 'info', text: `${name(p['vehicle'] as string)}: ${p['choice'] === 'tem' ? 'the in-hex TEM is taken instead of Hull Down for this shot (ASLRB B9.36, D4.2)' : 'Hull Down for this shot (ASLRB B9.36, D4.2)'}` });
+        break;
+      case 'asl.manhandle.ti':
+        out.push({ seq: e.seq, kind: 'move', text: `  ${(p['units'] as string[]).map(name).join(', ')} TI for the rest of the Player Turn: the pushing has ended (ASLRB C10.3, A4.8)` });
+        break;
       case 'sk3.vehicle.recuperation': {
         const r = p['result'] as string;
         out.push({ seq: e.seq, kind: 'check', text: `${name(p['vehicle'] as string)} ${p['from'] === 'uk' ? 'Unconfirmed Kill' : 'Shock'} recuperation dr ${p['dr']}: ${r === 'recovered' ? 'recovers' : r === 'uk' ? 'flips to Unconfirmed Kill' : 'is a wreck'}` });
@@ -1437,6 +1463,24 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
       case 'sk4.usmc.deploy': {
         const halves = p['halves'] as string[] | undefined;
         out.push({ seq: e.seq, kind: 'check', text: `  NTC ${asDef(p['unit'] as string, p['from'] as string | undefined)} to deploy: DR ${drText(p['dr'] as number[])}${p['drm'] ? ` ${(p['drm'] as number) > 0 ? '+' : ''}${p['drm']}` : ''} vs ${p['morale']} — ${p['passed'] ? `passed: two ${halves ? name(halves[0]!) : 'half-squads'}` : 'failed (SK4 8.4)'}` });
+        break;
+      }
+      case 'asl.deploy': {
+        // Full ASL A1.31: the leader-directed NTC.
+        const from = counters[p['from'] as string];
+        const to = counters[p['to'] as string];
+        const drm = p['drm'] as number;
+        out.push({
+          seq: e.seq,
+          kind: 'check',
+          text: `  ⇉ ${asDef(p['unit'] as string, p['from'] as string)}${p['offboard'] ? ' (offboard)' : ''} deploys under ${name(p['leader'] as string)}: NTC ${drText(p['dr'] as number[])} ${drm >= 0 ? '+' : ''}${drm} vs ${p['morale']} — ${p['passed'] ? `passed: two ${to ? defLabel(to) : 'half-squads'}` : `failed: ${from ? defLabel(from) : 'the squad'} and ${name(p['leader'] as string)} take no other action this RPh`} (ASLRB A1.31)`,
+        });
+        break;
+      }
+      case 'asl.recombined': {
+        const to = counters[p['to'] as string];
+        const from = counters[p['from'] as string];
+        out.push({ seq: e.seq, kind: 'info', text: `  ⇇ two ${from ? defLabel(from) : 'half-squads'} recombine into ${to ? defLabel(to) : name(p['squad'] as string)} under ${name(p['leader'] as string)}: no casualty (ASLRB A1.32)` });
         break;
       }
       case 'sk4.usmc.recombined':

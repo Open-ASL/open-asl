@@ -1,7 +1,7 @@
 import type { Ctx, HexId, Piece, PieceId, QueryEnv, RuleModule } from '@asl/engine';
 import { byId, hexOf, isVehicleDef, defOf, otherSide, statics, swHeldBy } from '../common/pieces';
 import type { IftResult } from '../common/statics';
-import { locOf } from '../common/location';
+import { hexOfLoc, locOf } from '../common/location';
 import { FP, attackFp, iftColumn, type ApplyResultFn, type FireAttackCtx, type FireMode } from '../sk1/fire';
 import { hasLos } from '../sk1/known';
 import { moveState } from '../sk1/movement';
@@ -24,6 +24,12 @@ declare module '@asl/engine' {
      * default all of them when every part fires from its hex, else none; full ASL takes the parts that do (A7.211).
      */
     'fire.otExposedParts': { ctx: { attack: FireAttackCtx; unit: PieceId }; value: PieceId[] };
+    /**
+     * Where an Area Target Type hit strikes a vehicle (the turret when the colored dr of the Original To Hit DR is less than
+     * the white dr, SK4 7.11), and why the hit does not count against it at all (full ASL: a hull hit on a Hull Down target,
+     * D4.2), or none.
+     */
+    'vehicle.areaHit': { ctx: { attack: FireAttackCtx; vehicle: PieceId }; value: { location: 'hull' | 'turret'; spared?: string } };
   }
 }
 
@@ -206,7 +212,7 @@ export const vehicleFireModule: RuleModule = {
   install(r) {
     // The end-of-phase turn without MP (SK4 3.3.2) lives here so the module list, and so the ruleset hash, stays as it was.
     installVehicleFacing(r);
-    r.event<{ vehicle: PieceId; column: number; dr: [number, number]; drm: number; location: 'hull' | 'turret'; result: IftResult; effect: 'kill' | 'shock' | 'immobilized' | 'none' }>({ type: 'sk3.areaHit', apply() {} });
+    r.event<{ vehicle: PieceId; column: number; dr: [number, number]; drm: number; location: 'hull' | 'turret'; result: IftResult; effect: 'kill' | 'shock' | 'immobilized' | 'none'; spared?: string }>({ type: 'sk3.areaHit', apply() {} });
     // IFT fire does nothing to a Buttoned Up AFV (SK4 3.2.3, 7.7) unless its Open-Topped crew is fired on from its own hex (7.13).
     r.contribute({
       id: 'sk3.fire.immune.bu',
@@ -216,6 +222,21 @@ export const vehicleFireModule: RuleModule = {
         const p = env.state.pieces[unit];
         const d = p && vehicle(env, p);
         return v || (!!d && !d.unarmored && !isCe(p) && otExposedParts(env, attack, unit).length === 0);
+      },
+    });
+
+    // An Infantry Target Type hit "cannot affect an AFV, only its CE crew" (SK4 7.12; 3.2.4 "All enemy targets except for BU
+    // AFV ... including any Crew Exposed (7.7) units"): the crew of a CE AFV, or of a BU Open-Topped one fired on from its own
+    // hex (7.13), is attacked with the other units hit, with its CE DRM (applyResult below; ASLRB C3.32, D.8B).
+    r.contribute({
+      id: 'sk3.ordnance.ittCrew',
+      query: 'ordnance.ittCrew',
+      ref: 'SK4 3.2.4, 7.12, 7.13',
+      apply: (v, { vehicle: id, target, from }, env) => {
+        const p = env.state.pieces[id];
+        const d = p && vehicle(env, p);
+        if (v || !p || !d || isWreck(p)) return v;
+        return isCe(p) || (!!d.openTopped && from !== undefined && hexOfLoc(from) === hexOfLoc(target));
       },
     });
 
@@ -334,7 +355,13 @@ export const vehicleFireModule: RuleModule = {
           const res = tables.ift(column, final);
           out[v.id] = res;
           const [white, colored] = attack.ordnance.thDice ?? [1, 1];
-          const location = hitLocation(white, colored);
+          const aim = ctx.query('vehicle.areaHit', { attack, vehicle: v.id }, { location: hitLocation(white, colored) });
+          const location = aim.location;
+          if (aim.spared) {
+            out[v.id] = { kind: 'none' };
+            ctx.emit('sk3.areaHit', { vehicle: v.id, column, dr: [white, colored], drm: extra.value, location, result: { kind: 'none' }, effect: 'none', spared: aim.spared });
+            continue;
+          }
           const kDr = kResultDr(tables, column);
           const effect = res.kind === 'KIA' ? 'kill' : kDr !== null && final <= kDr + 1 ? (location === 'turret' ? 'shock' : 'immobilized') : 'none';
           ctx.emit('sk3.areaHit', { vehicle: v.id, column, dr: [white, colored], drm: extra.value, location, result: res, effect });

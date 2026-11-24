@@ -1,5 +1,5 @@
 import type { QueryEnv } from '@asl/engine';
-import { achieved, casualtyVp, clearAreasTally, controlState, cvpGoal, exitVp, squadEquivalentsLost, statics, vpTally, type ScenarioDef, type VictoryCondition } from '@asl/rules';
+import { PHASE_NAME, achieved, casualtyVp, clearAreasTally, controlState, cvpGoal, exitVp, hasUnitsLeft, squadEquivalentsLost, statics, vpTally, type ScenarioDef, type VictoryCondition } from '@asl/rules';
 import type { AarVictory, AarVictoryItem } from '@asl/platform';
 
 /*
@@ -31,9 +31,10 @@ export function sideName(scenario: ScenarioDef, side: string): string {
   return scenario.sides.find((s) => s.side === side)?.name ?? side;
 }
 
-/** "Germans", "Russians", "Allies"; a name that already ends in s is left as it is. */
+/** "Germans", "Russians", "Allies"; "Japanese" and "Free French" are already plural; a name ending in s gets "side". */
 export function plural(name: string): string {
   if (/allied$/i.test(name)) return name.replace(/allied$/i, 'Allies');
+  if (/(ese|ch|sh)$/i.test(name)) return name;
   if (/[sx]$/i.test(name)) return `${name} side`;
   return `${name}s`;
 }
@@ -164,6 +165,68 @@ export function victoryStandings(env: QueryEnv, scenario: ScenarioDef): AarVicto
     const s = standing(env, scenario, vc);
     return { side: vc.side, text: conditionText(env, scenario, vc), met: achieved(env, vc), have: s.have, need: s.need, items: s.items };
   });
+}
+
+/** How a game ended: the side that won (null for a draw), why the engine or the server ended it, and when. */
+export interface GameEnding {
+  winner: string | null;
+  /** 'scenario end' | 'sudden death' | 'annihilation' | 'nothing left to play' | 'concession' | 'timeout'. */
+  reason: string;
+  turn: number;
+  phase: string;
+  /** Who gave up or ran out the clock; the losing side's name when not given. */
+  loserName?: string;
+}
+
+/** What decided a game: the one-line "how it was won", and the winner's victory conditions that carried it. */
+export interface GameDecision {
+  how: string;
+  /** The met conditions as the card words them (every part of a met `all`, the branch met of an `any`); empty for a concession. */
+  decidedBy: string[];
+}
+
+/** The one-line account of how the game was decided, and the conditions behind it, for the report and the game-over screen. */
+export function gameDecision(env: QueryEnv, scenario: ScenarioDef, end: GameEnding): GameDecision {
+  const { winner, reason, turn } = end;
+  const name = (s: string) => sideName(scenario, s);
+  const loser = winner ? (scenario.sides.find((s) => s.side !== winner)?.side ?? null) : null;
+  const loserName = end.loserName ?? (loser ? name(loser) : '');
+  const phaseName = PHASE_NAME[end.phase] ?? end.phase;
+  // The conditions that carried the win: of an `any`, the branch met, not a part met inside a branch that failed.
+  const met = winner ? metLeaves(env, scenario.victory.filter((vc) => vc.side === winner)) : [];
+  const offensive = leaves(scenario.victory).filter((vc) => vc.side === loser);
+  const decidedBy = reason === 'concession' || reason === 'timeout' ? [] : met.map((vc) => conditionText(env, scenario, vc));
+  let how: string;
+  switch (reason) {
+    case 'scenario end':
+      if (!winner) how = 'Neither side met its victory conditions';
+      else if (met[0]) how = `${winningClause(env, scenario, met[0], true)}${met[0].kind === 'controlBuildings' || met[0].kind === 'controlHexes' ? ` at the end of Turn ${turn}` : ''}`;
+      else if (offensive[0] && loser) how = `The ${plural(name(loser))} never ${winningClause(env, scenario, offensive[0], false)}`;
+      else how = `${plural(name(winner))} held on to the end of Turn ${turn}`;
+      break;
+    case 'sudden death':
+      how = `Won immediately in Turn ${turn} ${phaseName}${met[0] ? `: ${winningClause(env, scenario, met[0], true).replace(/^./, (c) => c.toLowerCase())}` : ''}`;
+      break;
+    case 'annihilation': {
+      // The side wiped out, which the VC then settled may still favour (the game ends only where they are settled).
+      const gone = scenario.sides.map((x) => x.side).find((x) => !hasUnitsLeft(env, x));
+      how = gone ? `The last ${name(gone)} unit died in Turn ${turn}` : `Both sides were wiped out in Turn ${turn}`;
+      break;
+    }
+    case 'nothing left to play':
+      // One side's units had all exited or died with the result settled (sk1.vc.nothing-left): the VC decided it there.
+      how = `${winner ? (met[0] ? winningClause(env, scenario, met[0], true) : `${plural(name(winner))} held on`) : 'Neither side met its victory conditions'}; with nothing left to play, the game ended in Turn ${turn}`;
+      break;
+    case 'concession':
+      how = `${loserName} conceded in Turn ${turn} ${phaseName}`;
+      break;
+    case 'timeout':
+      how = `${loserName} ran out the clock in Turn ${turn}`;
+      break;
+    default:
+      how = reason;
+  }
+  return { how, decidedBy };
 }
 
 /** The clause after "Held …" / "never …" for a condition the winner met (or the loser failed). */

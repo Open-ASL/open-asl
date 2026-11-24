@@ -1,8 +1,8 @@
 import type { Action, Ctx, Decision, Piece, PieceId, QueryEnv, RuleModule, SideId } from '@asl/engine';
-import { byId, personnelAt, statics, swHeldBy } from '../common/pieces';
+import { byId, personnelAt, statics } from '../common/pieces';
 import { locOf } from '../common/location';
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
-import { DEPLOYED_FROM } from '../sk1/setupDeploy';
+import { DEPLOYED_FROM, mergeHalfSquads, splitSquad } from '../sk1/setupDeploy';
 import { T, isGoodOrder, isPinned, mmc, pieceOf, setTags, smc } from '../sk1/status';
 
 /*
@@ -175,11 +175,8 @@ export const usmcModule: RuleModule = {
           ctx.popDecision(d.id);
           return;
         }
-        const hs = m.reducesTo!;
         const second = `${p.id}.d`;
-        ctx.emit('piece.replaced', { id: p.id, defId: hs, from: p.defId, reason: 'deploy' });
-        ctx.emit('piece.tagged', { id: p.id, tags: { [DEPLOYED_FROM]: p.defId } });
-        ctx.emit('piece.created', { piece: { id: second, defId: hs, side: p.side, loc: { ...p.loc }, tags: { ...pieceOf(ctx, p.id).tags, [DEPLOYED_FROM]: p.defId } } });
+        splitSquad(ctx, p.id, second);
         ctx.emit('sk4.usmc.deploy', { unit: a.unit, from: p.defId, dr: roll.dice as [number, number], drm, morale, passed: true, halves: [p.id, second] });
         ctx.popDecision(d.id);
         askPhaseOwner(ctx, side, { side });
@@ -211,8 +208,7 @@ export const usmcModule: RuleModule = {
         const side = rallySide(ctx, d);
         const [keep, gone] = [...a.units].sort() as [PieceId, PieceId];
         // The second half-squad's weapons go to the squad.
-        for (const w of swHeldBy(ctx.state, gone).sort(byId)) ctx.emit('piece.moved', { id: w.id, loc: { kind: 'held', by: keep } });
-        ctx.emit('piece.replaced', { id: keep, defId: SQUAD, from: HS, reason: 'recombine' });
+        mergeHalfSquads(ctx, keep, gone, SQUAD);
         setTags(ctx, keep, { [T.rphAction]: true, [DEPLOYED_FROM]: null });
         ctx.emit('sk4.usmc.recombined', { squad: keep, removed: gone, leader: a.leader });
         ctx.popDecision(d.id);

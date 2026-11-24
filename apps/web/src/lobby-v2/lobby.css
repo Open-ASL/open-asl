@@ -209,7 +209,7 @@
 @media (max-width: 900px) {
   .command-topbar { padding: 0 14px; gap: 8px; }
   .command-brand { min-width: 0; }
-  .command-brand span, .command-profile span, .text-button { display: none; }
+  .command-brand span, .command-profile span, .text-button, .availability-toggle .label { display: none; }
   .command-nav { flex: 1; justify-content: center; }
   .command-nav a { padding: 0 10px; font-size: 10px; }
   .scenario-atlas { height: auto; min-height: 0; grid-template-columns: 1fr; overflow: visible; }
@@ -282,10 +282,15 @@
 .profile-loading, .profile-missing { max-width: 800px; margin: 80px auto; text-align: center; color: var(--ops-muted); }
 
 @media (max-width: 720px) {
-  .public-profile__hero { grid-template-columns: 1fr; text-align: center; justify-items: center; }
-  .public-profile__details { justify-content: center; }
+  .public-profile { padding: 28px 16px 60px; }
+  .public-profile__hero { grid-template-columns: minmax(0, 1fr); text-align: center; justify-items: center; padding: 22px 16px; }
+  .public-profile__hero > * { min-width: 0; max-width: 100%; }
+  .public-profile__hero h1 { font-size: clamp(28px, 9vw, 46px); overflow-wrap: anywhere; }
+  .public-profile__details { justify-content: center; flex-wrap: wrap; }
   .profile-actions, .share-profile { flex-direction: row; flex-wrap: wrap; justify-content: center; }
-  .profile-stat-grid { grid-template-columns: 1fr 1fr; }
+  .profile-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .profile-stat-grid > div { min-width: 0; }
+  .profile-section { min-width: 0; padding-left: 14px; padding-right: 14px; }
 }
 
 /* Keep every Lobby surface inside the visual language shared by gameplay and the landing page. */
@@ -476,6 +481,17 @@
 .chat-messages article { border-left-color: var(--line-hi); }
 .chat-messages article.mine { border-left-color: var(--brass); }
 .presence-dot { background: var(--green); box-shadow: 0 0 9px color-mix(in srgb, var(--green) 65%, transparent); }
+/* Online but not taking challenges: an amber dot, as a "busy" light. */
+.presence-dot.not-available { background: var(--amber); box-shadow: 0 0 9px color-mix(in srgb, var(--amber) 65%, transparent); }
+.not-available-tag { color: var(--amber); }
+/* In place of the Challenge button, so the reason is on the row itself. */
+.lobby-user-unavailable { color: var(--amber); font: 700 11px/1.2 var(--font-head); text-transform: uppercase; letter-spacing: .08em; text-align: right; }
+.availability-toggle { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border: 1px solid var(--ops-line); border-radius: 15px; background: rgba(0, 0, 0, .18); color: var(--ops-cream); font: 600 11px/1 var(--font-head); text-transform: uppercase; letter-spacing: .1em; cursor: pointer; }
+.availability-toggle .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 7px color-mix(in srgb, var(--green) 65%, transparent); }
+.availability-toggle.off { border-color: color-mix(in srgb, var(--amber) 60%, transparent); color: var(--amber); }
+.availability-toggle.off .dot { background: var(--amber); box-shadow: 0 0 7px color-mix(in srgb, var(--amber) 65%, transparent); }
+.availability-toggle:hover:not(:disabled) { border-color: var(--brass); }
+.availability-toggle:disabled { opacity: .7; cursor: wait; }
 .lobby-users > header span,
 .chat-panel > header span { color: var(--green); }
 
@@ -800,3 +816,91 @@ button.scenario-link:active:not(:disabled) { transform: none; box-shadow: none; 
 .chat-dock.rail .chat-dock-body[hidden] { display: none; }
 .chat-dock.rail.open { border-left-color: var(--line-hi); }
 @media (max-width: 900px) { .chat-dock.rail .chat-dock-body { width: min(320px, 70vw); } }
+
+/* Decorations on the service record: supreme medals, the ribbon rack, what comes next. */
+.decorations { display: grid; gap: 16px; }
+.decor-board { display: grid; justify-items: center; gap: 22px; padding: 26px 24px; border: 1px solid var(--line); border-radius: 6px; background: radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.06), transparent 60%), linear-gradient(180deg, #3a4432, #2b3327); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 24px rgba(0, 0, 0, 0.35); }
+.decor-supreme { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; gap: 26px; }
+.decor-supreme-item { display: grid; justify-items: center; gap: 8px; padding: 6px; border: 0; background: none; box-shadow: none; cursor: pointer; max-width: 170px; }
+.decor-supreme-item span { font: 600 12px var(--font-head); letter-spacing: .08em; text-transform: uppercase; color: var(--ops-cream); text-align: center; line-height: 1.3; }
+.decor-supreme-item:hover:not(:disabled) { filter: none; outline: 2px solid var(--ops-brass); outline-offset: 2px; transform: none; }
+.decor-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.decor-count { color: var(--ops-muted); font: 13px var(--font-head); text-transform: uppercase; letter-spacing: .08em; }
+.decor-count b { color: var(--ops-brass); font-size: 16px; }
+.decor-hint { margin: 0; color: var(--ops-muted); line-height: 1.5; }
+.decor-closest h3 { margin: 0 0 8px; font: 600 13px var(--font-head); letter-spacing: .12em; text-transform: uppercase; color: var(--ops-muted); }
+.decor-closest ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.decor-closest-card { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 12px; height: 100%; box-sizing: border-box; border: 1px solid var(--ops-line); background: var(--ops-panel); color: var(--ops-cream); text-decoration: none; }
+.decor-closest-card:hover { border-color: var(--ops-brass); }
+.decor-closest-text { display: grid; gap: 6px; min-width: 0; }
+.decor-closest-text b { font: 600 14px var(--font-head); }
+
+/* The decorations page: every decoration by tier, and one decoration's checklist. */
+.decorations-page { gap: 22px; }
+.decorations-head { display: grid; gap: 10px; }
+.decorations-head h1 { margin: 0; font: 44px/1 var(--font-display); }
+.decorations-head p { margin: 0; max-width: 760px; color: var(--ops-muted); line-height: 1.5; }
+.decorations-back { color: var(--ops-brass); font: 600 13px var(--font-head); letter-spacing: .08em; text-transform: uppercase; text-decoration: none; }
+.decorations-filter { justify-self: start; flex-wrap: wrap; }
+.decorations-tier h2 { margin: 6px 0 10px; font: 600 15px var(--font-head); letter-spacing: .14em; text-transform: uppercase; color: var(--ops-brass); border-bottom: 1px solid var(--ops-line); padding-bottom: 6px; }
+.award-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+.award-card { display: grid; grid-template-columns: 100px minmax(0, 1fr); align-items: start; gap: 14px; padding: 14px; height: 100%; box-sizing: border-box; border: 1px solid var(--ops-line); background: var(--ops-panel); color: var(--ops-cream); text-decoration: none; }
+.award-card > .ribbon, .award-card > .medal-art { justify-self: center; }
+.award-card:not(.earned) > .ribbon, .award-card:not(.earned) > .medal-art { opacity: .5; filter: grayscale(.75); }
+.award-card.earned { border-color: var(--ops-brass); background: linear-gradient(180deg, color-mix(in srgb, var(--ops-brass) 9%, var(--ops-panel)), var(--ops-panel)); }
+.award-card:hover { border-color: var(--brass-hi); }
+.award-card-text { display: grid; gap: 5px; min-width: 0; }
+.award-card-text b { font: 600 15px var(--font-head); }
+.award-meta { color: var(--ops-brass); font: 11px var(--font-head); letter-spacing: .1em; text-transform: uppercase; }
+.award-criteria { color: var(--ops-muted); font-size: 13px; line-height: 1.45; }
+.award-hero { display: grid; grid-template-columns: minmax(200px, auto) minmax(0, 1fr); align-items: center; gap: 32px; padding: 28px; border: 1px solid var(--line); border-top: 3px solid var(--ops-line-hi); background: linear-gradient(180deg, var(--panel), var(--bg-2)); }
+.award-hero.earned { border-top-color: var(--brass); }
+.award-hero > .ribbon, .award-hero > .medal-art { justify-self: center; }
+.award-hero:not(.earned) > .ribbon, .award-hero:not(.earned) > .medal-art { opacity: .6; filter: grayscale(.6); }
+.award-hero h1 { margin: 4px 0 10px; font: 40px/1.05 var(--font-display); }
+.award-hero h3 { margin: 18px 0 8px; font: 600 12px var(--font-head); letter-spacing: .14em; text-transform: uppercase; color: var(--ops-muted); }
+.award-hero .award-criteria { font-size: 15px; color: var(--ops-cream); }
+.award-not-yet { color: var(--ops-muted); font: 12px var(--font-head); letter-spacing: .1em; text-transform: uppercase; }
+.award-groups { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.award-groups li { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--ops-line); background: var(--ops-panel); }
+.award-groups li.done { border-color: var(--ops-brass); }
+.award-groups b { font: 600 14px var(--font-head); }
+.award-checklist > header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.award-checklist > header p { margin: 4px 0 0; }
+.award-checklist-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.award-rows { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 4px; }
+.award-rows li { display: grid; grid-template-columns: 26px minmax(0, 1fr) minmax(0, 1.4fr); align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--ops-line); background: var(--ops-panel); }
+.award-rows li.done { background: color-mix(in srgb, var(--ops-brass) 7%, var(--ops-panel)); }
+.award-row-mark { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--ops-line-hi); border-radius: 50%; color: var(--ops-brass); font-weight: 700; }
+.award-rows li.done .award-row-mark { border-color: var(--ops-brass); }
+.award-row-what { display: grid; gap: 2px; min-width: 0; }
+.award-row-what small { color: var(--ops-muted); }
+.award-row-sides { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: flex-end; }
+.award-side { display: inline-flex; align-items: center; gap: 8px; }
+.award-side b { font: 600 12px var(--font-head); color: var(--ops-muted); letter-spacing: .04em; }
+.award-side.won b { color: var(--ops-brass); }
+.btn.small { padding: 4px 10px; font-size: 11px; }
+
+/* On the deploy desk: what a win here would count toward. */
+.decor-hints { display: grid; gap: 6px; margin-top: 6px; }
+.decor-hints ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.decor-hints li > a, .decor-hints li > span { display: inline-grid; gap: 1px; padding: 6px 10px; border: 1px solid var(--ops-line); background: var(--ops-panel-2); color: var(--ops-cream); text-decoration: none; }
+.decor-hints li { display: inline-grid; gap: 1px; }
+.decor-hints li b { font: 600 12px var(--font-head); }
+.decor-hints li small { color: var(--ops-muted); font-size: 11px; }
+.decor-hints li.earns > a, .decor-hints li.earns > span { border-color: var(--ops-brass); }
+.decor-hints li.earns small { color: var(--ops-brass); }
+.decor-hints .link { justify-self: start; }
+
+@media (max-width: 760px) {
+  .decor-closest ul { grid-template-columns: 1fr; }
+  .award-grid { grid-template-columns: 1fr; }
+  .award-card { grid-template-columns: 84px minmax(0, 1fr); }
+  .award-hero { grid-template-columns: 1fr; justify-items: center; text-align: center; padding: 20px 16px; }
+  .award-hero .award-parts { text-align: left; width: 100%; }
+  .medal-art-large { height: 220px; }
+  .award-rows li { grid-template-columns: 26px minmax(0, 1fr); }
+  .award-row-sides { grid-column: 1 / -1; justify-content: flex-start; }
+  .decor-board { padding: 18px 12px; }
+}
+.award-row-what a { justify-self: start; }

@@ -56,6 +56,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@asl/aar':
+        specifier: workspace:*
+        version: link:../../packages/aar
       '@asl/content':
         specifier: workspace:*
         version: link:../../packages/content

@@ -31,6 +31,14 @@ import {
   type ShotOutlook,
   type TargetType,
 } from '@asl/rules';
+import { latwToHit } from './counterNotes';
+
+/** What an original To Hit DR can cost a LATW: a BAZ/PSK is removed on its X# (SK4 4.4.1), a PIAT malfunctions on its B10 (4.4.5), a PF fires once (4.4.2). */
+function latwRemoval(d: { type: string; b?: number; latw?: { x?: number } }): string {
+  if (d.latw?.x !== undefined) return `X${d.latw.x}: removed on an original TH DR ≥ ${d.latw.x}`;
+  if (d.type === 'PF') return 'one shot';
+  return `B${d.b ?? 12}: malfunctions on an original TH DR ≥ ${d.b ?? 12}`;
+}
 
 /** The hex a Gun stands in (its manning unit's when held). */
 export function gunHexOf(env: QueryEnv, gunId: PieceId): HexId | null {
@@ -148,7 +156,7 @@ export function shotOptions(env: QueryEnv, gunId: PieceId, mode: FireMode): Shot
     // takes the Backblast or the +2 To Hit DRM; a PIAT has no Backblast, nor does a PTO hut (SK4 4.4.3, 8.2.1).
     const inBuilding = latwBackblast(env, gunId);
     const why = ammoUseIllegal(env, g, d, 'HEAT', 'ITT', mode);
-    const effect = `a hit on Infantry in a building attacks on the ${d.latw.fp} column (${d.latw.fp * 2} on a Critical Hit, an original 2); X${d.latw.x ?? 12}: removed on an original TH DR ≥ ${d.latw.x ?? 12}`;
+    const effect = `${latwToHit(d.latw.th)}; a hit on Infantry in a building attacks on the ${d.latw.fp} column (${d.latw.fp * 2} on a Critical Hit, an original 2); ${latwRemoval(d)}`;
     if (!inBuilding) out.push({ type: 'ITT', label: `HEAT · ${d.type} To Hit Table`, hint: why ?? effect, available: !why });
     else {
       out.push({ type: 'ITT', backblast: false, label: `HEAT · +2 To Hit (no Backblast)`, hint: why ?? `Firing from a building: +2 To Hit DRM; ${effect}`, available: !why });
@@ -156,7 +164,7 @@ export function shotOptions(env: QueryEnv, gunId: PieceId, mode: FireMode): Shot
     }
     // At a vehicle: the same To Hit Table, then HEAT To Kill against the Armor Factor struck (SK4 4.4).
     const vWhy = ammoUseIllegal(env, g, d, 'HEAT', 'VTT', mode) ?? noVehicle;
-    const vEffect = `aim at one enemy vehicle: a hit rolls To Kill (HEAT TK ${t.toKill(d, 'HEAT', 1) ?? '—'}) less the Armor Factor struck; Critical Hit on an original 2`;
+    const vEffect = `${latwToHit(d.latw.th)}; aim at one enemy vehicle: a hit rolls To Kill (HEAT TK ${t.toKill(d, 'HEAT', 1) ?? '—'}) less the Armor Factor struck; Critical Hit on an original 2`;
     if (!inBuilding) out.push({ type: 'VTT', label: `Vehicle · HEAT`, hint: vWhy ?? vEffect, available: !vWhy });
     else {
       out.push({ type: 'VTT', backblast: false, label: `Vehicle · HEAT · +2 To Hit (no Backblast)`, hint: vWhy ?? `Firing from a building: +2 To Hit DRM; ${vEffect}`, available: !vWhy });

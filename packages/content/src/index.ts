@@ -19,3 +19,4 @@ export * from './catalog';
 export * from './scenarioGeo';
 export * from './fixtures';
 export * from './randomPlay';
+export * from './service';

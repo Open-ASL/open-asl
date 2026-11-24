@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { COUNTERS, scenarioById } from '@asl/content';
-import { counterNotes, describeVictory, setupRule } from '../src/panels/Briefing';
+import { counterNotes } from '../src/game/counterNotes';
+import { describeVictory, setupRule } from '../src/panels/Briefing';
 
 describe('victory conditions in words', () => {
   it('names buildings by the hexes the card uses, never by engine ids', () => {

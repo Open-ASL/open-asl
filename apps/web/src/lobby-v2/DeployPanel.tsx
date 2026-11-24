@@ -10,6 +10,8 @@ import { Avatar } from '../profile/Avatar';
 import { usePublicProfile } from '../profile/usePublicProfile';
 import { ListingComposer } from './GameListings';
 import { SideBadge } from './SideBadge';
+import { DecorationHints } from '../profile/decorations/DecorationHints';
+import { NOT_AVAILABLE } from './Availability';
 
 type Mode = 'hotseat' | 'computer' | 'person';
 
@@ -17,14 +19,16 @@ type Mode = 'hotseat' | 'computer' | 'person';
  * The scenario is chosen; now how to play it. Hotseat and the computer start at once. Against a
  * person: a direct challenge, an open seat anyone can take, or a posted session to schedule.
  */
-export function DeployPanel({ scenario, challengeUid }: { scenario: ScenarioDef; challengeUid?: string }) {
-  const { profile } = useMember();
+export function DeployPanel({ scenario, challengeUid, initialSide, vsComputer = false }: { scenario: ScenarioDef; challengeUid?: string; initialSide?: string; vsComputer?: boolean }) {
+  const { user, profile } = useMember();
+  // A link from a decoration's checklist names the side to play, against a player or the computer.
+  const askedSide = initialSide && scenario.sides.some((s) => s.side === initialSide) ? initialSide : undefined;
   const navigate = useNavigate();
   const [balance, setBalance] = useState<string[]>([]);
-  const [mode, setMode] = useState<Mode | null>(challengeUid ? 'person' : null);
+  const [mode, setMode] = useState<Mode | null>(challengeUid || (askedSide && !vsComputer) ? 'person' : null);
   const [competition, setCompetition] = useState<Competition>('ranked');
   const [visibility, setVisibility] = useState<MatchVisibility>('public');
-  const [side, setSide] = useState<string>(RANDOM_SIDE);
+  const [side, setSide] = useState<string>(askedSide && !vsComputer ? askedSide : RANDOM_SIDE);
   const [picking, setPicking] = useState(false);
   const [scheduling, setScheduling] = useState(false);
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -47,7 +51,11 @@ export function DeployPanel({ scenario, challengeUid }: { scenario: ScenarioDef;
   const computerSides = COMPUTER_OPPONENTS[scenario.id] ?? [];
   // Against the computer the player may take any side it can play against; the first side the card lists by default.
   const humanChoices = scenario.sides.filter((s) => computerSides.includes(otherSide(s.side))).map((s) => s.side);
-  const [computerSide, setComputerSide] = useState<string | null>(null);
+  const [computerSide, setComputerSide] = useState<string | null>(vsComputer ? (askedSide ?? null) : null);
+  const me = usePublicProfile(user.uid).profile;
+  const profileBase = me ? `/profile/${me.nicknameNormalized}` : null;
+  /** The decorations a win would move: one side's, or each side's while it is left to the draw. */
+  const hints = (pool: 'human' | 'bot', sides: string[]) => sides.map((sd) => <DecorationHints key={`${pool}:${sd}`} user={profile} scenario={scenario} side={sd} sideName={sideName(sd)} pool={pool} profileBase={profileBase} />);
   // Games against the computer are public unless the player says otherwise: public ones get a report and a record entry.
   const [computerVisibility, setComputerVisibility] = useState<MatchVisibility>('public');
   const humanSide = computerSide && humanChoices.includes(computerSide) ? computerSide : (humanChoices[0] ?? scenario.sides[0]!.side);
@@ -79,6 +87,7 @@ export function DeployPanel({ scenario, challengeUid }: { scenario: ScenarioDef;
           {competition === 'ranked' ? 'Ranked games are public, count for Elo, and feed the scenario record.' : effectiveVisibility === 'private' ? 'Private friendly games award experience but cannot be watched or counted.' : 'Public friendly games award experience without touching Elo.'}{' '}
           {side === RANDOM_SIDE ? 'Sides are drawn by lot when the opponent arrives.' : <>Your opponent takes the {badge(otherSide(side))}.</>}
         </p>
+        {competition === 'ranked' && hints('human', side === RANDOM_SIDE ? scenario.sides.map((s) => s.side) : [side])}
       </div>
   );
 
@@ -100,9 +109,10 @@ export function DeployPanel({ scenario, challengeUid }: { scenario: ScenarioDef;
       </header>
       {options}
       {taken && <p className="warn">You are already seated in an online match. <Link to={`/app/match/${profile.activeMatchId}`}>Open it</Link> and finish or leave it before challenging anyone.</p>}
+      {target?.notAvailable && !sentTo && <p className="warn">{target.nickname} is not available for challenges right now. You can still chat with them in the Lobby.</p>}
       {sentTo
         ? <p className="sent-note">Challenge sent to <b>{sentTo}</b>. They get a pop-up wherever they are in the Lobby; you will be taken to the table when they accept. Cancel it from the strip above. <Link to={`/app/${rulesetId}/home`}>Back to Home</Link></p>
-        : <div className="buttons"><button className="primary" disabled={busy || taken || !target} onClick={() => target && invite(target.uid, target.nickname)}>{busy ? 'Sending…' : `Send challenge${target ? ` to ${target.nickname}` : ''}`}</button><Link className="btn" to={`/app/${rulesetId}/games?scenario=${scenario.id}`}>Play it another way</Link></div>}
+        : <div className="buttons"><button className="primary" disabled={busy || taken || !target || !!target.notAvailable} title={target?.notAvailable ? NOT_AVAILABLE : undefined} onClick={() => target && invite(target.uid, target.nickname)}>{busy ? 'Sending…' : `Send challenge${target ? ` to ${target.nickname}` : ''}`}</button><Link className="btn" to={`/app/${rulesetId}/games?scenario=${scenario.id}`}>Play it another way</Link></div>}
       {error && <p className="warn">{error}</p>}
     </section>
     : <div className={`mode-cards ${offerComputer ? '' : 'two'}`}>
@@ -118,10 +128,11 @@ export function DeployPanel({ scenario, challengeUid }: { scenario: ScenarioDef;
         <span className="mode-kicker">Play now</span>
         <b>{COMPUTER_NAME}</b>
         {humanChoices.length
-          ? <p>You command the {sideName(humanSide)}; {COMPUTER_NAME} takes the {sideName(otherSide(humanSide))}. Same rules and dice. No rating, experience or medals.</p>
+          ? <p>You command the {sideName(humanSide)}; {COMPUTER_NAME} takes the {sideName(otherSide(humanSide))}. Same rules and dice. No rating or experience; a win counts toward the {COMPUTER_NAME} decorations.</p>
           : <p>{COMPUTER_NAME} cannot play this scenario yet: it plays the infantry-only scenarios so far.</p>}
         {humanChoices.length > 1 && <div className="mode-side" onClick={(e) => e.stopPropagation()}><span className="option-label">You play</span><div className="seg">{humanChoices.map((id) => <button key={id} type="button" className={humanSide === id ? 'on' : ''} disabled={busy} onClick={() => setComputerSide(id)}>{badge(id)}</button>)}</div></div>}
         {humanChoices.length > 0 && <div className="mode-side" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><span className="option-label">Visibility</span><div className="seg"><button type="button" className={computerVisibility === 'public' ? 'on' : ''} disabled={busy} onClick={() => setComputerVisibility('public')}>Public</button><button type="button" className={computerVisibility === 'private' ? 'on' : ''} disabled={busy} onClick={() => setComputerVisibility('private')}>Private</button></div></div>}
+        {humanChoices.length > 0 && <div onClick={(e) => e.stopPropagation()}>{hints('bot', [humanSide])}</div>}
         {humanChoices.length > 0 && <p className="deploy-note mode-note">{computerVisibility === 'public' ? `Public games against ${COMPUTER_NAME} get an after action report and show on your service record.` : `A private game against ${COMPUTER_NAME} gets no report and stays off your record.`}</p>}
         <span className="mode-cta">{busy && mode === 'computer' ? 'Opening the table…' : humanChoices.length ? `Start vs ${COMPUTER_NAME} ▶` : 'Not available'}</span>
       </div>}
@@ -154,7 +165,7 @@ export function DeployPanel({ scenario, challengeUid }: { scenario: ScenarioDef;
           {sentTo
             ? <p className="sent-note">Challenge sent to <b>{sentTo}</b>. You will be taken to the table when they accept; cancel it from the strip above.</p>
             : <div className="buttons">
-              {target && <button className="primary" disabled={busy || taken} onClick={() => invite(target.uid, target.nickname)}>Send challenge</button>}
+              {target && <button className="primary" disabled={busy || taken || !!target.notAvailable} title={target.notAvailable ? NOT_AVAILABLE : undefined} onClick={() => invite(target.uid, target.nickname)}>Send challenge</button>}
               <button className={target ? '' : 'primary'} disabled={busy || taken} onClick={() => setPicking(true)}>{target ? 'Someone else…' : 'Choose a player…'}</button>
             </div>}
         </article>

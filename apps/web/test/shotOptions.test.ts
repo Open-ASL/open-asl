@@ -64,6 +64,10 @@ describe('LATW fire options', () => {
     expect(opts.find((o) => o.type === 'VTT')).toMatchObject({ available: true, hint: expect.stringMatching(/HEAT TK 13/) });
   });
 
+  it("each option reads out the counter's own To Hit Table by range (SK4 4.4)", () => {
+    for (const o of baz([t34()])) expect(o.hint).toMatch(/^TH 11\/9\/8\/7\/4 at range 0–4; /);
+  });
+
   it('from a building the vehicle shot also chooses +2 To Hit or the Backblast (SK4 4.4.3)', () => {
     const opts = baz([t34()], { yK5: { terrain: 'building-stone', buildingId: 'b1' } }).filter((o) => o.type === 'VTT');
     expect(opts.map((o) => o.backblast)).toEqual([false, true]);
@@ -86,6 +90,8 @@ describe('LATW fire options', () => {
     const opts = shotOptions(engine.env(state), 'p', 'prep');
     expect(opts.map((o) => [o.type, o.backblast])).toEqual([['ITT', undefined], ['VTT', undefined]]);
     expect(opts.every((o) => !/Backblast/.test(o.label))).toBe(true);
+    // No X#: a PIAT's B10 malfunctions it (SK4 4.4.5).
+    expect(opts.find((o) => o.type === 'ITT')!.hint).toMatch(/^TH 11\/9\/7\/5 at range 0–3; .*B10: malfunctions on an original TH DR ≥ 10$/);
   });
 });
 

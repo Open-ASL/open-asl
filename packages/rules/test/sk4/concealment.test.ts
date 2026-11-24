@@ -201,7 +201,7 @@ describe('Concealment (SK4 8.3): loss in the LOS of a Good Order enemy', () => {
     expect(columns).toEqual([{ targets: ['c'], column: 12 }, { targets: ['a'], column: 6 }]);
   });
 
-  it('a Gun firing at a concealed stack takes the concealed-target +2 only, never the empty-hex +2 as well (one To Hit case)', async () => {
+  it('a Gun firing at a concealed stack, Smoke included, takes the concealed-target +2 only, never the empty-hex +2 as well (one To Hit case)', async () => {
     const { engine, state } = game([sq('a', 'yK5', { concealed: true }), { id: 'crew', def: 'ge.228c', side: 'ge', hex: 'yK8' }, { id: 'gun', def: 'ge.AT75L', side: 'ge', heldBy: 'crew', tags: { ca: 0 } }], 'PFPh', { firstSide: 'ge' });
     const env = engine.env(state);
     const { shotContext } = await import('../../src');
@@ -210,6 +210,9 @@ describe('Concealment (SK4 8.3): loss in the LOS of a Good Order enemy', () => {
       expect(trace.some((x) => x.id === 'sk4.th.concealed-target')).toBe(true);
       expect(trace.some((x) => x.id === 'sk2.th.hip-target')).toBe(false);
     }
+    // Smoke too: the hex holds a non-hidden enemy unit, none of it Known (ASLRB C6.2 EXC).
+    const smoke = env.explain('ordnance.thDrm', shotContext(env, { weapon: 'gun', target: 'yK5', targetType: 'ATT', ca: 0, ammo: 'SMOKE' }, 'prep', 'ge'), 0).trace.filter((x) => !x.suppressedBy);
+    expect(smoke.some((x) => x.id === 'sk4.th.concealed-target')).toBe(true);
   });
 
   it('a unit seen where it was but stepping out of sight keeps the "?": the move is judged where its MF are spent (ASLRB A12.14 EX)', () => {

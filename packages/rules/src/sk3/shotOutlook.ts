@@ -2,6 +2,7 @@ import type { PieceId, QueryEnv, SideId } from '@asl/engine';
 import type { FireMode } from '../sk1/fire';
 import { withoutSecrets } from '../sk1/fire';
 import { firstFireView, moveState, movingInfo } from '../sk1/movement';
+import { ammoColumn, isSmokeAmmo } from '../sk2/ammo';
 import { shotContext, toHitNumber, type OrdnanceShot } from '../sk2/ordnance';
 import { vehicle } from './status';
 import { toKillNumbers } from './toKill';
@@ -27,6 +28,11 @@ export interface ShotOutlook {
   nonStopped: boolean;
   /** A Vehicle Target Type shot: the To Kill number and the target's Armor Factors per aspect. */
   tk?: { target: string; tk: number | null; hull: Record<Facing, number>; turret: Record<Facing, number>; turretType: string } | null;
+  /**
+   * On the Infantry or Area Target Type, the IFT column a hit attacks on with this ammunition (SK4 3.2.4, the To Hit
+   * Chart's HE FP columns) and a Critical Hit's (6.1), so the player need not look them up; absent for Smoke and WP.
+   */
+  ift?: { fp: number; ch: number | null };
   /** What else the shot attacks (ASLRB B29.5: a roadblock, with the original DR that hits it). */
   also?: string[];
 }
@@ -51,6 +57,7 @@ export function shotOutlook(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, s
     const tvd = tv ? vehicle(env, tv) : null;
     const tkn = tvd ? toKillNumbers(env, sc) : null;
     const also = env.query('ordnance.alsoAttacks', sc, []);
+    const fp = (shot.targetType === 'ITT' || shot.targetType === 'ATT') && !isSmokeAmmo(sc.ammo) ? ammoColumn(env, sc.def, sc.ammo, shot.targetType, false) : null;
     return {
       illegal,
       th: thn?.th ?? null,
@@ -62,6 +69,7 @@ export function shotOutlook(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, s
       caChange: sc.spines,
       nonStopped,
       ...(also.length ? { also } : {}),
+      ...(fp !== null ? { ift: { fp, ch: ammoColumn(env, sc.def, sc.ammo, shot.targetType as 'ITT' | 'ATT', true) } } : {}),
       ...(shot.targetType === 'VTT' ? { tk: tvd && tkn ? { target: tvd.name, tk: tkn.tk, hull: tkn.hull, turret: tkn.turret, turretType: tvd.turret } : null } : {}),
     };
   } catch (e) {

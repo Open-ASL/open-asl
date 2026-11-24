@@ -7,22 +7,66 @@ import type { DeadlineClass, Pace } from './clock';
 export type Timestamp = unknown;
 
 export type MedalId =
-  | 'cib'
-  | 'purple-heart'
-  | 'bronze-star'
-  | 'silver-star'
-  | 'dsc'
-  | 'moh'
-  | 'good-conduct'
-  | 'american-campaign'
-  | 'eame-campaign'
-  | 'puc'
-  | 'beta-service'
-  | 'beta-campaign';
+  | 'us-medal-of-honor' | 'uk-victoria-cross' | 'de-knights-cross-diamonds' | 'su-hero-of-the-soviet-union' | 'jp-golden-kite'
+  | 'us-distinguished-service-cross' | 'us-navy-cross' | 'uk-distinguished-service-order' | 'de-knights-cross-swords'
+  | 'de-knights-cross' | 'su-order-of-lenin' | 'it-gold-medal-military-valour' | 'fr-legion-of-honour'
+  | 'nl-military-william-order' | 'jp-order-of-the-rising-sun' | 'us-silver-star' | 'us-legion-of-merit' | 'uk-defence-medal'
+  | 'us-bronze-star' | 'de-iron-cross-2nd-class' | 'su-medal-for-courage' | 'su-order-of-glory' | 'fr-croix-de-guerre'
+  | 'uk-military-medal' | 'us-presidential-unit-citation' | 'us-purple-heart' | 'us-american-defense' | 'de-west-wall'
+  | 'su-valiant-labour' | 'jp-china-incident' | 'uk-mention-in-despatches' | 'us-soldiers-medal'
+  | 'us-eame-campaign' | 'us-asiatic-pacific-campaign' | 'us-victory-medal' | 'uk-1939-1945-star' | 'uk-france-and-germany-star'
+  | 'uk-italy-star' | 'uk-burma-star' | 'su-order-of-the-patriotic-war' | 'gr-war-cross' | 'uk-war-medal'
+  | 'su-defence-of-stalingrad' | 'be-croix-de-guerre' | 'nl-bronze-lion' | 'fr-ordre-de-la-liberation' | 'us-navy-unit-commendation'
+  | 'us-good-conduct' | 'su-battle-merit' | 'us-american-campaign'
+  | 'beta-service' | 'beta-campaign';
 
+/**
+ * A decoration on a player's record. Records from before the awards were redesigned may still hold
+ * retired ids; readers skip any id not in MEDALS.
+ */
 export interface AwardedMedal {
   id: MedalId;
+  /** When it was first earned. */
   awardedAt: Timestamp;
+  /** Times earned (a star for each beyond the first), or the class reached; absent means 1. */
+  level?: number;
+  /** When the level last went up. */
+  levelAt?: Timestamp;
+}
+
+/** What a finished match did for a player's decorations: those earned or raised, and those moved closer. */
+export interface MatchAwards {
+  earned: { id: MedalId; level: number }[];
+  /** The headline count after the match, toward the next level. */
+  advanced: { id: MedalId; value: number; goal: number }[];
+}
+
+/** A player's counted results in one scenario from one side. */
+export interface ServiceTally {
+  /** Wins, losses and draws that count for the decorations. */
+  w?: number;
+  l?: number;
+  d?: number;
+}
+
+/**
+ * What the decorations are measured from, kept since they were introduced: results in ranked matches against
+ * players, and wins over the computer opponent. Keyed `${scenarioId} ${side}` (serviceKey).
+ */
+export interface ServiceRecord {
+  human: Record<string, ServiceTally>;
+  /** Wins over the computer opponent. */
+  bot: Record<string, number>;
+  /** Wins while the opponent played with its scenario's balance option. */
+  balanceWins: { human: number; bot: number };
+  /** Scenarios won by sudden death (an immediate win under the victory conditions). */
+  suddenDeath: { human: string[]; bot: string[] };
+  /** The current run of wins against players, each in a different scenario (scenario ids), and the runs completed. */
+  winRun: string[];
+  winRuns: number;
+  /** Counted matches since the player last conceded early or timed out, and the blocks of them completed. */
+  conductRun: number;
+  conductBlocks: number;
 }
 
 /** users/{uid}: the public service record. Rank is derived from xp, never stored. */
@@ -43,6 +87,8 @@ export interface UserDoc {
   /** Current vs-human win streak. */
   streak: number;
   medals: AwardedMedal[];
+  /** The decorations' record; absent until the player's first counted result. */
+  service?: ServiceRecord;
   scenariosCompleted: string[];
   /**
    * Scenarios finished in online matches that count toward the beta ribbons (see countsForBeta);
@@ -51,6 +97,8 @@ export interface UserDoc {
   betaScenarios?: string[];
   /** The vs-human match this player is in, or null. At most one at a time. */
   activeMatchId: string | null;
+  /** The player is not taking challenges: no one may send them one (they still show online and chat). */
+  notAvailable?: boolean;
   createdAt: Timestamp;
   lastSeenAt: Timestamp;
   updatedAt: Timestamp;
@@ -145,6 +193,8 @@ export interface MatchDoc {
   ended?: MatchEnded;
   /** Unjoined Lobby table that closes automatically when its host leaves the Lobby. */
   quick?: boolean;
+  /** What the match did for each player's decorations, by uid, for the result screen. */
+  awards?: Record<string, MatchAwards>;
   mode: MatchMode;
   status: MatchStatus;
   scenarioId: string;
@@ -353,6 +403,8 @@ export interface Callables {
     req: { nickname: string; description?: string; location?: string; language?: string };
     res: { profile: import('./lobby').PublicProfileDoc };
   };
+  /** Set or clear "not available": while set, no one may send this player a challenge. */
+  setAvailability: { req: { notAvailable: boolean }; res: { notAvailable: boolean } };
   createGameListing: {
     req: { scenarioId: string; competition: import('./lobby').Competition; visibility: import('./lobby').MatchVisibility; durationMinutes: number; timezone: string; availability: Array<{ start: string; end: string }>; side: string; balance: string[]; rulesetId?: import('./lobby').RulesetId };
     res: { listingId: string };

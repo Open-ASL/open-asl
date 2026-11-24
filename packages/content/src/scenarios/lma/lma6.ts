@@ -16,6 +16,7 @@ export const LMA6_VC_HEXES = buildingHexesWhere('u', { rows: ['I', 'P'] });
 /** LMA6 Brassard 1: Marciana Marina (Opération Brassard, Ile d'Elbe, 17 June 1944). */
 export const LMA_6: ScenarioDef = {
   id: 'lma-6',
+  service: { theatre: 'mediterranean', campaign: 'rome-arno', armies: { br: 'free-french' } },
   product: 'lma',
   number: 'LMA6',
   title: 'LMA6 Brassard 1: Marciana Marina',

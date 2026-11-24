@@ -19,6 +19,7 @@ const LMA9_GE_ELITE = ['ge.548', 'ge.468', 'ge.238h', 'ge.248h'];
 /** LMA9 Putot-en-Bessin 1 (Putot-en-Bessin, Normandie, 8 June 1944). */
 export const LMA_9: ScenarioDef = {
   id: 'lma-9',
+  service: { theatre: 'nw-europe', campaign: 'normandy', armies: { br: 'canadian' } },
   product: 'lma',
   number: 'LMA9',
   title: 'LMA9 Putot-en-Bessin 1',

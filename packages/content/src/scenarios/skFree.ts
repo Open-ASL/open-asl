@@ -28,6 +28,7 @@ const SK3 = 'ASL Starter Kit #3 (tanks, boards t–u)';
  */
 export const SK_S7: ScenarioDef = {
   id: 'sk-s7',
+  service: { theatre: 'nw-europe', campaign: 'northern-france' },
   product: 'sk-dl',
   number: 'S7',
   title: 'S7 Prelude to Festung Brest',
@@ -108,6 +109,7 @@ export const SK_S7: ScenarioDef = {
 /** S8 Ad Hoc at Chef-du-Pont (Chef-du-Pont, France, 6 June 1944). */
 export const SK_S8: ScenarioDef = {
   id: 'sk-s8',
+  service: { theatre: 'nw-europe', campaign: 'normandy' },
   product: 'sk-dl',
   number: 'S8',
   title: 'S8 Ad Hoc at Chef-du-Pont',
@@ -196,6 +198,7 @@ const S19_SOUTH_EXITS = [...hexesWhere('y', { rows: ['L', 'L'] }), ...edgeHexesW
 /** S19 Purple Heart Lane (Carentan, France, 12 June 1944). */
 export const SK_S19: ScenarioDef = {
   id: 'sk-s19',
+  service: { theatre: 'nw-europe', campaign: 'normandy' },
   product: 'sk-dl',
   number: 'S19',
   title: 'S19 Purple Heart Lane',
@@ -307,6 +310,7 @@ const S17_EAST_OF_K = hexesWhere('x', { rows: ['K', 'P'] });
 /** S17 A Ridge Too Far (Amfréville, France, 8 June 1944). */
 export const SK_S17: ScenarioDef = {
   id: 'sk-s17',
+  service: { theatre: 'nw-europe', campaign: 'normandy' },
   product: 'sk-dl',
   number: 'S17',
   title: 'S17 A Ridge Too Far',
@@ -413,6 +417,7 @@ export const S18_RU_SETUP = hexesWithin('z', 'zS5', 4);
 /** S18 Baking Bread (Red Barricades, Stalingrad, 25 October 1942). */
 export const SK_S18: ScenarioDef = {
   id: 'sk-s18',
+  service: { theatre: 'eastern-front', battle: 'stalingrad' },
   product: 'sk-dl',
   number: 'S18',
   title: 'S18 Baking Bread',
@@ -552,6 +557,7 @@ export const S28_INFANTRY_EXITS = ['uH10', 'uJ10', 'uP10', 'uR10'];
 /** S28 Out of Luck (Baruth, Germany, 26 April 1945). */
 export const SK_S28: ScenarioDef = {
   id: 'sk-s28',
+  service: { theatre: 'eastern-front' },
   product: 'sk-dl',
   number: 'S28',
   title: 'S28 Out of Luck',
@@ -653,6 +659,7 @@ export const S29_OTHER_BUILDINGS = multiHexBuildingsWhere('w', { rows: S29_ROWS 
 /** S29 No Monumental Acclaim (Le Muy, France, 16 August 1944). */
 export const SK_S29: ScenarioDef = {
   id: 'sk-s29',
+  service: { theatre: 'nw-europe', campaign: 'southern-france' },
   product: 'sk-dl',
   number: 'S29',
   title: 'S29 No Monumental Acclaim',
@@ -751,6 +758,7 @@ export const S30_EXIT = ['uQ3', 'uQ4', 'uQ5', 'uQ6', 'uQ7', 'uQ8', 'uQ9'];
 /** S30 Ripples on the Pond (Apweiler, Germany, 16 November 1944). */
 export const SK_S30: ScenarioDef = {
   id: 'sk-s30',
+  service: { theatre: 'nw-europe', campaign: 'rhineland' },
   product: 'sk-dl',
   number: 'S30',
   title: 'S30 Ripples on the Pond',
@@ -828,6 +836,7 @@ export const S31_BUILDING_HEXES = buildingHexesWhere('x', { rows: S31_ROWS });
 /** S31 Going to New York! (Station San Oliva, Sicily, 10 July 1943). */
 export const SK_S31: ScenarioDef = {
   id: 'sk-s31',
+  service: { theatre: 'mediterranean', campaign: 'sicily' },
   product: 'sk-dl',
   number: 'S31',
   title: 'S31 Going to New York!',
@@ -929,6 +938,7 @@ const S32_GUNS = ['ru.AR76L', 'ru.INF76s'];
 /** S32 Göring’s Men (Vyazivok, Russia, 19 September 1941). */
 export const SK_S32: ScenarioDef = {
   id: 'sk-s32',
+  service: { theatre: 'eastern-front' },
   product: 'sk-dl',
   number: 'S32',
   title: 'S32 Göring’s Men',
@@ -1039,6 +1049,7 @@ export const S33_NL_SETUP = [...new Set([...hexesWhere('y', { rows: ['BB', 'GG']
 /** S33 Few and Far Between (Scherpenzeel, The Netherlands, 13 May 1940). */
 export const SK_S33: ScenarioDef = {
   id: 'sk-s33',
+  service: { theatre: 'nw-europe', armies: { al: 'dutch' } },
   product: 'sk-dl',
   number: 'S33',
   title: 'S33 Few and Far Between',
@@ -1139,6 +1150,7 @@ export const S34_AM_SETUP = [...new Set(['y', 'x'].flatMap((b) => hexesWhere(b, 
 /** S34 Twilight at Baerendorf (Baerendorf, France, 23 November 1944). */
 export const SK_S34: ScenarioDef = {
   id: 'sk-s34',
+  service: { theatre: 'nw-europe', campaign: 'rhineland' },
   product: 'sk-dl',
   number: 'S34',
   title: 'S34 Twilight at Baerendorf',
@@ -1236,6 +1248,7 @@ const S35_RU_2ND_LINE = ['ru.628', 'ru.328h'];
 /** S35 The Volga Is Reached! (Stalingrad, Russia, 14 September 1942). */
 export const SK_S35: ScenarioDef = {
   id: 'sk-s35',
+  service: { theatre: 'eastern-front', battle: 'stalingrad' },
   product: 'sk-dl',
   number: 'S35',
   title: 'S35 The Volga Is Reached!',
@@ -1410,6 +1423,7 @@ export const S36_GE_SETUP = S36_AREA_45;
 /** S36 Satisfaction and Confidence (Slobodka, Russia, 25 June 1944). */
 export const SK_S36: ScenarioDef = {
   id: 'sk-s36',
+  service: { theatre: 'eastern-front' },
   product: 'sk-dl',
   number: 'S36',
   title: 'S36 Satisfaction and Confidence',

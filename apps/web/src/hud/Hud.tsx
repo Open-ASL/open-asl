@@ -337,7 +337,7 @@ export function Hud({ scenario, length, phases, phase, turn, attacker, acting, s
           ?
         </button>
         {tools}
-        <button className="gear-btn" onClick={onSettings} title="Settings (sound, motion)" aria-label="Settings">
+        <button className="gear-btn" onClick={onSettings} title="Settings" aria-label="Settings">
           <GearIcon />
         </button>
       </div>

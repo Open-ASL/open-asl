@@ -1,8 +1,9 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { playSfx } from '../audio/engine';
 import { useAudioSettings, useSampleStatus } from '../audio/useAudio';
 import type { FxLevel } from '../fx/settings';
+import { setTurretArtwork, useTurretArtwork } from './turretArtwork';
 
 interface Props {
   fx: FxLevel;
@@ -28,6 +29,8 @@ interface Props {
 export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, callStrip, onCallStrip, stackCard, onStackCard, followAction, onFollowAction, extra, onClose }: Props) {
   const [audio, setAudio] = useAudioSettings();
   const samples = useSampleStatus();
+  const [tab, setTab] = useState<'General' | 'Visuals'>('General');
+  const turretArtwork = useTurretArtwork();
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -66,82 +69,111 @@ export function SettingsPanel({ fx, onFx, weatherFx, onWeatherFx, callStrip, onC
           </button>
         </div>
 
-        <section>
-          <h3>Sound</h3>
-          <div className="set-row toggle">
-            <span className="set-label">Mute everything</span>
-            <label className="switch">
-              <input type="checkbox" checked={audio.muted} onChange={(e) => setAudio({ muted: e.target.checked })} />
-              <span className="knob" />
-            </label>
-          </div>
-          {slider('Master', 'master', () => playSfx('ui.select'))}
-          {slider('Effects', 'sfx', () => playSfx('fire.rifle', 0, { nation: 'am' }))}
-          <div className="set-tests">
-            <span className="muted small">Try:</span>
-            <button onClick={() => playSfx('fire.rifle', 0, { nation: 'am' })}>Rifles</button>
-            <button onClick={() => playSfx('fire.lmg', 0, { nation: 'ge' })}>Light MG</button>
-            <button onClick={() => playSfx('fire.hmg', 0, { nation: 'am' })}>Heavy MG</button>
-            <button onClick={() => playSfx('fire.explosion')}>Explosion</button>
-            <button onClick={() => playSfx('dice.roll')}>Dice</button>
-            <button onClick={() => playSfx('phase.turn')}>Phase wheel</button>
-          </div>
-          <p className="muted small">
-            Recorded sounds: {samples.effects} effects, {samples.loaded}/{samples.total} files loaded{samples.manifest ? ', with your audio/manifest.json' : ''}. The rest are synthesized.
-          </p>
-        </section>
+        <div className="seg" role="tablist" aria-label="Settings categories">
+          {(['General', 'Visuals'] as const).map(name => (
+            <button key={name} id={`settings-tab-${name}`} role="tab" aria-selected={tab === name}
+              aria-controls={`settings-panel-${name}`} tabIndex={tab === name ? 0 : -1}
+              className={tab === name ? 'on' : ''} onClick={() => setTab(name)}
+              onKeyDown={e => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+                e.preventDefault();
+                const next = e.key === 'Home' ? 'General' : e.key === 'End' ? 'Visuals' : tab === 'General' ? 'Visuals' : 'General';
+                setTab(next);
+                document.getElementById(`settings-tab-${next}`)?.focus();
+              }}>{name}</button>
+          ))}
+        </div>
+        <div role="tabpanel" id="settings-panel-General" aria-labelledby="settings-tab-General" hidden={tab !== 'General'}>
+          <section>
+            <h3>Sound</h3>
+            <div className="set-row toggle">
+              <span className="set-label">Mute everything</span>
+              <label className="switch">
+                <input type="checkbox" checked={audio.muted} onChange={(e) => setAudio({ muted: e.target.checked })} />
+                <span className="knob" />
+              </label>
+            </div>
+            {slider('Master', 'master', () => playSfx('ui.select'))}
+            {slider('Effects', 'sfx', () => playSfx('fire.rifle', 0, { nation: 'am' }))}
+            <div className="set-tests">
+              <span className="muted small">Try:</span>
+              <button onClick={() => playSfx('fire.rifle', 0, { nation: 'am' })}>Rifles</button>
+              <button onClick={() => playSfx('fire.lmg', 0, { nation: 'ge' })}>Light MG</button>
+              <button onClick={() => playSfx('fire.hmg', 0, { nation: 'am' })}>Heavy MG</button>
+              <button onClick={() => playSfx('fire.explosion')}>Explosion</button>
+              <button onClick={() => playSfx('dice.roll')}>Dice</button>
+              <button onClick={() => playSfx('phase.turn')}>Phase wheel</button>
+            </div>
+            <p className="muted small">
+              Recorded sounds: {samples.effects} effects, {samples.loaded}/{samples.total} files loaded{samples.manifest ? ', with your audio/manifest.json' : ''}. The rest are synthesized.
+            </p>
+          </section>
 
-        <section>
-          <h3>Motion</h3>
-          <div className="set-row">
-            <span className="set-label">Cinematics</span>
-            <span className="seg">
-              {(['full', 'fast', 'off'] as FxLevel[]).map((l) => (
-                <button key={l} className={fx === l ? 'on' : ''} onClick={() => onFx(l)}>
-                  {l}
-                </button>
-              ))}
-            </span>
-          </div>
-          <p className="muted small">Full plays the phase wheel, dice and combat results at a readable pace; Fast shortens them; Off skips them.</p>
-          <div className="set-row toggle">
-            <span className="set-label">Weather on the map</span>
-            <label className="switch">
-              <input type="checkbox" checked={weatherFx} onChange={(e) => onWeatherFx(e.target.checked)} />
-              <span className="knob" />
-            </label>
-          </div>
-          <p className="muted small">Falling snow, rain and fog drawn over the map when the scenario has them. Off with cinematics off.</p>
-        </section>
 
-        <section>
-          <h3>Prompts</h3>
-          <div className="set-row toggle">
-            <span className="set-label">"Your call" strip</span>
-            <label className="switch">
-              <input type="checkbox" checked={callStrip} onChange={(e) => onCallStrip(e.target.checked)} />
-              <span className="knob" />
-            </label>
-          </div>
-          <p className="muted small">The strip over the board when the game waits on you mid-phase (Defensive First Fire, a ROF choice). Off, the board edge still glows and Pass waits in the top bar, on the action wheel and in the orders panel.</p>
-          <div className="set-row toggle">
-            <span className="set-label">Stack card on hover</span>
-            <label className="switch">
-              <input type="checkbox" checked={stackCard} onChange={(e) => onStackCard(e.target.checked)} aria-label="Stack card on hover" />
-              <span className="knob" />
-            </label>
-          </div>
-          <p className="muted small">The card that opens beside the pointer when it rests on a hex. Esc or its ✕ closes it until you move to another hex. Off, the orders panel still lists the stack under the pointer.</p>
-          <div className="set-row toggle">
-            <span className="set-label">Follow the action</span>
-            <label className="switch">
-              <input type="checkbox" checked={followAction} onChange={(e) => onFollowAction(e.target.checked)} aria-label="Follow the action" />
-              <span className="knob" />
-            </label>
-          </div>
-          <p className="muted small">The map pans, gently, to your opponent's moves and shots when they happen out of view. Panning or zooming the map yourself pauses it for a few seconds.</p>
-        </section>
-        {extra}
+          <section>
+            <h3>Prompts</h3>
+            <div className="set-row toggle">
+              <span className="set-label">"Your call" strip</span>
+              <label className="switch">
+                <input type="checkbox" checked={callStrip} onChange={(e) => onCallStrip(e.target.checked)} />
+                <span className="knob" />
+              </label>
+            </div>
+            <p className="muted small">The strip over the board when the game waits on you mid-phase (Defensive First Fire, a ROF choice). Off, the board edge still glows and Pass waits in the top bar, on the action wheel and in the orders panel.</p>
+            <div className="set-row toggle">
+              <span className="set-label">Follow the action</span>
+              <label className="switch">
+                <input type="checkbox" checked={followAction} onChange={(e) => onFollowAction(e.target.checked)} aria-label="Follow the action" />
+                <span className="knob" />
+              </label>
+            </div>
+            <p className="muted small">The map pans, gently, to your opponent's moves and shots when they happen out of view. Panning or zooming the map yourself pauses it for a few seconds.</p>
+          </section>
+          {extra}
+        </div>
+        <div role="tabpanel" id="settings-panel-Visuals" aria-labelledby="settings-tab-Visuals" hidden={tab !== 'Visuals'}>
+          <section>
+            <h3>Motion</h3>
+            <div className="set-row">
+              <span className="set-label">Cinematics</span>
+              <span className="seg">
+                {(['full', 'fast', 'off'] as FxLevel[]).map((l) => (
+                  <button key={l} className={fx === l ? 'on' : ''} onClick={() => onFx(l)}>
+                    {l}
+                  </button>
+                ))}
+              </span>
+            </div>
+            <p className="muted small">Full plays the phase wheel, dice and combat results at a readable pace; Fast shortens them; Off skips them.</p>
+            <div className="set-row toggle">
+              <span className="set-label">Weather on the map</span>
+              <label className="switch">
+                <input type="checkbox" checked={weatherFx} onChange={(e) => onWeatherFx(e.target.checked)} />
+                <span className="knob" />
+              </label>
+            </div>
+            <p className="muted small">Falling snow, rain and fog drawn over the map when the scenario has them. Off with cinematics off.</p>
+          </section>
+          <section>
+            <h3>Board</h3>
+            <div className="set-row toggle">
+              <label className="set-label" htmlFor="rotating-turret-art">Rotating turret artwork</label>
+              <label className="switch">
+                <input id="rotating-turret-art" type="checkbox" checked={turretArtwork} onChange={e => setTurretArtwork(e.target.checked)} />
+                <span className="knob" />
+              </label>
+            </div>
+            <p className="muted small">Show the turret and barrel turning on the counter. Turn off to use the classic turret facing display.</p>
+            <div className="set-row toggle">
+              <span className="set-label">Stack card on hover</span>
+              <label className="switch">
+                <input type="checkbox" checked={stackCard} onChange={(e) => onStackCard(e.target.checked)} aria-label="Stack card on hover" />
+                <span className="knob" />
+              </label>
+            </div>
+            <p className="muted small">The card that opens beside the pointer when it rests on a hex. Esc or its ✕ closes it until you move to another hex. Off, the orders panel still lists the stack under the pointer.</p>
+          </section>
+        </div>
       </div>
     </div>,
     document.body,

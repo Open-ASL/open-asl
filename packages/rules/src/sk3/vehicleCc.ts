@@ -277,7 +277,7 @@ export const vehicleCcModule: RuleModule = {
       id: 'sk3.cc.drm.stun',
       query: 'cc.drm',
       ref: 'SK4 7.10',
-      label: ({ attackers }, env) => `+1 ${stunWord(stunPlus1Attacker(env, attackers)!, 'stunned')} crew (+1)`,
+      label: ({ attackers }, env) => `+1 ${stunWord(stunPlus1Attacker(env, attackers)!, 'Stunned')} crew (+1)`,
       when: ({ attackers }, env) => !!stunPlus1Attacker(env, attackers),
       apply: (v) => v + 1,
     });
@@ -307,7 +307,7 @@ export const vehicleCcModule: RuleModule = {
         if (attackerVehicles.length) {
           if (attack.attackers.length !== 1) return 'A vehicle attacks in Close Combat on its own';
           const veh = pieceOf(env, attackerVehicles[0]!);
-          if (!crewCanAct(veh)) return veh.tags[T3.shock] ? 'A Shocked crew cannot attack in Close Combat' : `A ${stunWord(veh, 'stunned')} crew cannot attack in Close Combat`;
+          if (!crewCanAct(veh)) return veh.tags[T3.shock] ? 'A Shocked crew cannot attack in Close Combat' : `A ${stunWord(veh, 'Stunned')} crew cannot attack in Close Combat`;
           const { fp } = vehicleCcFp(env, veh);
           if (fp <= 0) return 'The vehicle has no weapon it can use in Close Combat';
           const ccv = attack.targets.reduce((a, t) => a + env.query('cc.defenseFp', { unit: t, attackers: attack.attackers }, 0), 0);

@@ -59,11 +59,11 @@ describe('game log', () => {
     expect(line.los).toEqual({ from: ['yP5'], to: 'yM5' });
   });
 
-  it('tells a stun from a STUN by its case: a CE crew that fails its MC is stunned, an original 12 STUNs it (SK4 7.7; ASLRB D5.34)', () => {
+  it('tells a Stun from a STUN by its case: a CE crew that fails its MC is Stunned, an original 12 STUNs it (SK4 7.7, 7.10; ASLRB D5.34)', () => {
     const { engine, state } = newGame(DEMO_VEHICLES_SCENARIO, 'stun', { los: 'grid' });
     const v = Object.values(state.pieces).find((p) => p.defId === 'am.M4A3')!;
     const line = (status: string, by: string) => describeEvents(engine.env(state), [{ seq: 1, type: 'sk3.vehicle.status', payload: { vehicle: v.id, status, by } }] as never)[0]!.text;
-    expect(line('stun', 'fire on the CE crew: the CE crew failed its MC')).toMatch(/ is stunned \(fire on the CE crew: the CE crew failed its MC\)$/);
+    expect(line('stun', 'fire on the CE crew: the CE crew failed its MC')).toMatch(/ is Stunned \(fire on the CE crew: the CE crew failed its MC\)$/);
     expect(line('STUN', 'fire on the CE crew: the CE crew rolled 12 on its MC')).toMatch(/ is STUNNED and Recalled \(/);
   });
 
@@ -72,10 +72,10 @@ describe('game log', () => {
     const v = Object.values(state.pieces).find((p) => p.defId === 'am.M4A3')!;
     const tk = (stunned?: string) =>
       describeEvents(engine.env(state), [{ seq: 1, type: 'sk3.toKill', payload: { weapon: v.id, target: v.id, ammo: 'AP', ch: false, location: 'hull', facing: 'rear', af: 3, tk: 6, modifiedTk: 7, finalTk: 4, dr: [2, 2], result: 'stun', ...(stunned ? { stunned } : {}) } }] as never)[0]!.text;
-    expect(tk('stun')).toMatch(/→ stun$/);
+    expect(tk('stun')).toMatch(/→ Stun$/);
     expect(tk('STUN')).toMatch(/→ STUN$/);
     // A game recorded before the event carried the outcome reads as it did.
-    expect(tk()).toMatch(/→ stun$/);
+    expect(tk()).toMatch(/→ Stun$/);
   });
 
   it('a cowering attack shows the column it came to and the one it cowered to (SK1 3.2)', () => {

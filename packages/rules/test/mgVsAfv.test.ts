@@ -82,11 +82,11 @@ describe('Machine Guns vs AFV (SK4 4.1)', () => {
     const first = rear({});
     const r1 = act(first.engine, first.state, shot);
     expect(ev(r1, 'sk3.toKill')[0]).toMatchObject({ finalTk: 3, result: 'stun', stunned: 'stun' });
-    expect(r1.state.pieces['pz']!.tags['STUN']).toBeUndefined();
+    expect(r1.state.pieces['pz']!.tags['stunRecall']).toBeUndefined();
     const second = rear({ stun: 'plus1' });
     const r2 = act(second.engine, second.state, shot);
     expect(ev(r2, 'sk3.toKill')[0]).toMatchObject({ result: 'stun', stunned: 'STUN' });
-    expect(r2.state.pieces['pz']!.tags).toMatchObject({ STUN: true, recall: true });
+    expect(r2.state.pieces['pz']!.tags).toMatchObject({ stunRecall: true, recall: true });
   });
 
   it('a malfunction on an original TH DR at or above its B#', () => {

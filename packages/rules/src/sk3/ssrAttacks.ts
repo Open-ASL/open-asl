@@ -114,7 +114,7 @@ export const ssrAttacksModule: RuleModule = {
           target = cands.length > 1 ? ctx.proc<RandomSelectFn>(MP.randomSelect)(ctx, cands, 1, 'Sniper target')[0]! : (cands[0] ?? null);
           const p = target ? pieceOf(ctx, target) : null;
           if (p && vehicle(ctx, p)) {
-            effect = dr === 1 ? 'STUN' : stunOutcome(ctx, p);
+            effect = dr === 1 || stunOutcome(ctx, p) === 'STUN' ? 'STUN' : 'Stun';
           } else if (p && smc(ctx, p)) {
             effect = dr === 1 ? 'leader eliminated' : 'leader wounded';
           } else if (p) {

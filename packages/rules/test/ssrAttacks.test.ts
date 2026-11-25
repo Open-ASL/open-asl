@@ -36,14 +36,14 @@ describe('Sniper attack (SSR)', () => {
     const pz = (tags: Record<string, unknown>): PieceSpec => ({ id: 'pz', def: 'ge.pzivf2', side: 'ge', hex: 'yM5', tags: { vca: 0, ca: 0, ce: true, ...tags } as never });
     const fresh = game([pz({})], [2]);
     const r1 = act(fresh.engine, fresh.state, { type: 'ssr.sniper', hex: 'yM5' });
-    expect(ev(r1, 'ssr.sniper.attack')[0]).toMatchObject({ dr: 2, target: 'pz', effect: 'stun' });
+    expect(ev(r1, 'ssr.sniper.attack')[0]).toMatchObject({ dr: 2, target: 'pz', effect: 'Stun' });
     expect(r1.state.pieces['pz']!.tags).toMatchObject({ stun: 'fresh' });
-    expect(r1.state.pieces['pz']!.tags['STUN']).toBeUndefined();
+    expect(r1.state.pieces['pz']!.tags['stunRecall']).toBeUndefined();
     // Its stun counter already on the +1 side: the second stun is a STUN with Recall, and the record says so.
     const again = game([pz({ stun: 'plus1' })], [2]);
     const r2 = act(again.engine, again.state, { type: 'ssr.sniper', hex: 'yM5' });
     expect(ev(r2, 'ssr.sniper.attack')[0]).toMatchObject({ dr: 2, target: 'pz', effect: 'STUN' });
-    expect(r2.state.pieces['pz']!.tags).toMatchObject({ STUN: true, recall: true });
+    expect(r2.state.pieces['pz']!.tags).toMatchObject({ stunRecall: true, recall: true });
     const one = game([pz({})], [1]);
     expect(ev(act(one.engine, one.state, { type: 'ssr.sniper', hex: 'yM5' }), 'ssr.sniper.attack')[0]).toMatchObject({ effect: 'STUN' });
   });

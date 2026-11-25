@@ -47,16 +47,16 @@ describe('Gun status in the stack views', () => {
   });
 });
 
-describe('a stunned vehicle in the stack views', () => {
-  it('writes a stun in lowercase, kept out of the capitals, and a STUN in capitals, in the map card and the tray (SK4 7.7; ASLRB D5.34)', () => {
+describe('a Stunned vehicle in the stack views', () => {
+  it('writes a Stun in title case, kept out of the capitals, and a STUN in capitals, in the map card and the tray (SK4 7.10; ASLRB D5.34)', () => {
     const { engine, state: s0 } = newGame(DEMO_VEHICLES_SCENARIO, 'stun', { los: 'grid' });
     const v = Object.values(s0.pieces).find((p) => p.defId === 'am.M4A3')!;
     // [tags, the label in the card and the tray, the words kept out of the capitals]
     const cases = [
-      [{ stun: 'fresh' }, 'stunned', ['stunned']],
-      [{ stun: 'plus1' }, 'stun +1', ['stun']],
-      [{ stun: 'fresh', STUN: true, recall: true }, 'STUNNED', []],
-      [{ stun: 'plus1', STUN: true, recall: true }, 'STUN +1', []],
+      [{ stun: 'fresh' }, 'Stunned', ['Stunned']],
+      [{ stun: 'plus1' }, 'Stun +1', ['Stun']],
+      [{ stun: 'fresh', stunRecall: true, recall: true }, 'STUNNED', []],
+      [{ stun: 'plus1', stunRecall: true, recall: true }, 'STUN +1', []],
     ] as const;
     for (const [tags, label, kept] of cases) {
       const stun = JSON.stringify(tags);
@@ -71,12 +71,13 @@ describe('a stunned vehicle in the stack views', () => {
     }
   });
 
-  it('keeps a lowercase stun out of the capitals inside a longer line, and leaves a STUN alone', () => {
+  it('keeps a title-case Stun out of the capitals inside a longer line, and leaves a STUN alone', () => {
     const words = (text: string) => [...renderHost(createElement(StunCase, { text })).querySelectorAll('.keep-case')].map((e) => e.textContent);
-    expect(words('stun')).toEqual(['stun']);
-    expect(words('Immobilized · stun · crew stunned')).toEqual(['stun', 'stunned']);
+    expect(words('Stun')).toEqual(['Stun']);
+    expect(words('Immobilized · Stun · crew Stunned')).toEqual(['Stun', 'Stunned']);
     expect(words('STUN')).toEqual([]);
+    expect(words('STUNNED · STUN +1')).toEqual([]);
     expect(words('DESTROYED')).toEqual([]);
-    expect(renderHost(createElement(StunCase, { text: 'Immobilized · stun' })).textContent).toBe('Immobilized · stun');
+    expect(renderHost(createElement(StunCase, { text: 'Immobilized · Stun' })).textContent).toBe('Immobilized · Stun');
   });
 });

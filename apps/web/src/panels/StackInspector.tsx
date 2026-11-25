@@ -52,7 +52,7 @@ const STATUS: [string, string][] = [
   ['immob', 'Immobilized'],
   ['dugIn', 'Dug in'],
   ['shock', 'Shocked'],
-  ['stun', 'stunned'],
+  ['stun', 'Stunned'],
   ['recall', 'Recalled'],
   ['wreck', 'Wreck'],
   ['bff', 'Bounding First Fire'],

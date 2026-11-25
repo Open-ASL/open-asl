@@ -575,7 +575,7 @@ const TAB_STYLE: Record<VehicleTab['tone'], { fill: number; stroke: number; text
 /**
  * The status tabs a vehicle wears in place of full-size marker counters, as VASL draws them: the crew's posture when it
  * differs from the vehicle's usual one (an AFV is Buttoned Up, an Open-Topped one Crew Exposed: SK4 3.3.2, 7.13), and each
- * state that hampers it (Bog and Mired SK4 3.3.2; Immobilized 7.2; Low Ammo 7.6; Shock, UK, Stun and Recall 7.7; a
+ * state that hampers it (Bog and Mired SK4 3.3.2; Immobilized 7.2; Low Ammo 7.6; Shock, UK, Stun and Recall 7.10; a
  * malfunctioned or disabled MA or MG 7.10). Motion and the fire markers stay counters.
  */
 export function vehicleTabs(env: { state: GameState; statics: Statics }, p: Piece): VehicleTab[] {
@@ -589,7 +589,7 @@ export function vehicleTabs(env: { state: GameState; statics: Statics }, p: Piec
   if (t['immob']) out.push({ text: 'IMM', tone: 'out' });
   if (t['shock'] === 'shock') out.push({ text: 'SHOCK', tone: 'bad' });
   if (t['shock'] === 'uk') out.push({ text: 'UK', tone: 'bad' });
-  if (t['stun'] !== undefined) out.push({ text: stunLabel(p, 'stun'), tone: 'bad' });
+  if (t['stun'] !== undefined) out.push({ text: stunLabel(p, 'Stun'), tone: 'bad' });
   if (t['recall']) out.push({ text: 'RECALL', tone: 'bad' });
   if (t['lowAmmo']) out.push({ text: 'LOW AMMO', tone: 'bad' });
   if (t['maDisabled']) out.push({ text: 'MA', tone: 'out' });

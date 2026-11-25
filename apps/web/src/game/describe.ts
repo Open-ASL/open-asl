@@ -1251,7 +1251,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
           : p['ammo'] === 'FT'
             ? `Flamethrower To Kill ${name(p['target'] as string)}: TK ${p['finalTk']} (${noteLabels(p['explain']).join(', ')}), DR ${drText(dr!)} → ${r === 'kill' ? 'burns' : r === 'shock' ? 'Shock' : r === 'dud' ? 'dud' : 'no effect'}`
           : `To Kill ${name(p['target'] as string)}: ${p['location']} ${p['facing']} AF ${p['af']}, ${p['ammo']}${p['ch'] ? ' CH ×2' : ''} TK ${p['modifiedTk']} − ${p['af']} = ${p['finalTk']}, DR ${drText(dr!)} → ${
-              r === 'kill' ? 'destroyed' : r === 'immobilized' ? 'Immobilized' : r === 'shock' ? 'Shock' : r === 'stun' ? (p['stunned'] === 'STUN' ? 'STUN' : 'stun') : r === 'possibleShock' ? `Possible Shock (${p['shocked'] ? 'Shocked' : 'crew holds'})` : r === 'dud' ? 'dud' : 'no effect'
+              r === 'kill' ? 'destroyed' : r === 'immobilized' ? 'Immobilized' : r === 'shock' ? 'Shock' : r === 'stun' ? (p['stunned'] === 'STUN' ? 'STUN' : 'Stun') : r === 'possibleShock' ? `Possible Shock (${p['shocked'] ? 'Shocked' : 'crew holds'})` : r === 'dud' ? 'dud' : 'no effect'
             }`;
         out.push({ seq: e.seq, kind: 'fire', text });
         break;
@@ -1285,7 +1285,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
       }
       case 'sk3.vehicle.status': {
         const st = p['status'] as string;
-        out.push({ seq: e.seq, kind: 'fire', text: `${name(p['vehicle'] as string)} ${st === 'immobilized' ? 'is Immobilized' : st === 'shock' ? 'is Shocked' : st === 'stun' ? 'is stunned' : st === 'STUN' ? 'is STUNNED and Recalled' : st === 'bu' ? 'Buttons Up' : st} (${p['by']})` });
+        out.push({ seq: e.seq, kind: 'fire', text: `${name(p['vehicle'] as string)} ${st === 'immobilized' ? 'is Immobilized' : st === 'shock' ? 'is Shocked' : st === 'stun' ? 'is Stunned' : st === 'STUN' ? 'is STUNNED and Recalled' : st === 'bu' ? 'Buttons Up' : st} (${p['by']})` });
         break;
       }
       case 'sk3.vehicle.check': {

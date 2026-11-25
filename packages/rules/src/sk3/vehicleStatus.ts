@@ -40,7 +40,7 @@ export function applyVehicleEffect(ctx: Ctx, vehicleId: PieceId, effect: Vehicle
   switch (effect) {
     case 'wreck': {
       const vp = ctx.query('vp.casualty', { unit: vehicleId }, 0);
-      setTags(ctx, vehicleId, { [T3.wreck]: true, [T3.motion]: null, [T3.ce]: null, [T3.shock]: null, [T3.stun]: null, [T3.STUN]: null, [T3.bff]: null, fire: null, acq: null, acqHex: null, acqUnits: null, acqLevel: null });
+      setTags(ctx, vehicleId, { [T3.wreck]: true, [T3.motion]: null, [T3.ce]: null, [T3.shock]: null, [T3.stun]: null, [T3.stunRecall]: null, [T3.bff]: null, fire: null, acq: null, acqHex: null, acqUnits: null, acqLevel: null });
       ctx.emit('sk3.vehicle.wrecked', { vehicle: vehicleId, by });
       ctx.emit('sk1.casualty', { unit: vehicleId, side: p.side, kind: 'eliminated', defId: p.defId, vp, turn: ctx.state.turn, phase: ctx.state.phase, reason: by });
       haltMover(ctx, vehicleId);
@@ -69,7 +69,7 @@ export function applyVehicleEffect(ctx: Ctx, vehicleId: PieceId, effect: Vehicle
       break;
     }
     case 'STUN':
-      setTags(ctx, vehicleId, { [T3.stun]: 'fresh', [T3.STUN]: true, [T3.recall]: true, [T3.ce]: null, [T3.motion]: null });
+      setTags(ctx, vehicleId, { [T3.stun]: 'fresh', [T3.stunRecall]: true, [T3.recall]: true, [T3.ce]: null, [T3.motion]: null });
       ctx.emit('sk3.vehicle.status', { vehicle: vehicleId, status: 'STUN', by });
       haltMover(ctx, vehicleId);
       break;

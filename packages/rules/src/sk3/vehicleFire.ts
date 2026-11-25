@@ -8,7 +8,7 @@ import { moveState } from '../sk1/movement';
 import { fireMarker, inMelee, pieceOf, setTags } from '../sk1/status';
 import { terrainOf } from '../sk1/terrain';
 import { woodsBuildingOrRubble, type OrdnanceShot, type ShotCtx } from '../sk2/ordnance';
-import { T3, crewCanAct, inMotion, isCe, isMovingTarget, isWreck, vehicle } from './status';
+import { T3, crewCanAct, inMotion, isCe, isMovingTarget, isWreck, stunWord, vehicle } from './status';
 import { T } from '../sk1/status';
 import { applyVehicleEffect, crewTakesResult } from './vehicleStatus';
 import { closeTerrain, turnRiskingBog } from './vehicleMove';
@@ -71,7 +71,7 @@ export function maIllegal(env: QueryEnv, shot: OrdnanceShot, mode: FireMode): st
   if (!p || !d || !d.ma) return 'The vehicle has no Main Armament';
   if (isWreck(p)) return 'A wreck does not fire';
   if (p.tags[T3.maDisabled]) return 'The Main Armament is disabled';
-  if (!crewCanAct(p)) return p.tags[T3.shock] ? 'A Shocked crew cannot fire' : 'A Stunned crew cannot fire this Player Turn';
+  if (!crewCanAct(p)) return p.tags[T3.shock] ? 'A Shocked crew cannot fire' : `A ${stunWord(p, 'Stunned')} crew cannot fire this Player Turn`;
   if (isCe(p) && (d.turret === 'RST' || d.turret === '1MT')) return 'A Restricted Slow Traverse or One Man Turret cannot fire its MA while Crew Exposed: Button Up first';
   if (mode === 'prep' && inMotion(p)) return 'A vehicle in Motion may not Prep Fire: it must move first';
   // Turned without MP at the end of this phase (SK4 3.3.2): it fires no more in it.
@@ -279,7 +279,7 @@ export const vehicleFireModule: RuleModule = {
       r.contribute({ id: `sk3.th.${id}`, query: 'ordnance.thDrm', ref, label, when, apply: (v, sc, env) => v + drm(sc, env) });
     th('withinHex', 'case 10', (sc, env) => `+${woodsBuildingOrRubble(env, sc.hex) ? 4 : 2} fire within the hex`, (sc) => sc.range === 0, (sc, env) => (woodsBuildingOrRubble(env, sc.hex) ? 4 : 2));
     th('bu', 'case 13', '+1 Buttoned Up', (sc, env) => !!firerVehicleOf(sc, env) && !isCe(firerVehicleOf(sc, env)!), () => 1);
-    th('stun', 'case 15', '+1 Stun', (sc, env) => firerVehicleOf(sc, env)?.tags[T3.stun] === 'plus1', () => 1);
+    th('stun', 'case 15', (sc, env) => `+1 ${stunWord(firerVehicleOf(sc, env)!, 'Stun')}`, (sc, env) => firerVehicleOf(sc, env)?.tags[T3.stun] === 'plus1', () => 1);
     th('bounding', 'case 14', (sc, env) => `+${boundingDrm(sc, env)} Bounding ${sc.mode === 'bounding' ? 'First ' : ''}Fire (${vehicle(env, firerVehicleOf(sc, env)!)!.turret === 'NT' ? 'NT' : 'turret'}${sc.mode === 'bounding' ? (sc.losBlind ? `, ${mpInLosOf(env, firerVehicleOf(sc, env)!, sc.target, true)} MP spent; those in the target's LOS count when you fire` : `, ${mpInLosOf(env, firerVehicleOf(sc, env)!, sc.target)} MP in the target's LOS`) : ''})`, (sc, env) => boundingDrm(sc, env) > 0, boundingDrm);
     // Case 8 never applies to Bounding First Fire (SK4 3.3.2.2).
     r.suppress<'ordnance.thDrm'>({ id: 'sk3.th.suppress.ca-bff', query: 'ordnance.thDrm', target: 'sk2.th.caChange', when: (sc) => sc.mode === 'bounding' });

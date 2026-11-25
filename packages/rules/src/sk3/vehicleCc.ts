@@ -7,7 +7,7 @@ import { FIRST_FIRE, finishDefensiveFire, moveState } from '../sk1/movement';
 import { P as MP, type CasualtyFn, type RandomSelectFn } from '../sk1/morale';
 import { RP, type FieldPromotionFn } from '../sk1/rally';
 import { T, fireMarker, inMelee, isBroken, isCx, isGoodOrder, isPinned, mmc, pieceOf, setTags, smc, sw } from '../sk1/status';
-import { T3, crewCanAct, hasStunPlus1, inMotion, isCe, isImmobile, isWreck, vehicle, vehicleMgs } from './status';
+import { T3, crewCanAct, hasStunPlus1, inMotion, isCe, isImmobile, isWreck, stunWord, vehicle, vehicleMgs } from './status';
 import { paatc } from './paatc';
 import { applyVehicleEffect } from './vehicleStatus';
 
@@ -73,6 +73,14 @@ const isPersonnel = (env: QueryEnv, p: Piece) => !!(mmc(env, p) || smc(env, p));
 const vehicleOf = (env: QueryEnv, id: PieceId): Piece | null => {
   const p = env.state.pieces[id];
   return p && vehicle(env, p) && !isWreck(p) ? p : null;
+};
+/** The attacking vehicle whose crew is on the +1 side of its stun counter (SK4 7.10), if any. */
+const stunPlus1Attacker = (env: QueryEnv, attackers: readonly PieceId[]): Piece | null => {
+  for (const a of attackers) {
+    const v = vehicleOf(env, a);
+    if (v && hasStunPlus1(v)) return v;
+  }
+  return null;
 };
 
 /** A vehicle on the move that has not stopped (its own MPh), or in Motion. */
@@ -269,8 +277,8 @@ export const vehicleCcModule: RuleModule = {
       id: 'sk3.cc.drm.stun',
       query: 'cc.drm',
       ref: 'SK4 7.10',
-      label: '+1 Stunned crew (+1)',
-      when: ({ attackers }, env) => attackers.some((a) => vehicleOf(env, a) && hasStunPlus1(pieceOf(env, a))),
+      label: ({ attackers }, env) => `+1 ${stunWord(stunPlus1Attacker(env, attackers)!, 'Stunned')} crew (+1)`,
+      when: ({ attackers }, env) => !!stunPlus1Attacker(env, attackers),
       apply: (v) => v + 1,
     });
     // Infantry DRM that do not apply to a vehicle target.
@@ -299,7 +307,7 @@ export const vehicleCcModule: RuleModule = {
         if (attackerVehicles.length) {
           if (attack.attackers.length !== 1) return 'A vehicle attacks in Close Combat on its own';
           const veh = pieceOf(env, attackerVehicles[0]!);
-          if (!crewCanAct(veh)) return 'A Shocked or Stunned crew cannot attack in Close Combat';
+          if (!crewCanAct(veh)) return veh.tags[T3.shock] ? 'A Shocked crew cannot attack in Close Combat' : `A ${stunWord(veh, 'Stunned')} crew cannot attack in Close Combat`;
           const { fp } = vehicleCcFp(env, veh);
           if (fp <= 0) return 'The vehicle has no weapon it can use in Close Combat';
           const ccv = attack.targets.reduce((a, t) => a + env.query('cc.defenseFp', { unit: t, attackers: attack.attackers }, 0), 0);

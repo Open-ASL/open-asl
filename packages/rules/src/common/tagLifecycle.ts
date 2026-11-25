@@ -87,6 +87,7 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   dugIn: 'lasting',
   shock: 'lasting',
   stun: 'lasting',
+  stunRecall: 'lasting',
   recall: 'lasting',
   wreck: 'lasting',
   ceChanged: 'lasting',

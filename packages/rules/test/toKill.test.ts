@@ -3,7 +3,8 @@ import type { Action, Engine, GameState } from '@asl/engine';
 import { facingOf, hitLocation } from '../src/sk3/facing';
 import { sk2CoreModules } from '../src/sk2';
 import { sk3CoreModules } from '../src/sk3';
-import { T3 } from '../src/sk3/status';
+import { T3, stunLabel, stunWord } from '../src/sk3/status';
+import { stunOutcome } from '../src/sk3/vehicleStatus';
 import { RU_VS_GE, act, makeEngine, type PieceSpec } from './fixtures';
 
 /*
@@ -185,6 +186,66 @@ describe('the To Kill process (SK4 7.9, 7.10)', () => {
     expect(r.state.pieces['t34']!.tags[T3.stun]).toBe('fresh');
     expect(r.state.pieces['t34']!.tags[T3.recall]).toBe(true);
     expect(r.state.pieces['t34']!.tags[T3.ce]).toBeUndefined();
+  });
+
+  it('a STUN is recorded apart from a Stun and written in capitals, a Stun in title case, through the +1 flip (SK4 7.7, 7.10; ASLRB D5.34)', () => {
+    // The CE T-34 in M5 under the German squad's fire from M6 (8 column): DR 2 is a KIA on the crew → STUN; DR 4 calls for a crew MC, failed on DR 10 → stun.
+    const run = (dice: number[]) => {
+      const g = makeEngine({ pieces: [{ id: 'sq', def: 'ge.467', side: 'ge', hex: 'yM6' }, t34('yM5', { ce: true })], scenario: { ...RU_VS_GE, firstSide: 'ge' }, extra, startPhase: 'PFPh', dice });
+      return { engine: g.engine, state: act(g.engine, g.state, { type: 'fire', decl: { units: ['sq'], sw: [], target: 'yM5' } }).state };
+    };
+    const STUN = run([1, 1]);
+    const stun = run([2, 2, 5, 5]);
+    expect(STUN.state.pieces['t34']!.tags).toMatchObject({ [T3.stun]: 'fresh', [T3.stunRecall]: true, [T3.recall]: true });
+    expect(stun.state.pieces['t34']!.tags).toMatchObject({ [T3.stun]: 'fresh' });
+    expect(stun.state.pieces['t34']!.tags[T3.stunRecall]).toBeUndefined();
+    // Either one Buttons the crew Up.
+    expect(STUN.state.pieces['t34']!.tags[T3.ce]).toBeUndefined();
+    expect(stun.state.pieces['t34']!.tags[T3.ce]).toBeUndefined();
+    expect(stunWord(STUN.state.pieces['t34']!, 'Stunned')).toBe('STUNNED');
+    expect(stunWord(stun.state.pieces['t34']!, 'Stunned')).toBe('Stunned');
+    // Play on to the end of the German Player Turn: both counters flip to +1, and the STUN stays a STUN.
+    for (const g of [STUN, stun]) {
+      let s = g.state;
+      for (let i = 0; i < 20 && s.pieces['t34']!.tags[T3.stun] === 'fresh'; i++) {
+        const d = g.engine.currentDecision(s)!;
+        const legal = g.engine.legalActions(s, d.owner).find((a) => a.type === 'endPhase' || a.type === 'defPass');
+        if (!legal) break;
+        s = g.engine.submit(s, { ...legal, side: d.owner, decisionId: d.id } as never).state;
+      }
+      expect(s.pieces['t34']!.tags[T3.stun]).toBe('plus1');
+      expect(stunWord(s.pieces['t34']!, 'Stun')).toBe(g === STUN ? 'STUN' : 'Stun');
+    }
+  });
+
+  it('a wreck keeps neither the stun nor the STUN (SK4 7.10)', () => {
+    // The T-34's shot destroys a PzKw IV that is STUNNED and Recalled.
+    const { engine, state } = setup([2, 1, 3, 3]);
+    const pz = state.pieces['pziv']!;
+    const stunned = { ...state, pieces: { ...state.pieces, pziv: { ...pz, tags: { ...pz.tags, [T3.stun]: 'plus1', [T3.stunRecall]: true, [T3.recall]: true } } } };
+    const r = fire(engine, stunned, { weapon: 't34', target: 'yM5', targetType: 'VTT' });
+    expect(r.state.pieces['pziv']!.tags[T3.wreck]).toBe(true);
+    expect(r.state.pieces['pziv']!.tags[T3.stun]).toBeUndefined();
+    expect(r.state.pieces['pziv']!.tags[T3.stunRecall]).toBeUndefined();
+  });
+
+  it('a stun result is a STUN on a vehicle already stunned or with a One Man Turret, and the label follows the counter (SK4 7.10)', () => {
+    const { engine, state } = setup([]);
+    const env = engine.env(state);
+    const pz = state.pieces['pziv']!;
+    const with_ = (tags: Record<string, string | boolean>) => ({ ...pz, tags: { ...pz.tags, ...tags } });
+    expect(stunOutcome(env, pz)).toBe('stun');
+    expect(stunOutcome(env, with_({ [T3.stun]: 'fresh' }))).toBe('STUN');
+    expect(stunOutcome(env, with_({ [T3.stun]: 'plus1' }))).toBe('STUN');
+    // The same tank with a One Man Turret: its first Stun is a STUN (SK4 7.10; D1.322).
+    const counters = (env.statics as { counters: Record<string, object> }).counters;
+    const oneManTurret = { ...env, statics: { ...(env.statics as object), counters: { ...counters, [pz.defId]: { ...counters[pz.defId], turret: '1MT' } } } };
+    expect(stunOutcome(oneManTurret, pz)).toBe('STUN');
+    expect(stunLabel(with_({ [T3.stun]: 'fresh' }))).toBe('Stunned');
+    expect(stunLabel(with_({ [T3.stun]: 'fresh' }), 'Stun')).toBe('Stun');
+    expect(stunLabel(with_({ [T3.stun]: 'plus1' }))).toBe('Stun +1');
+    expect(stunLabel(with_({ [T3.stun]: 'fresh', [T3.stunRecall]: true }))).toBe('STUNNED');
+    expect(stunLabel(with_({ [T3.stun]: 'plus1', [T3.stunRecall]: true }), 'Stun')).toBe('STUN +1');
   });
 
   it('Shock recuperates in the Rally Phase: 1-2 recovers, 3-6 becomes an Unconfirmed Kill, which on 4-6 is a wreck', () => {

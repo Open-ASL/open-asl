@@ -9,7 +9,7 @@ import { isWoodsRoad, terrainOf } from '../sk1/terrain';
 import { caChangeDrm, inCoveredArc, nearestSpine, spineChange } from '../sk2/arc';
 import { OP, woodsBuildingOrRubble, type OrdnanceFireFn, type ShotCtx } from '../sk2/ordnance';
 import { ACQ_CLEAR, T2, caTurnedIllegal, coveredArc, ordnanceOf } from '../sk2/status';
-import { T3, crewCanAct, inMotion, isCe, isWreck, tcaOf, vcaOf, vehicle, type VehicleMgKind } from './status';
+import { T3, crewCanAct, inMotion, isCe, isWreck, stunWord, tcaOf, vcaOf, vehicle, type VehicleMgKind } from './status';
 import { movingVehicle } from './vehicleMove';
 import { firerNonStoppedVehicle } from './vehicleFire';
 
@@ -151,7 +151,7 @@ export function vehicleMgIllegal(env: QueryEnv, decl: FireDeclaration, mode: Fir
   const d = vehicle(env, v)!;
   if (v.side !== side) return 'Not your vehicle';
   if (isWreck(v)) return 'A wreck does not fire';
-  if (!crewCanAct(v)) return v.tags[T3.shock] ? 'A Shocked crew cannot fire' : 'A Stunned crew cannot fire this Player Turn';
+  if (!crewCanAct(v)) return v.tags[T3.shock] ? 'A Shocked crew cannot fire' : `A ${stunWord(v, 'Stunned')} crew cannot fire this Player Turn`;
   // Turned without MP at the end of this phase (SK4 3.3.2): it fires no more in it.
   const turned = caTurnedIllegal(env, v);
   if (turned) return turned;

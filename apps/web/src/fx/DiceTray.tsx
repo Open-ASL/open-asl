@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import type { DiceToast, ToastUnit } from './useGameFx';
+import { type DiceToast, type ToastUnit } from './useGameFx';
+import { StunCase } from '../game/StunCase';
 
 const PIPS: Record<number, number[]> = {
   1: [4],
@@ -121,7 +122,7 @@ function ToastCard({ toast: t, still }: { toast: DiceToast; still?: boolean }) {
         )}
         {t.results.map((r, i) => (
           <div key={i} className="dt-result">
-            {r}
+            <StunCase text={r} />
           </div>
         ))}
       </div>

@@ -8,7 +8,7 @@ import { ammoColumn } from '../sk2/ammo';
 import { OP, type HitInfo, type ResolveHitFn, type ShotCtx } from '../sk2/ordnance';
 import { facingBySameHexDie, facingOf, hitLocation, type Facing } from './facing';
 import { T3, isCe, tcaOf, vcaOf, vehicle } from './status';
-import { applyVehicleEffect, crewTakesResult, possibleShock } from './vehicleStatus';
+import { applyVehicleEffect, crewTakesResult, possibleShock, stunOutcome } from './vehicleStatus';
 
 declare module '@asl/engine' {
   interface QueryCatalog {
@@ -48,6 +48,8 @@ export interface ToKillOutcome {
   dr: [number, number];
   result: TkResult;
   shocked?: boolean;
+  /** A stun result: what it does to this vehicle (a second stun, or one on a One Man Turret, is a STUN). */
+  stunned?: 'stun' | 'STUN';
 }
 
 /** TK ammunition the tables know; Smoke and WP never reach a To Kill roll. */
@@ -103,6 +105,8 @@ function resolveToKill(ctx: Ctx, sc: ShotCtx, h: HitInfo, results: Record<PieceI
   const by = `${ammo} hit (${location} ${facing}, TK ${finalTk}, DR ${dr})`;
   // A Possible Shock is settled by the crew's NTC before the result is reported.
   if (result === 'possibleShock') out.shocked = possibleShock(ctx, target, by);
+  // A stun on a vehicle already stunned, or on a One Man Turret, is a STUN: report what it becomes.
+  if (result === 'stun') out.stunned = stunOutcome(ctx, pieceOf(ctx, target));
   ctx.emit('sk3.toKill', { weapon: sc.weapon, target, ammo, ch: h.ch, ...out });
   switch (result) {
     case 'kill':
@@ -144,7 +148,7 @@ export const toKillModule: RuleModule = {
   summary: 'The To Kill process: hit location and facing, Armor Factors, the AFV Destruction Table, Collateral Attacks.',
   requires: ['sk2.ordnance', 'sk3.vehicleStatus'],
   install(r) {
-    r.event<{ weapon: PieceId; target: PieceId; ammo: TkWeaponAmmo; ch: boolean; location: 'hull' | 'turret'; facing: Facing; af: number; tk: number | null; modifiedTk: number | null; finalTk: number | null; dr: [number, number] | null; result: TkResult; shocked?: boolean; explain?: { id: string; label: string }[] }>({ type: 'sk3.toKill', apply() {} });
+    r.event<{ weapon: PieceId; target: PieceId; ammo: TkWeaponAmmo; ch: boolean; location: 'hull' | 'turret'; facing: Facing; af: number; tk: number | null; modifiedTk: number | null; finalTk: number | null; dr: [number, number] | null; result: TkResult; shocked?: boolean; stunned?: 'stun' | 'STUN'; explain?: { id: string; label: string }[] }>({ type: 'sk3.toKill', apply() {} });
     r.event<{ weapon: PieceId; target: PieceId; column: number; dr: [number, number]; drm: number; result: IftResult }>({ type: 'sk3.collateral', apply() {} });
     r.procedure<ResolveHitFn>(OP.resolveHit, (next) => (ctx, sc, hit, targets, results) => {
       if (sc.shot.targetType !== 'VTT') return next!(ctx, sc, hit, targets, results);

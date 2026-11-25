@@ -8,7 +8,7 @@ import { isBroken, mmc, pieceOf, smc } from '../sk1/status';
 import { digInParams, isDugIn } from './digIn';
 import { hitLocation } from './facing';
 import { isCe, isWreck, vehicle } from './status';
-import { applyVehicleEffect } from './vehicleStatus';
+import { applyVehicleEffect, stunOutcome } from './vehicleStatus';
 
 /*
  * Attacks a card gives a side once per Defensive Fire Phase against a hex of its choosing (S35):
@@ -114,7 +114,7 @@ export const ssrAttacksModule: RuleModule = {
           target = cands.length > 1 ? ctx.proc<RandomSelectFn>(MP.randomSelect)(ctx, cands, 1, 'Sniper target')[0]! : (cands[0] ?? null);
           const p = target ? pieceOf(ctx, target) : null;
           if (p && vehicle(ctx, p)) {
-            effect = dr === 1 ? 'STUN' : 'Stun';
+            effect = dr === 1 || stunOutcome(ctx, p) === 'STUN' ? 'STUN' : 'Stun';
           } else if (p && smc(ctx, p)) {
             effect = dr === 1 ? 'leader eliminated' : 'leader wounded';
           } else if (p) {

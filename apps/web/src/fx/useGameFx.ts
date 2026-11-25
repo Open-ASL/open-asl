@@ -1058,7 +1058,7 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
             lastToast.detail = tk === null ? `${p['ammo']} has no To Kill number` : `${p['ammo']}${p['ch'] ? ' Critical Hit ×2' : ''} TK ${p['modifiedTk']} − AF ${p['af']} = Final TK ${tk} · kills below ${tk}`;
             lastToast.target = chip(target).label;
             lastToast.results.push(
-              result === 'kill' ? 'DESTROYED' : result === 'immobilized' ? 'IMMOBILIZED' : result === 'shock' ? 'SHOCK' : result === 'stun' ? 'STUN' : result === 'possibleShock' ? (p['shocked'] ? 'Possible Shock: crew fails → SHOCK' : 'Possible Shock: crew holds') : result === 'dud' ? 'dud (12)' : 'no effect',
+              result === 'kill' ? 'DESTROYED' : result === 'immobilized' ? 'IMMOBILIZED' : result === 'shock' ? 'SHOCK' : result === 'stun' ? (p['stunned'] === 'STUN' ? 'STUN' : 'Stun') : result === 'possibleShock' ? (p['shocked'] ? 'Possible Shock: crew fails → SHOCK' : 'Possible Shock: crew holds') : result === 'dud' ? 'dud (12)' : 'no effect',
             );
             lastToast.tone = result === 'none' || result === 'dud' || (result === 'possibleShock' && !p['shocked']) ? 'neutral' : 'bad';
           }
@@ -1115,7 +1115,7 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
         case 'sk3.vehicle.status': {
           const v = p['vehicle'] as PieceId;
           const st = p['status'] as string;
-          const label = st === 'immobilized' ? 'IMMOBILIZED' : st === 'shock' ? 'SHOCK' : st === 'stun' ? 'STUN' : st === 'STUN' ? 'STUN · RECALL' : st === 'bu' ? 'BUTTONS UP' : st === 'uk' ? 'UNCONFIRMED KILL' : 'RECOVERED';
+          const label = st === 'immobilized' ? 'IMMOBILIZED' : st === 'shock' ? 'SHOCK' : st === 'stun' ? 'Stun' : st === 'STUN' ? 'STUN · RECALL' : st === 'bu' ? 'BUTTONS UP' : st === 'uk' ? 'UNCONFIRMED KILL' : 'RECOVERED';
           unitText(v, label, st === 'bu' || st === 'recovered' ? 0xffe066 : 0xff8a65, st !== 'bu', st === 'bu' || st === 'recovered' ? 'ui.flip' : 'hit.break');
           break;
         }

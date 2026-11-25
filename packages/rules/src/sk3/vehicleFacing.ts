@@ -6,7 +6,7 @@ import { phaseOwner } from '../sk1/firePhases';
 import { fireMarker, isMalf, pieceOf, setTags } from '../sk1/status';
 import { SPINES } from '../sk2/arc';
 import { ACQ_CLEAR, T2, firePhaseKey } from '../sk2/status';
-import { T3, crewCanAct, inMotion, isImmobile, isWreck, tcaOf, vcaOf, vehicle } from './status';
+import { T3, crewCanAct, inMotion, isImmobile, isWreck, stunWord, tcaOf, vcaOf, vehicle } from './status';
 import { maIllegal } from './vehicleFire';
 import { vehicleMgOf } from './vehicleMg';
 
@@ -51,7 +51,7 @@ export function faceIllegal(env: QueryEnv, a: { vehicle: PieceId; vca?: number; 
   if (!mode || phaseOwner(env) !== side) return 'A vehicle turns without MP only at the end of your own fire phase';
   if (v.loc.kind !== 'hex') return 'The vehicle is not on the map';
   if (isWreck(v)) return 'A wreck does not turn';
-  if (!crewCanAct(v)) return v.tags[T3.shock] ? 'A Shocked crew cannot act' : 'A Stunned crew cannot act this Player Turn';
+  if (!crewCanAct(v)) return v.tags[T3.shock] ? 'A Shocked crew cannot act' : `A ${stunWord(v, 'Stunned')} crew cannot act this Player Turn`;
   if (v.tags[T2.caTurned] === firePhaseKey(env)) return 'It has already turned this phase';
   if (a.vca === undefined && a.tca === undefined) return 'Choose a hexspine for the hull or the turret';
   for (const s of [a.vca, a.tca]) if (s !== undefined && (!Number.isInteger(s) || s < 0 || s >= SPINES)) return 'A Covered Arc is a hexspine 0-5';

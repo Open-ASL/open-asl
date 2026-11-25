@@ -1,11 +1,12 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
-import { bunkerTrenches, controlState, pillboxLoc, entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, lastMineAttacks, roadblockObstacles } from '@asl/rules';
+import { bunkerTrenches, controlState, pillboxLoc, entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, lastMineAttacks, roadblockObstacles, stunLabel } from '@asl/rules';
 import { AMMO_NAME, acquisitionsAt, ammoOut, defOf, fireAt, fireMarker, fireNumbers, fortCounters, fortKindName, gunIdent, isWeaponDef, locationsOf, moveState, parseLabor, rubbleAt, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, terrainOf, windOf, type Statics, type VehicleDef } from '@asl/rules';
 import { counterImage, cxMarker, markerImage } from '../game/assets';
 import { fortMarker } from '../panels/FortTray';
 import { identCss } from './ident';
 import { pieceLabel } from '../game/describe';
+import { StunCase } from '../game/StunCase';
 import { smoke58Chits } from '../game/smoke';
 import { HexArt, type ArtPlacement } from './HexArt';
 
@@ -48,10 +49,13 @@ function vehicleMgStates(env: QueryEnv, p: Piece): { type: string; state: 'malfu
   });
 }
 
-/** Status of a counter: the marker chit that sits on it on the board (if any) and a label. */
-function statusOf(env: QueryEnv, p: Piece): { label: string; marker?: string }[] {
+/**
+ * Status of a counter: the marker chit that sits on it on the board (if any) and a label.
+ */
+type Status = { label: string; marker?: string };
+function statusOf(env: QueryEnv, p: Piece): Status[] {
   const t = p.tags;
-  const out: { label: string; marker?: string }[] = [];
+  const out: Status[] = [];
   if (t['broken']) out.push({ label: 'broken' });
   // Removed at its owner's choice at the end of the Rally Phase (SK1 3.1 g).
   if (t['dm']) out.push({ label: t['dmRemove'] ? 'DM (comes off at the end of the Rally Phase)' : 'DM', marker: 'dm' });
@@ -113,8 +117,7 @@ function statusOf(env: QueryEnv, p: Piece): { label: string; marker?: string }[]
     if (t['dugIn']) out.push({ label: 'dug in' });
     if (t['shock'] === 'shock') out.push({ label: 'Shocked', marker: 'Shock' });
     if (t['shock'] === 'uk') out.push({ label: 'Unconfirmed Kill', marker: 'UK' });
-    if (t['stun'] === 'fresh') out.push({ label: 'Stunned', marker: 'Stun' });
-    if (t['stun'] === 'plus1') out.push({ label: 'Stun +1', marker: 'StunPlus1' });
+    if (t['stun'] !== undefined) out.push({ label: stunLabel(p), marker: t['stun'] === 'plus1' ? 'StunPlus1' : 'Stun' });
     if (t['recall']) out.push({ label: 'Recalled', marker: 'Recall' });
     if (t['bff']) out.push({ label: 'Bounding First Fire', marker: 'FireBnd' });
     if (t['lowAmmo']) out.push({ label: 'Low Ammo', marker: 'LowAmmo' });
@@ -127,6 +130,20 @@ function statusOf(env: QueryEnv, p: Piece): { label: string; marker?: string }[]
     if (t['stalled']) out.push({ label: 'stalled' });
   }
   return out;
+}
+
+/** The status labels in one line; a lowercase stun stays out of the line's capitals (StunCase). */
+function StatusLine({ st }: { st: Status[] }) {
+  return (
+    <span className="peek-status">
+      {st.map((x, i) => (
+        <Fragment key={i}>
+          {i > 0 && ' · '}
+          <StunCase text={x.label} />
+        </Fragment>
+      ))}
+    </span>
+  );
 }
 
 /** A vehicle's crew posture (SK4 3.3.2), shown as its own pill rather than lost among the status words. */
@@ -373,7 +390,7 @@ export function StackPeek({ env, hex, at, bounds, placements, rotation, interact
           <span className="peek-name">
             <span className="peek-veh-name">{pieceLabel(env, p)}</span>
             {crew && <CrewPill crew={crew} big />}
-            {st.length > 0 && <span className="peek-status">{st.map((x) => x.label).join(' · ')}</span>}
+            {st.length > 0 && <StatusLine st={st} />}
             {st.some((x) => x.marker && markerImage(x.marker)) && (
               <span className="peek-markers">
                 {st
@@ -403,7 +420,7 @@ export function StackPeek({ env, hex, at, bounds, placements, rotation, interact
             {crew && <CrewPill crew={crew} />}
             {pieceLabel(env, p)}{defOf(env, p).kind === 'gun' ? ` · Gun ${gunIdent(env, p)}` : ''}
           </span>
-          {st.length > 0 && <span className="peek-status">{st.map((x) => x.label).join(' · ')}</span>}
+          {st.length > 0 && <StatusLine st={st} />}
         </span>
         {st.some((x) => x.marker) && (
           <span className="peek-markers">

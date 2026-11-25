@@ -5,7 +5,7 @@ import { sk1CoreModules } from '../../src/sk1';
 import { sk2CoreModules } from '../../src/sk2';
 import { sk3CoreModules } from '../../src/sk3';
 import { RU_VS_GE, act, makeEngine, type PieceSpec } from '../fixtures';
-import { heightAdvantageInBypass, heightAdvantageInBypassFor } from '../../src/asl/bypass';
+import { bypassCorners, heightAdvantageInBypass, heightAdvantageInBypassFor } from '../../src/asl/bypass';
 import { firstFireTargets } from '../../src/sk1/moveState';
 
 /*
@@ -323,6 +323,62 @@ describe('Leaving the map by Bypass (ASLRB A2.6)', () => {
     // With only the Bypass MF left (2 spent elsewhere first) it could neither exit nor enter the woods: refused.
     const spent = { ...s, ext: { ...s.ext, 'sk1.move': { ...ms(engine, s), spent: { g: 2 } } } };
     expect(check(engine, spent, { type: 'move.step', to: 'uX0', bypass: ['uW1'] })).toMatch(/could not end its move outside Bypass/);
+  });
+});
+
+describe('Bypass along a hexside on the map edge (ASLRB A4.3, A2.2)', () => {
+  // Board u: O1 is a whole hex whose north hexside is the map edge (there is no O0); P0 and the woods N0 either side of
+  // it are half hexes. A squad in P0 goes along that hexside to the O1-N0 vertex and on into N0.
+  const edgeGame = (pieces: PieceSpec[], dice?: number[]) =>
+    game(pieces, { terrain: { uO1: { terrain: 'building-wood', bypassBlocked: [] }, uN0: { terrain: 'woods', bypassBlocked: [] } }, ...(dice ? { dice } : {}) });
+
+  it('a hexside of a whole hex along the map edge is offered and gone along like any other, named by the offboard hex beyond it', () => {
+    const { engine, state } = edgeGame([squad('g', 'uP0'), far]);
+    const map = statics(engine.env(state)).map;
+    expect(map.hex('uO0')).toBeUndefined();
+    expect(map.offboardHex('uO0')).toBeDefined();
+    let s = start(engine, state);
+    const offered = engine.legalActions(s, 'ge').filter((a) => a.type === 'move.step' && a['to'] === 'uO1' && a['bypass']);
+    expect(offered.map((a) => (a['bypass'] as string[]).join(','))).toContain('uO0');
+    s = step(engine, s, { to: 'uO1', bypass: ['uO0'] });
+    const m = ms(engine, s);
+    expect(m.bypass).toMatchObject({ hex: 'uO1', sides: [sideToward(map, 'uO1', 'uO0')] });
+    // One hexside: one MF (A4.31). From the O1-N0 vertex on the edge the stack may enter N0 or the building.
+    expect(m.spent['g']).toBe(1);
+    expect(check(engine, s, { type: 'move.step', to: 'uN0' })).toBeNull();
+    expect(check(engine, s, { type: 'move.step', to: 'uP0' })).toMatch(/may enter/);
+    s = step(engine, s, { to: 'uN0' });
+    expect(ms(engine, s).bypass).toBeUndefined();
+    s = act(engine, s, { type: 'move.end' }).state;
+    expect(s.pieces['g']!.loc).toMatchObject({ kind: 'hex', hex: 'uN0' });
+  });
+
+  it('the part of a half hex beyond the map edge is not on the map: no Bypass round it, offered or named', () => {
+    const { engine, state } = edgeGame([squad('g', 'uM1'), far]);
+    const env = engine.env(state);
+    const map = statics(env).map;
+    const s = start(engine, state);
+    const beyond = map.offboard('N,E,S,W').map((o) => o.id).filter((o) => sideToward(map, 'uN0', o) !== null);
+    expect(beyond.length).toBeGreaterThan(0);
+    const offered = engine.legalActions(s, 'ge').filter((a) => a.type === 'move.step' && a['to'] === 'uN0' && a['bypass']);
+    expect(offered.length).toBeGreaterThan(0);
+    for (const a of offered) for (const nb of a['bypass'] as string[]) expect(map.hex(nb), nb).toBeDefined();
+    for (const o of beyond) expect(check(engine, s, { type: 'move.step', to: 'uN0', bypass: [o] })).toMatch(/half hex/);
+  });
+
+  it('a stack that went along the edge hexside is fired on at a corner of it, named with the offboard hex (A4.34)', () => {
+    const { engine, state } = edgeGame([squad('g', 'uP0'), { id: 'r', def: 'ru.447', side: 'ru', hex: 'uP1' }], [5, 4]);
+    const s = act(engine, start(engine, state), { type: 'move.step', to: 'uO1', bypass: ['uO0'] }).state;
+    const map = statics(engine.env(s)).map;
+    expect(engine.currentDecision(s)!.owner).toBe('ru');
+    const corners = bypassCorners(engine.env(s), 'uO1');
+    expect(corners).toContainEqual(['uN0', 'uO0']);
+    expect(corners).toContainEqual(['uO0', 'uP0']);
+    expect(cornerBetween(map, 'uO1', 'uN0', 'uO0')).toBe(ms(engine, s).bypass!.at);
+    const at = { uP1: ['uO0', 'uP0'] };
+    const r = act(engine, s, { type: 'defFire', decl: { units: ['r'], sw: [], target: 'uO1', at } });
+    const ev = r.events.find((e) => e.type === 'sk1.fire.attack')!.payload as { attack: { at?: unknown } };
+    expect(ev.attack.at).toEqual(at);
   });
 });
 

@@ -76,6 +76,7 @@ import {
   firstFireTargets,
   firstFireTargetsAt,
   acrossSide,
+  sideHex,
   bypassPlan,
   cornerBetween,
   cornerLabel,
@@ -2542,7 +2543,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   /** "R3" for "uR3". */
   const short = (h: HexId) => h.replace(/^[a-z]+/, '');
   /** The hex across hexside `k` of `hex`. */
-  const acrossSideOf = (hex: HexId, k: number) => acrossSide(statics.map, hex, k) ?? '?';
+  const acrossSideOf = (hex: HexId, k: number) => sideHex(statics.map, hex, k) ?? '?';
 
   // Bypass corners (full ASL; UI options A3 and B2): every corner the stack may bypass to is a numbered handle on the map,
   // with its MF and, under the pointer, the way it goes and what it costs. A tap picks it; the confirm bar commits.
@@ -2584,7 +2585,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       const startPt = ms.bypass ? cornerAt(ms.bypass.hex, ms.bypass.at) : hexPixel(statics.map.hex(ms.hex)!.cube);
       const path = [startPt, ...corners.map((k) => cornerAt(b.to, k))];
       const further = ms.bypass?.hex === b.to;
-      const along = b.via.map((nb) => `${short(b.to)}-${short(nb)}`).join(', ');
+      // A hexside along the map edge is named by the offboard hex beyond it: say so, as that hex is not on the map.
+      const along = b.via.map((nb) => `${short(b.to)}-${short(nb)}${statics.map.hex(nb) ? '' : ' (the map edge)'}`).join(', ');
       const text = `${further ? 'On round' : 'Bypass'} ${short(b.to)} along ${along} to the ${cornerLabel(statics.map, b.to, b.at)} corner · ${b.cost} MF (${left - b.cost} left)`;
       const id = `byp-${b.to}-${b.at}`;
       out.push({

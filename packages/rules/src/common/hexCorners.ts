@@ -63,6 +63,14 @@ export function acrossSide(map: Pick<GameMap, 'hex' | 'neighbors' | 'offboardHex
   return map.neighbors(hex).find((nb) => sideToward(map, hex, nb) === mod6(k));
 }
 
+/**
+ * The hex that names hexside `k` of `hex` (ASLRB A2.2 notation): the hex across it, or, for a hexside along the map edge,
+ * the offboard hex beyond the edge.
+ */
+export function sideHex(map: Pick<GameMap, 'hex' | 'neighbors' | 'offboardHex' | 'offboard'>, hex: HexId, k: number): HexId | undefined {
+  return acrossSide(map, hex, k) ?? map.offboard('N,E,S,W').find((o) => sideToward(map, hex, o.id) === mod6(k))?.id;
+}
+
 /** The other two hexes meeting at corner `k` of `hex`: those across hexsides k − 1 and k (on the map only). */
 export function cornerHexes(map: Pick<GameMap, 'hex' | 'neighbors' | 'offboardHex'>, hex: HexId, k: number): HexId[] {
   return [acrossSide(map, hex, k - 1), acrossSide(map, hex, k)].filter((h): h is HexId => !!h && !!map.hex(h));
@@ -82,24 +90,27 @@ export function sameCorner(map: Pick<GameMap, 'hex'>, other: HexId, k: number, h
 }
 
 /** The corner of `hex` where the two given hexes meet it (both adjacent to it and to each other), or null. */
-export function cornerBetween(map: Pick<GameMap, 'hex' | 'neighbors' | 'offboardHex'>, hex: HexId, a: HexId, b: HexId): number | null {
+export function cornerBetween(map: Pick<GameMap, 'hex' | 'neighbors' | 'offboardHex' | 'offboard'>, hex: HexId, a: HexId, b: HexId): number | null {
   for (let k = 0; k < 6; k++) {
-    const hs = [acrossSide(map, hex, k - 1), acrossSide(map, hex, k)];
+    const hs = [sideHex(map, hex, k - 1), sideHex(map, hex, k)];
     if ((hs[0] === a && hs[1] === b) || (hs[0] === b && hs[1] === a)) return k;
   }
   return null;
 }
 
-/** A corner's name for actions and logs: the two other hexes meeting there, sorted (ASLRB A2.2). */
-export function cornerName(map: Pick<GameMap, 'hex' | 'neighbors' | 'offboardHex'>, hex: HexId, k: number): [HexId, HexId] | null {
-  const hs = [acrossSide(map, hex, k - 1), acrossSide(map, hex, k)];
+/**
+ * A corner's name for actions and logs: the two other hexes meeting there, sorted (ASLRB A2.2). A corner on the map edge
+ * is named with the offboard hex beyond the edge, as the A2.6 EX names its X0-W1-W0 vertex.
+ */
+export function cornerName(map: Pick<GameMap, 'hex' | 'neighbors' | 'offboardHex' | 'offboard'>, hex: HexId, k: number): [HexId, HexId] | null {
+  const hs = [sideHex(map, hex, k - 1), sideHex(map, hex, k)];
   if (!hs[0] || !hs[1]) return null;
   return [hs[0], hs[1]].sort() as [HexId, HexId];
 }
 
 /** "R3-S4-R4": a corner of `hex` written as the rulebook does, the hex itself first, without board letters. */
-export function cornerLabel(map: Pick<GameMap, 'hex' | 'neighbors' | 'offboardHex'>, hex: HexId, k: number): string {
-  const short = (h: HexId) => map.hex(h)?.colLabel !== undefined ? `${map.hex(h)!.colLabel}${map.hex(h)!.row}` : h;
-  const hs = [acrossSide(map, hex, k - 1), acrossSide(map, hex, k)];
+export function cornerLabel(map: Pick<GameMap, 'hex' | 'neighbors' | 'offboardHex' | 'offboard'>, hex: HexId, k: number): string {
+  const short = (h: HexId) => map.hex(h)?.colLabel !== undefined ? `${map.hex(h)!.colLabel}${map.hex(h)!.row}` : h.replace(/^[a-z]+/, '');
+  const hs = [sideHex(map, hex, k - 1), sideHex(map, hex, k)];
   return [hex, ...hs].map((h) => (h ? short(h) : '?')).join('-');
 }

@@ -105,6 +105,9 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   tcaTurnPhase: 'playerTurn',
   tcaTurnSpines: 'playerTurn',
   tcaTurnPaid: 'playerTurn',
+  vcaTurnPhase: 'playerTurn',
+  vcaTurnSpines: 'playerTurn',
+  vcaTurnPaid: 'playerTurn',
   // SK4 (sk4/status T4)
   concealed: 'lasting',
   dcVsConcealed: 'playerTurn',

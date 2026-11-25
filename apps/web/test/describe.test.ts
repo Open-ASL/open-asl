@@ -33,6 +33,17 @@ describe('game log', () => {
     for (const phase of ['RPh', 'PFPh', 'MPh', 'AFPh', 'RtPh', 'APh', 'CCPh']) expect(head(phase).phase!.side, phase).toBe('ru');
   });
 
+  it('a Banzai Impulse gets a line where it begins as well as where it ends, so the steps read as Impulses (SK4 8.1.8.6)', () => {
+    const { engine, state } = makeEngine({ scenario: RU_VS_GE, pieces: [] });
+    const env = engine.env(state);
+    const lines = describeEvents(env, [
+      { seq: 1, type: 'sk4.banzai.impulse', payload: { impulse: 2, mf: 0, units: ['a', 'b'] } },
+      { seq: 2, type: 'sk4.banzai.impulse', payload: { impulse: 2, mf: 2, units: ['a', 'b'] } },
+    ] as never).map((l) => l.text);
+    expect(lines[0]).toMatch(/Banzai Impulse 2: .* each move one hex, then the defender may fire/);
+    expect(lines[1]).toMatch(/Impulse 2 over: every Banzai unit is charged 2 MF/);
+  });
+
   it('a side that declares no CC attack in a hex gets a log line, once; a declared attack none (SK4 3.8: one side at a time vs a vehicle)', () => {
     const { engine, state } = makeEngine({ scenario: RU_VS_GE, pieces: [] });
     const env = engine.env(state);

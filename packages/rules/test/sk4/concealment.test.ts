@@ -225,6 +225,32 @@ describe('Concealment (SK4 8.3): loss in the LOS of a Good Order enemy', () => {
     expect(concealed(s.pieces['a'])).toBe(true);
   });
 
+  it('declaring Double Time is not moving: CX goes on, the "?" stays while the unit moves unseen, and both last as their rules say into the next Player Turn (SK4 8.3; SK1 3.3)', () => {
+    // The German in K9 sees the K5 building but not K4 behind it.
+    const { engine, state } = game([sq('a', 'yK5', { concealed: true }), ge('g', 'yK9')], 'MPh');
+    let s = play(engine, state, { type: 'move.start', units: ['a'], doubleTime: true });
+    expect(s.pieces['a']!.tags['cx']).toBe(true);
+    expect(concealed(s.pieces['a'])).toBe(true);
+    s = settle(engine, play(engine, s, { type: 'move.step', to: 'yK4' }));
+    expect(concealed(s.pieces['a'])).toBe(true);
+    s = play(engine, s, { type: 'move.end' });
+    // On to the next Russian Player Turn: the "?" stays; the CX counter comes off at the start of its next MPh (SK1 3.3).
+    for (let i = 0; i < 40 && !(s.turn === 2 && s.attacker === 'ru' && s.phase === 'PFPh'); i++) {
+      const d = engine.currentDecision(s)!;
+      const legal = engine.legalActions(s, d.owner);
+      const end = legal.find((x) => x.type === 'move.end') ?? legal.find((x) => x.type === 'endPhase') ?? legal.find((x) => x.type === 'defPass') ?? legal.find((x) => x.type === 'conceal.keep') ?? legal[0]!;
+      s = engine.submit(s, end).state;
+    }
+    expect([s.turn, s.attacker, s.phase]).toEqual([2, 'ru', 'PFPh']);
+    expect(concealed(s.pieces['a'])).toBe(true);
+    s = play(engine, s, { type: 'endPhase' });
+    expect(s.phase).toBe('MPh');
+    expect(s.pieces['a']!.tags['cx']).toBeUndefined();
+    // And it moves again normally.
+    s = settle(engine, play(engine, s, { type: 'move.start', units: ['a'] }, { type: 'move.step', to: 'yK3' }));
+    expect(hexOf(s, s.pieces['a']!)).toBe('yK3');
+  });
+
   it('Non-Assault Movement in LOS drops it; Assault Movement into cover keeps it; into Open Ground drops it; out of LOS it keeps it', () => {
     const { engine, state } = game([sq('a', 'yK5', { concealed: true }), sq('b', 'yM5', { concealed: true }), sq('c', 'yP5', { concealed: true }), ge('g', 'yK9')], 'MPh');
     // a: non-assault from the K5 building into K6 (open): both reasons, "moved" first.

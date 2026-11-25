@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Action, Decision, HexId, QueryEnv, SideId } from '@asl/engine';
 import { ENTRY_STRETCH_DECISION, entryStretchIllegal, entryStretchParams, statics } from '@asl/rules';
-import { hexLabel } from '../game/describe';
+import { hexNamer } from '../game/describe';
 
 /*
  * The entry stretch on screen (LMA2: "enter by the East edge, either between I and Q inclusive or between Q and Y
@@ -28,6 +28,7 @@ export interface EntryStretchUi {
 }
 
 export function useEntryStretchPicker({ env, decision, owner, run, plain }: Args): EntryStretchUi {
+  const hexLabel = hexNamer(env);
   const choosing = owner && decision?.kind === ENTRY_STRETCH_DECISION ? decision : null;
   const p = entryStretchParams(env);
   const [option, setOption] = useState<number | null>(null);

@@ -55,3 +55,6 @@ notes. Stars and oak leaves for further awards are drawn over them by the app.
 | `de-west-wall.svg` | [GER West Wall Medal (1939) ribbon.svg](https://commons.wikimedia.org/wiki/File:GER_West_Wall_Medal_(1939)_ribbon.svg) | CC BY 4.0 | Boroduntalk |
 | `su-valiant-labour.svg` | [SU Medal For Valiant Labour in the Great Patriotic War 1941-1945 ribbon.svg](https://commons.wikimedia.org/wiki/File:SU_Medal_For_Valiant_Labour_in_the_Great_Patriotic_War_1941-1945_ribbon.svg) | Public domain | Boroduntalk |
 | `jp-china-incident.svg` | [JPN 1937-45 China Incident War Medal BAR.svg](https://commons.wikimedia.org/wiki/File:JPN_1937-45_China_Incident_War_Medal_BAR.svg) | CC BY-SA 4.0 | KarlHeintz |
+
+The two beta ribbons, `beta-service.svg` and `beta-campaign.svg`, are drawn for Open ASL in the same form: their
+stripes mirrored about the centre, with the same ribbing.

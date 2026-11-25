@@ -22,7 +22,7 @@ describe('a reinforcement that appears on map hexes', () => {
 
   it('the briefing says it appears on its hexes, not "enter along the ... edge"', () => {
     const force = { id: 'r', side: 'am', units: [], setup: { kind: 'enter', turn: 3, edge: 'E', hexes: ['yX0', 'yY1'], appear: true } } as unknown as ScenarioForce;
-    expect(setupRule(force)).toMatch(/^Appears on Turn 3 in X0, Y1$/);
-    expect(setupRule(force)).not.toMatch(/edge/);
+    expect(setupRule(force, { boards: [{ board: 'y', position: '' }] })).toMatch(/^Appears on Turn 3 in X0, Y1$/);
+    expect(setupRule(force, { boards: [{ board: 'y', position: '' }] })).not.toMatch(/edge/);
   });
 });

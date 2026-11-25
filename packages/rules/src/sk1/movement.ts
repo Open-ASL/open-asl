@@ -993,8 +993,10 @@ export const movementModule: RuleModule = {
         const ms = moveState(ctx)!;
         const placer = (pieceOf(ctx, a.dc).loc as { by: PieceId }).by;
         if (ctx.query('events.optional', {}, false)) ctx.emit('sk1.move.dcAttempt', { dc: a.dc, placer, target: a.target });
-        // Against an AFV an MMC first passes a PAATC (SK4 4.3); a failure pins it and the DC stays in hand.
+        // Against an AFV an MMC first passes a PAATC (SK4 4.3); a failure pins it and the DC stays in hand. Pinned, it
+        // "may not move/advance farther during that Player Turn" (ASLRB A7.8): it leaves the moving stack.
         if (a.vehicle && mmc(ctx, pieceOf(ctx, placer)) && !ctx.proc<PaatcFn>(AP.paatc)(ctx, placer, a.vehicle, 'dc')) {
+          pruneMovers(ctx);
           reAskMover(ctx);
           return;
         }
@@ -1253,7 +1255,10 @@ export function notEntryHex(env: QueryEnv, p: Piece, to: HexId): string {
   const by = rule
     ? rule.charAt(0).toLowerCase() + rule.slice(1)
     : `it enters along the ${edge.split(',').map((e) => EDGE_WORD[e] ?? e).join(' or ')} edge${reserve ? ` (${reserve})` : ''}`;
-  return `${to} is not one of this group's entry hexes: ${by}`;
+  // A recorded entry hex and the edge hexes beside it are few enough to name; a longer stretch reads better in the card's words.
+  const allowed = (p.tags['entryHexes'] as string | undefined)?.split(',') ?? [];
+  const named = allowed.length > 0 && allowed.length <= 4 ? ` (${allowed.join(', ')})` : '';
+  return `${to} is not one of this group's entry hexes${named}: ${by}`;
 }
 
 /** From an offboard hex: the entry hexes beside it, or another offboard hex along the same edge. */
@@ -1920,8 +1925,10 @@ export function firstFireIllegal(env: QueryEnv, ms: MoveState, decl: FireDeclara
       const own = swHeldBy(env.state, h);
       const using = fireMarker(unit) === 'final' || own.some((s) => decl.sw.includes(s.id) && fireMarker(s) === 'final');
       if (!using) continue;
+      // A Gun's IFE may form no FG (SK4 6.8; ASLRB C2.29): it fires FPF alone, its crew's own FP in an attack of its own.
+      const ife = decl.sw.some((s) => own.some((o) => o.id === s) && !!gun(env, pieceOf(env, s)));
       const missing = [
-        ...(mmc(env, unit) && !isBroken(unit) && fresh(h) && !decl.units.includes(h) ? [h] : []),
+        ...(mmc(env, unit) && !isBroken(unit) && fresh(h) && !ife && !decl.units.includes(h) ? [h] : []),
         ...own.filter((s) => isMgPiece(env, s) && !s.tags[T.malf] && !s.tags['mgDisabled'] && fresh(s.id) && !decl.sw.includes(s.id)).map((s) => s.id),
       ];
       if (missing.length) return `${h} is using FPF: it must fire all its FP and usable MG in one attack (${missing.join(', ')} missing)`;

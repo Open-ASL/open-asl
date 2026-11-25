@@ -101,7 +101,7 @@ export const closeTerrain = (env: QueryEnv, hex: HexId | null) => !!hex && !!sta
 /**
  * MP to enter `to` (SK4 1.1.1, 3.3.2, 7.4): Open Ground, orchard and grain 1 (an Armored Car 3,
  * grain 4), brush 2 (AC 4), a road hexside at the road rate (½ CE, 1 BU), woods half the printed MP
- * (`all`: all the MP left; an AC always all), a building half (tracked, BU), +4 across a Crest Line
+ * (`all`: all the MP left; an AC always all, and so does one with less than half left), a building half (tracked, BU), +4 across a Crest Line
  * into higher terrain (+2 via road), +1 per vehicle or wreck already there (+2 via road, doubled in
  * woods), +1 into Smoke. `Infinity` where the vehicle cannot go.
  */
@@ -121,7 +121,8 @@ export function vehicleEntryCost(env: QueryEnv, p: Piece, from: HexId | null, to
   if (road) cost = isCe(p) ? 0.5 : 1;
   else if (alongRoad) cost = d.tracked ? 1 : 3;
   else if (building) cost = d.tracked && !isCe(p) ? d.mp / 2 : Infinity;
-  else if (WOODS_LIKE.has(t)) cost = !d.tracked || opts.all ? Math.max(1, opts.remaining ?? d.mp) : d.mp / 2;
+  // All it has left is always open to it (ASLRB B13.41), also when that is less than half its allotment.
+  else if (WOODS_LIKE.has(t)) cost = !d.tracked || opts.all || (opts.remaining !== undefined && opts.remaining < d.mp / 2) ? Math.max(1, opts.remaining ?? d.mp) : d.mp / 2;
   else if (t === 'brush' || t === 'kunai') cost = d.tracked ? 2 : 4;
   else if (t === 'grain') cost = d.tracked ? 1 : 4;
   else if (t === 'open' || t === 'orchard' || t === 'palm' || t === 'plowed' || t === 'shellholes') cost = d.tracked ? 1 : 3;
@@ -220,6 +221,15 @@ function cheapestStep(env: QueryEnv, ms: MoveState & { vehicle: VehicleMoveState
     if (best === null || c < best) best = c;
   }
   return best;
+}
+
+/**
+ * Why a vehicle may not turn its hull outside its MPh (to fire outside its VCA, or at the end of a fire phase), or null:
+ * an Immobilized or Bogged vehicle may not change its VCA (SK4 glossary, 7.6), nor one a rule forbids (dug in).
+ */
+export function hullTurnRefusal(env: QueryEnv, p: Piece): string | null {
+  if (isImmobile(p)) return 'An Immobilized or Bogged vehicle may not turn its hull';
+  return env.query('vehicle.cannotTurn', { vehicle: p.id }, null);
 }
 
 /** Spend MP in place and update the vehicle's state in one event. */
@@ -419,9 +429,9 @@ export const vehicleMoveModule: RuleModule = {
     r.procedure<MoveEnterFn>(MOVE_ENTER, (next) => (ctx, ms, to, cost, woods, extra) => {
       if (!ms.vehicle) return next?.(ctx, ms, to, cost, woods, extra);
       const hex = hexOfLoc(to);
-      const d = vehicle(ctx, pieceOf(ctx, ms.units[0]!))!;
-      // A Fully Tracked vehicle's half-MP entry costs the step's own rate; anything else into woods is the all-MP one.
-      const allMp = vehicleEntryTerrain(ctx, ms, hex) === 'woods' && cost >= remaining(ms) && (!d.tracked || cost !== vehicleStepCost(ctx, ms as MoveState & { vehicle: VehicleMoveState }, hex));
+      // An entry into woods that spends every MP left is the all-MP one, also where that equals half the allotment: it
+      // has spent "all of its movement capability" (B13.41). A half-MP entry leaves MP over.
+      const allMp = vehicleEntryTerrain(ctx, ms, hex) === 'woods' && cost >= remaining(ms);
       const v = extra?.vehicle ?? ms.vehicle;
       next?.(ctx, ms, to, cost, woods, { ...extra, vehicle: { ...v, freeStop: allMp } });
     });

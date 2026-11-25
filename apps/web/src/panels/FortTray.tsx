@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import type { QueryEnv, SideId } from '@asl/engine';
 import { fortKindName, fortPools, type FortPlacement, type FortificationsParams, type MineFactors, type PillboxFactors } from '@asl/rules';
 import { markerImage } from '../game/assets';
-import { hexLabel } from '../game/describe';
+import { hexNamer } from '../game/describe';
 
 /** What a tray tile puts down when a hex is clicked: the kind and, where the tile chooses it, the size or strength. */
 export type FortSpec = Pick<FortPlacement, 'kind' | 'capacity' | 'pillbox' | 'mines'>;
@@ -62,6 +62,7 @@ const pillKey = (p: PillboxFactors) => `${p.capacity}+${p.ca}+${p.nca}`;
  * and can be taken back. Hidden or open, a roadblock's hexside and a pillbox's arc are set on the map (the hex wheel).
  */
 export function FortTray({ env, side, params, placed, locked, picked, onPick, onUnplace, onChange, belt, onBelt, onGrain }: Props) {
+  const hexLabel = hexNamer(env);
   const left = fortPools(env, side, placed);
   const pick = (spec: FortSpec) => onPick(picked && JSON.stringify(picked) === JSON.stringify(spec) ? null : spec);
   const same = (spec: FortSpec) => !!picked && JSON.stringify(picked) === JSON.stringify(spec);

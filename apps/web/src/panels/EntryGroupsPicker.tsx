@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Action, Decision, HexId, QueryEnv, SideId } from '@asl/engine';
 import { ENTRY_GROUPS_DECISION, entryCountsLegal, entryEdgeHexes, entryGroupsIllegal, entryGroupsParams, entryGroupsState, entryHexesFor, statics, type EntryPick } from '@asl/rules';
 import { counterImage } from '../game/assets';
-import { hexLabel } from '../game/describe';
+import { hexNamer } from '../game/describe';
 
 /*
  * The secret entry choice on screen (S22 SSR 2): which groups come, on which turn, and the edge hex
@@ -31,6 +31,7 @@ export interface EntryGroupsUi {
 }
 
 export function useEntryGroupsPicker({ env, decision, owner, viewer, run, setError, plain }: Args): EntryGroupsUi {
+  const hexLabel = hexNamer(env);
   const choosing = owner && decision?.kind === ENTRY_GROUPS_DECISION ? decision : null;
   const p = entryGroupsParams(env);
   const [picks, setPicks] = useState<Record<string, { turn: number; hex: HexId | null }>>({});

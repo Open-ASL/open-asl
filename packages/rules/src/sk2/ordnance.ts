@@ -1102,7 +1102,10 @@ export function simpleShots(env: QueryEnv, side: SideId, targets: HexId[], mode:
                 ...(backblast !== undefined ? { backblast } : {}),
               };
               if (targetType === 'IFE' && intensive) continue;
-              if (!env.query('ordnance.illegal', { shot, mode, side, ...(moving ? { moving } : {}) }, null)) out.push(shot);
+              // IFE marked First (Final) Fire fires again like a MG, as Subsequent First Fire (FPF), not as Intensive Fire
+              // (SK4 6.8; ASLRB C2.29): its Defensive First Fire mode is the ordinary one, as the move's own check reads it.
+              const m = moving && mode === 'first' && targetType === 'IFE' ? gunFirstFireMode(env, shot) : mode;
+              if (!env.query('ordnance.illegal', { shot, mode: m, side, ...(moving ? { moving } : {}) }, null)) out.push(shot);
             }
           }
         }

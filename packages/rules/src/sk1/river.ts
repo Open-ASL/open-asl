@@ -3,6 +3,7 @@ import { Layer } from '@asl/engine';
 import { hexOf, statics } from '../common/pieces';
 import { hexOfLoc } from '../common/location';
 import { pieceOf } from './status';
+import { hexName, hexNamer } from '../labels';
 
 /*
  * A river by SSR that may be crossed at one hex only (S66 SSR 1: "The nN5-BB5 road represents the Matanikau River.
@@ -45,7 +46,7 @@ export function riverStepIllegal(env: QueryEnv, from: HexId | null | undefined, 
   for (const q of riverParams(env)) {
     const rule = q.rule ?? 'SSR';
     const { hex, from: sides } = q.crossing;
-    const label = (h: HexId) => h.replace(/^[a-z]/, '');
+    const label = hexNamer(env);
     const why = `${rule}: units enter or leave the river only at ${label(hex)}, across the ${sides.map(label).join(' or ')} hexsides`;
     if (q.hexes.includes(to) && (to !== hex || !from || !sides.includes(from))) return why;
     if (from && q.hexes.includes(from) && (from !== hex || !sides.includes(to))) return why;
@@ -105,7 +106,7 @@ export const riverModule: RuleModule = {
           if (a !== at && b !== at) continue;
           const other = a === at ? b : a;
           if (other === at || map.distance(at, other) <= 1 || (q.los ?? []).includes(other)) continue;
-          return { ...v, clear: false, blockedBy: `${q.rule ?? 'SSR'}: LOS to/from ${at.replace(/^[a-z]/, '')} only from adjacent hexes${q.los?.length ? ` and ${q.los.map((h) => h.replace(/^[a-z]/, '')).join(', ')}` : ''}` };
+          return { ...v, clear: false, blockedBy: `${q.rule ?? 'SSR'}: LOS to/from ${hexName(env, at)} only from adjacent hexes${q.los?.length ? ` and ${q.los.map(hexNamer(env)).join(', ')}` : ''}` };
         }
         return v;
       },

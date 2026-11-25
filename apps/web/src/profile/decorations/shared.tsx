@@ -52,12 +52,6 @@ function Devices({ medal, level }: { medal: Medal; level: number }) {
 /** A decoration's ribbon, with its devices. */
 export function Ribbon({ medal, level = 1, size = 'rack' }: { medal: Medal; level?: number; size?: 'rack' | 'card' | 'large' }) {
   const label = `${medal.name}${level > 1 ? `, ${levelLabel(medal, level)}` : ''}`;
-  if (medal.stripes) {
-    const stripes = [...medal.stripes, ...medal.stripes.slice(0, -1).reverse()];
-    const w = 100 / stripes.length;
-    const gradient = stripes.map((c, i) => `${c} ${i * w}% ${(i + 1) * w}%`).join(', ');
-    return <span className={`ribbon ribbon-${size}`} style={{ background: `linear-gradient(90deg, ${gradient})` }} role="img" aria-label={label}><Devices medal={medal} level={level} /></span>;
-  }
   const file = RIBBON_FILES.get(medal.id);
   return <span className={`ribbon ribbon-${size} ribbon-image`} role="img" aria-label={label}>
     {file && <img src={`/ribbons/${file}`} alt="" draggable={false} />}

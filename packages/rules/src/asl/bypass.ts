@@ -1,6 +1,6 @@
 import type { Ctx, HexId, PieceId, QueryEnv, RuleModule } from '@asl/engine';
 import { hexPixel } from '../common/map';
-import { acrossSide, cornerBetween, cornerHexes, cornerName, cornerPoint, mod6, sameCorner, sideToward } from '../common/hexCorners';
+import { acrossSide, cornerBetween, cornerHexes, cornerName, cornerPoint, mod6, sameCorner, sideHex, sideToward } from '../common/hexCorners';
 import { hexOfLoc, isGroundLoc, locationsOf, locOf, type LocId } from '../common/location';
 import { personnelAt, statics } from '../common/pieces';
 import { isAblaze } from './fire';
@@ -49,6 +49,8 @@ declare module '@asl/engine' {
  * FFMO applies in the open portion. Residual FP fills the whole Location (A8.21). No Control is gained in Bypass (A26.11).
  *
  * Exit (A2.6): from a corner on the map edge the stack may step off the map, with the MF the exit costs still in hand.
+ * A hexside of a whole hex that lies along the map edge is bypassed along like any other, and is named by the offboard
+ * hex beyond it (`sideHex`); the half of a half hex beyond the edge is not on the map and has no hexside to go along.
  *
  * Not here (later steps): A12.42 concealment, vehicles (VBM), roadblocks (B29.4), mines. (Rubble, Wire and a Blaze bar Bypass: `bypassable`, `sideFree`.)
  */
@@ -135,6 +137,8 @@ export function plan(env: QueryEnv, ms: MoveState, hex: HexId, via: HexId[]): { 
   const map = statics(env).map;
   const sides = via.map((nb) => sideToward(map, hex, nb));
   if (sides.some((k) => k === null) || via.length === 0) return 'Bypass goes along hexsides of the hex bypassed: name the hexes across them';
+  // A hexside of a whole hex along the map edge is gone along like any other; the part of a half hex beyond the edge is not on the map.
+  if (map.hex(hex)?.halfHex && via.some((nb) => !map.hex(nb))) return `${hex} is a half hex: no Bypass round the part of it beyond the map edge`;
   const ks = sides as number[];
   const same = ms.bypass?.hex === hex;
   const before = same ? ms.bypass!.sides : [];
@@ -318,7 +322,8 @@ function bypassSteps(env: QueryEnv, ms: MoveState): { type: 'move.step'; to: Loc
           if (done.includes(k) || path.includes(k) || k === entrySide || !sideFree(env, hex, k)) break;
           path.push(k);
           cur = mod6(dir > 0 ? cur + 1 : cur - 1);
-          const via = path.map((s) => acrossSide(map, hex, s));
+          // A hexside along the map edge is named by the offboard hex beyond it (`sideHex`).
+          const via = path.map((s) => sideHex(map, hex, s));
           if (via.some((v) => !v)) break;
           const a = { type: 'move.step' as const, to: hex, bypass: via as HexId[] };
           if (!bypassIllegal(env, ms, hex, a.bypass)) out.push(a);

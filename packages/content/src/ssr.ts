@@ -198,6 +198,11 @@ const hexTemModule: RuleModule = {
       id: 'ssr.hex-tem',
       query: 'hex.tem',
       layer: 10,
+      label: ({ hex }, env) => {
+        const id = statics(env).map.hex(hexOfLoc(hex))?.id;
+        const q = statics(env).scenario.ssr.find((s) => s.module === 'hex-tem' && (s.params as unknown as HexTemParams).hexes.includes(id ?? ''))?.params as unknown as HexTemParams | undefined;
+        return `${q ? statics(env).terrain[q.terrain]?.name ?? q.terrain : 'other'} TEM (SSR)`;
+      },
       apply(v, { hex }, env) {
         const id = statics(env).map.hex(hexOfLoc(hex))?.id;
         for (const s of statics(env).scenario.ssr) {

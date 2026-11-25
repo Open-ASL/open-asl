@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { SideId } from '@asl/engine';
-import { COUNTERS, boardHexes, productById, scenarioName, scenarioNumber, turnsLabel } from '@asl/content';
-import { chartLabel, forceChartVp, type CounterDef, type ForceChartParams, type ScenarioDef, type ScenarioForce, type SpecialAmmoDef, type VariableReinforcementsParams, type VehicleDef } from '@asl/rules';
+import { COUNTERS, availableBoards, boardHexes, productById, scenarioName, scenarioNumber, turnsLabel } from '@asl/content';
+import { chartLabel, forceChartVp, scenarioHexName, type CounterDef, type ForceChartParams, type ScenarioDef, type ScenarioForce, type SpecialAmmoDef, type VariableReinforcementsParams, type VehicleDef } from '@asl/rules';
 import { assetUrl, counterImage } from '../game/assets';
 import { NATION, defLabel } from '../game/describe';
 import { Emblem } from '../fx/TurnChit';
@@ -19,8 +19,6 @@ export function edgeWords(edge: string): string {
   return edges.map((e) => EDGE_NAME[e] ?? EDGE_NAME[e[0]!] ?? e).join(' or ');
 }
 
-/** A hex id without its board letter, e.g. yN5 → N5. */
-const hex = (h: string) => h.replace(/^[a-z]/, '');
 
 /**
  * A building named the way the card names it: by one of its hexes, the one the card's victory
@@ -29,7 +27,7 @@ const hex = (h: string) => h.replace(/^[a-z]/, '');
  */
 function buildingName(id: string, sc: ScenarioDef): string {
   // On a map of several boards a hex keeps its board letter, as the cards write it ("yFF5"): two boards may both have an FF6.
-  const label = (k: string) => (sc.boards.length > 1 ? k : hex(k));
+  const label = (k: string) => scenarioHexName(sc, k);
   const hexes = sc.boards.flatMap((b) =>
     Object.entries(boardHexes(b.board))
       .filter(([, h]) => h.buildingId === id)
@@ -40,8 +38,19 @@ function buildingName(id: string, sc: ScenarioDef): string {
   return hexes.length > 1 ? `${named} (${hexes.join('/')})` : named;
 }
 
+/**
+ * What the month's conditions do to the map: grain is in season June–September and Open Ground otherwise (SK1 terrain),
+ * the one month-dependent terrain. None when the boards have no grain, or an SSR makes the grain another terrain.
+ */
+export function monthConditions(sc: Pick<ScenarioDef, 'boards' | 'month' | 'ssr'>): string | null {
+  if (sc.ssr.some((s) => s.module === 'terrain-override' && (s.params as { terrain?: Record<string, string> } | undefined)?.terrain?.['grain'])) return null;
+  if (!sc.boards.some((b) => availableBoards().includes(b.board) && Object.values(boardHexes(b.board)).some((h) => h.terrain === 'grain'))) return null;
+  return sc.month >= 6 && sc.month <= 9 ? 'grain in season: Hindrance, 1½ MF' : 'grain is Open Ground';
+}
+
 /** A victory condition in words. */
 export function describeVictory(v: ScenarioDef['victory'][number], sc: ScenarioDef): string {
+  const hex = (h: string) => scenarioHexName(sc, h);
   const name = (s: string) => sc.sides.find((x) => x.side === s)?.name ?? s;
   const hexes = (h: string[]) => (h.length > 12 ? `${h.length} hexes` : h.map(hex).join(', '));
   const list = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs.join(''));
@@ -208,8 +217,9 @@ function forceChartRules(sc: ScenarioDef): ForceChartParams[] {
   return sc.ssr.filter((r) => r.module === 'force-chart').map((r) => r.params as unknown as ForceChartParams);
 }
 
-/** A force's setup instruction in words (from the scenario data). */
-export function setupRule(f: ScenarioForce): string {
+/** A force's setup instruction in words (from the scenario data); its hexes keep their board letter on a map of several boards. */
+export function setupRule(f: ScenarioForce, sc: Pick<ScenarioDef, 'boards'>): string {
+  const hex = (h: string) => scenarioHexName(sc, h);
   const s = f.setup;
   if (s.description) return s.description;
   if (s.kind === 'area' || s.kind === 'scatter') return s.description;
@@ -535,6 +545,7 @@ export function Briefing({ scenario: sc, balance, onBalance, children }: Props) 
   const setsUpFirst = sc.sides.find((s) => s.setupFirst);
   const unitCount = (side: string) => sc.forces.filter((f) => f.side === side).reduce((n, f) => n + f.units.reduce((m, u) => m + u.count, 0), 0);
   const dateline = [sc.place, sc.date].filter(Boolean).join(', ');
+  const monthNote = monthConditions(sc);
   // Secretly picked entry groups (SSR) may come on either of the rule's turns, as the card's "+" marks show.
   const entryGroups = sc.ssr.find((r) => r.module === 'entry-groups')?.params as { side: string; turn: number; laterTurn: number } | undefined;
   // Groups given their turns secretly before setup (SSR) enter on any of the rule's turns.
@@ -599,7 +610,7 @@ export function Briefing({ scenario: sc, balance, onBalance, children }: Props) 
           </span>
         )}
         <span>
-          <b>{MONTH[sc.month] ?? ''}</b> conditions
+          <b>{MONTH[sc.month] ?? ''}</b> conditions{monthNote ? ` · ${monthNote}` : ''}
         </span>
         {setsUpFirst && (
           <span>
@@ -715,7 +726,7 @@ export function Briefing({ scenario: sc, balance, onBalance, children }: Props) 
               {forces.map((f, i) => (
                 <div key={f.id ?? i} className="brief-force">
                   {f.group && <div className="brief-force-name">{f.group}</div>}
-                  <div className="brief-force-rule">{setupRule(f)}:</div>
+                  <div className="brief-force-rule">{setupRule(f, sc)}:</div>
                   <div className="brief-chits">
                     {f.units.map((u, j) => (
                       <span key={j} className="brief-unit">

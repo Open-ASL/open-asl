@@ -1,5 +1,4 @@
 import type { HexId, PieceId } from '@asl/engine';
-import { hexLabel } from '../game/describe';
 
 export interface RofChoiceItem {
   sw: PieceId;
@@ -8,6 +7,8 @@ export interface RofChoiceItem {
   at: HexId;
   /** The attack's target hex, where the Residual FP would go. */
   target: HexId;
+  /** The target hex as players name it (`hexName`: with its board letter on a map of several boards). */
+  targetName: string;
   /** Residual FP giving the ROF up would leave there. */
   residual: number;
   /** The weapon can fire again at the stack from here (an infantry SW; Guns use their own menu). */
@@ -29,14 +30,14 @@ export function RofChoice({ choices, onDecline, onFire, onKeep }: { choices: Rof
             <b>{c.label}</b> kept ROF
           </span>
           {c.canFire && (
-            <button onClick={() => onFire(c)} title={`Line the ${c.label} up for another shot at ${hexLabel(c.target)} (it keeps its ROF)`}>
+            <button onClick={() => onFire(c)} title={`Line the ${c.label} up for another shot at ${c.targetName} (it keeps its ROF)`}>
               Fire again
             </button>
           )}
           <button
             className="rof-choice-decline"
             onClick={() => onDecline(c.sw)}
-            title={`Give up the Rate of Fire: the ${c.label} is marked as having fired and ${c.residual} Residual FP is left in ${hexLabel(c.target)} (SK1 3.3.1)`}
+            title={`Give up the Rate of Fire: the ${c.label} is marked as having fired and ${c.residual} Residual FP is left in ${c.targetName} (SK1 3.3.1)`}
           >
             Leave {c.residual} Residual FP instead
           </button>

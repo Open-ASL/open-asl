@@ -6,19 +6,21 @@ import {
   ccStateOf,
   ccUnits,
   declarationOptions,
+  drmNotes,
   isBroken,
   mmc,
   otherSide,
   personnelAt,
   smc,
   stackedOn,
+  type AmbushRoll,
   type CcAttack,
   type CcAttackPreview,
 } from '@asl/rules';
 import { playSfx } from '../audio/engine';
 import { Die, displayDice } from '../fx/DiceTray';
 import { counterImage } from '../game/assets';
-import { hexLabel, pieceLabel } from '../game/describe';
+import { hexNamer, pieceLabel } from '../game/describe';
 
 /*
  * The Close Combat overlay (SK1 3.8): both players watch one hex's Close Combat here, from the
@@ -98,7 +100,8 @@ export interface Card {
 }
 
 interface AmbushView {
-  rolls: Partial<Record<SideId, { dr: number; drm: number }>>;
+  /** Each side's die, its drm and the parts that make up the drm (+1 Pinned, -1 leadership). */
+  rolls: Partial<Record<SideId, { dr: number; drm: number; notes: string[] }>>;
   /** null: no ambush; undefined: the second die has not shown yet. */
   ambusher: SideId | null | undefined;
 }
@@ -221,15 +224,21 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
   }
 
   // The ambush dice, one per side, as revealed; the verdict once the declarations have begun.
+  // The drm is the one the rules logged with the rolls, not worked out again: a unit killed in this CC since would change it.
   const after = log.filter((e) => e.seq > session.openedSeq);
+  const logged = after.flatMap((e) => (e.type === 'sk1.cc.state' ? ((e.payload as { ambush?: { rolls: AmbushRoll[] } }).ambush?.rolls ?? []) : []));
   const rolls: AmbushView['rolls'] = {};
   for (const e of after) {
     if (e.type !== 'dice.rolled') continue;
     const p = e.payload as { label: string; dice: number[] };
     for (const side of env.state.sides) {
       if (p.label !== `Ambush dr (${side}) in ${hex}`) continue;
-      const units = personnelAt(env, hex, side).map((x) => x.id);
-      rolls[side] = { dr: p.dice[0] ?? 0, drm: env.query('cc.ambushDrm', { hex, side, units }, 0) };
+      const mine = logged.find((r) => r.side === side);
+      const drm = mine ? { value: mine.drm, notes: mine.notes } : (() => {
+        const res = env.explain('cc.ambushDrm', { hex, side, units: personnelAt(env, hex, side).map((x) => x.id) }, 0);
+        return { value: res.value, notes: drmNotes(res).flatMap((n) => (n.label ? [n.label] : [])) };
+      })();
+      rolls[side] = { dr: p.dice[0] ?? 0, drm: drm.value, notes: drm.notes };
     }
   }
   const bothRolled = env.state.sides.every((s) => rolls[s]);
@@ -462,6 +471,7 @@ interface PanelProps extends Props {
 }
 
 function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, check, plain, animate, session, view, dismiss }: PanelProps) {
+  const hexLabel = hexNamer(env);
   const { hex, step, acting, sequential, roster, order } = view;
   const mine = !!owner && acting === owner && session.phase === 'open' && !resolving;
   const me = mine ? owner : undefined;
@@ -709,7 +719,8 @@ function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, chec
         <Die value={r.dr} />
         <span className="ct">
           dr {r.dr}
-          {r.drm ? ` ${signed(r.drm)} = ${r.dr + r.drm}` : ''}
+          {r.drm || r.notes.length ? ` ${signed(r.drm)} = ${r.dr + r.drm}` : ''}
+          {r.notes.length ? ` (${r.notes.join(', ')})` : ''}
         </span>
       </div>
     );

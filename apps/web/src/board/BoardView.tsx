@@ -1136,6 +1136,12 @@ export function unitMarkers(p: Piece, nationality?: string, moving?: string): st
   return m;
 }
 
+/**
+ * Whether a unit's "?" lies under one of its status markers (a Double Time CX, a Pin...), where only its edge would
+ * show: it is then also named by a "?" badge, so a concealed unit still reads as concealed (SK4 8.3).
+ */
+export const qmarkCovered = (markers: string[]): boolean => markers[0]?.startsWith('qmark-') === true && markers.length > 1;
+
 /** Text badges for states without marker art (Intensive Fire, a captured Gun). */
 function unitBadges(p: Piece, captured: boolean): string[] {
   const out: string[] = [];
@@ -3127,7 +3133,7 @@ export function BoardView({
           const letter = gunIdents(s, env).get(p.id);
           if (letter) box.addChild(identBadge(letter, 9, 9, 8));
         }
-        const badges = d.kind === 'gun' ? unitBadges(p, isCaptured(env as never, p)) : [...(o.onRoad?.has(p.id) ? ['ROAD'] : []), ...(o.assaultMoving?.has(p.id) ? ['AM'] : []), ...(o.inBypass?.has(p.id) ? ['BYP'] : []), ...(o.snap?.units.has(p.id) ? ['SNAP'] : []), ...(o.smokeTried?.has(p.id) ? ['SMK'] : []), ...(typeof p.tags['wa'] === 'string' ? ['WA'] : []), ...(clearingUnits(s).has(p.id) ? ['TASK'] : [])];
+        const badges = d.kind === 'gun' ? unitBadges(p, isCaptured(env as never, p)) : [...(!bare && qmarkCovered(markersOf(p)) ? ['?'] : []), ...(o.onRoad?.has(p.id) ? ['ROAD'] : []), ...(o.assaultMoving?.has(p.id) ? ['AM'] : []), ...(o.inBypass?.has(p.id) ? ['BYP'] : []), ...(o.snap?.units.has(p.id) ? ['SNAP'] : []), ...(o.smokeTried?.has(p.id) ? ['SMK'] : []), ...(typeof p.tags['wa'] === 'string' ? ['WA'] : []), ...(clearingUnits(s).has(p.id) ? ['TASK'] : [])];
         badges.forEach((label, k) => {
           const bg = new Graphics().roundRect(size - 26, 2 + k * 14, 24, 12, 3).fill({ color: label === 'CAPT' ? 0xc0392b : label === 'ROAD' ? 0x8a6a2c : label === 'BYP' ? 0xc77d0a : label === 'SNAP' ? 0x2f7fd6 : label === 'SMK' ? 0x5b6670 : label === 'AM' ? 0x1f8a5b : label === 'WA' ? 0x6b5b3e : label === 'TASK' ? 0x7a4bb0 : 0x2a2a2a, alpha: 0.9 });
           const tx = new Text({ text: label, style: { fontSize: 9, fill: 0xffffff, fontWeight: 'bold' } });

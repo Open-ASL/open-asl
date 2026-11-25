@@ -14,7 +14,7 @@ import {
   type ScatterPlan,
 } from '@asl/rules';
 import { counterImage } from '../game/assets';
-import { hexLabel, pieceLabel } from '../game/describe';
+import { hexNamer, pieceLabel } from '../game/describe';
 
 /*
  * The scatter setup's two steps on screen (S22 SSR 1 and 3). The plan: every unit and SW of the side's
@@ -45,6 +45,7 @@ export interface ScatterUi {
 }
 
 export function useScatterPlanner({ env, decision, owner, viewer, run, setError, plain }: Args): ScatterUi {
+  const hexLabel = hexNamer(env);
   const planning = owner && decision?.kind === SCATTER_PLAN_DECISION ? decision : null;
   const rolling = owner && decision?.kind === SCATTER_ROLL_DECISION ? decision : null;
   const params = scatterParams(env);

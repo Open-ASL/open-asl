@@ -91,6 +91,8 @@ export interface FireAttackCtx {
   caChange?: { weapon: PieceId; spines: number; mount: Mount };
   /** The turret hexspine a vehicle's MG/IFE attack turns to first (`FireDeclaration.tca`). */
   tca?: number;
+  /** The hull hexspine a vehicle's bow-mounted MG/IFE attack turns to first (`FireDeclaration.vca`). */
+  vca?: number;
   /** Full ASL: a Snap Shot at the hexside the moving stack crossed (`FireDeclaration.snap`, ASLRB A8.15). */
   snap?: [HexId, HexId];
   /**
@@ -120,6 +122,8 @@ export interface FireDeclaration {
   caChange?: { weapon: PieceId; spines: number; mount: Mount };
   /** A vehicle's MG/IFE attack turning the turret to this hexspine first (SK4 3.2.4 case 8 on the IFT; sk3.vehicleMg). */
   tca?: number;
+  /** A vehicle's bow-mounted MG/IFE attack turning the hull to this hexspine first (SK4 7.8, NT case 8; sk3.vehicleMg). */
+  vca?: number;
   /** A Flamethrower predesignating an AFV in the target hex (SK4 4.2): the attack is a To Kill roll on the vehicle, not IFT fire. */
   vsVehicle?: PieceId;
   /**
@@ -574,6 +578,7 @@ export function buildAttack(
     hindrance,
     ...(decl.caChange ? { caChange: decl.caChange } : {}),
     ...(decl.tca !== undefined ? { tca: decl.tca } : {}),
+    ...(decl.vca !== undefined ? { vca: decl.vca } : {}),
     ...(decl.snap ? { snap: decl.snap } : {}),
   };
   const seen = env.query('fire.targetsSeen', { attack }, attack.targets);
@@ -639,6 +644,34 @@ export function directionDrm(env: QueryEnv, a: FireAttackCtx): number | null {
 
 const isFt = (env: QueryEnv, id: PieceId) => sw(env, pieceOf(env, id))?.type === 'FT';
 export const isDc = (env: QueryEnv, id: PieceId) => sw(env, pieceOf(env, id))?.type === 'DC';
+
+/**
+ * Fire Group contiguity (a leader alone cannot be a link): each firing Location ADJACENT to another (SK1 3.2 "adjacent
+ * hexes"; ASLRB A7.5 "a Location ADJACENT to another participating unit"). In the Starter Kit a hex is one Location
+ * and 'loc.adjacent' its neighbours, so this is the hex rule; in full ASL a level-1 unit and a ground unit next door
+ * are not ADJACENT (B23.25) and cannot combine. `firers` are the firing units (a SW counts as its holder).
+ */
+export function fireGroupContiguous(env: QueryEnv, firers: Iterable<PieceId>): boolean {
+  const pieces = [...firers].map((id) => {
+    const p = pieceOf(env, id);
+    return p.loc.kind === 'held' ? pieceOf(env, p.loc.by) : p;
+  });
+  const groupLocs = [...new Set(pieces.map((p) => locOf(env.state, p)!))];
+  if (groupLocs.length <= 1) return true;
+  const linkLocs = new Set(pieces.filter((p) => mmc(env, p)).map((p) => locOf(env.state, p)!));
+  const seen = new Set<LocId>([groupLocs[0]!]);
+  const stack = [groupLocs[0]!];
+  while (stack.length) {
+    const h = stack.pop()!;
+    for (const n of adjacentLocs(env, h)) {
+      if (groupLocs.includes(n) && !seen.has(n) && (linkLocs.has(n) || linkLocs.has(h))) {
+        seen.add(n);
+        stack.push(n);
+      }
+    }
+  }
+  return seen.size === groupLocs.length;
+}
 /** An Anti-Tank Rifle on the IFT (SK4 4.4.4): 1 FP, no long range, no Residual FP. */
 const isAtr = (env: QueryEnv, id: PieceId) => sw(env, pieceOf(env, id))?.type === 'ATR';
 /** A machine gun, or a Gun firing its IFE "as if the weapon were a MG" (SK4 6.8). */
@@ -796,7 +829,13 @@ export const fireModule: RuleModule = {
       id: 'sk1.drm.tem',
       query: 'fire.drm',
       ref: 'SK1 1.1.1',
-      label: ({ attack }, env) => `+${env.query('hex.tem', { hex: attack.target }, 0)} TEM (${terrainOf(env, attack.target).name})`,
+      label: ({ attack }, env) => {
+        // A rule that changes the hex's own TEM is named with it: a Light jungle hex an SSR gives Dense jungle TEM reads
+        // "+2 TEM (Light Jungle; Dense Jungle TEM (SSR))", not "+2 TEM (Light Jungle)". Hidden modifiers stay out.
+        const { value, trace } = env.explain('hex.tem', { hex: attack.target }, 0);
+        const why = trace.filter((t) => t.label && !t.secret && !t.suppressedBy && t.before !== t.after).map((t) => t.label);
+        return `+${value} TEM (${[terrainOf(env, attack.target).name, ...why].join('; ')})`;
+      },
       when: ({ attack }, env) => !attack.parts.some((p) => p.kind === 'sw' && isFt(env, p.piece)),
       apply: (v, { attack }, env) => v + env.query('hex.tem', { hex: attack.target }, 0),
     });
@@ -1146,26 +1185,7 @@ function basicIllegal(env: QueryEnv, decl: FireDeclaration, mode: FireMode, side
     // IFE and an ATR have no long range fire (SK4 6.8, 4.4.4).
     if (dist > weaponRange(env, id) * (weapon(env, s)?.kind === 'gun' || vehicleIfe(env, s) || isAtr(env, id) ? 1 : 2)) return `${id} is out of range`;
   }
-  // Fire Group contiguity (a leader alone cannot be a link): each firing Location ADJACENT to another (SK1 3.2 "adjacent
-  // hexes"; ASLRB A7.5 "a Location ADJACENT to another participating unit"). In the Starter Kit a hex is one Location
-  // and 'loc.adjacent' its neighbours, so this is the hex rule; in full ASL a level-1 unit and a ground unit next door
-  // are not ADJACENT (B23.25) and cannot combine.
-  const groupLocs = [...new Set([...firers].map((id) => locOf(env.state, pieceOf(env, id))!))];
-  if (groupLocs.length > 1) {
-    const linkLocs = new Set([...firers].filter((id) => mmc(env, pieceOf(env, id))).map((id) => locOf(env.state, pieceOf(env, id))!));
-    const seen = new Set<LocId>([groupLocs[0]!]);
-    const stack = [groupLocs[0]!];
-    while (stack.length) {
-      const h = stack.pop()!;
-      for (const n of adjacentLocs(env, h)) {
-        if (groupLocs.includes(n) && !seen.has(n) && (linkLocs.has(n) || linkLocs.has(h))) {
-          seen.add(n);
-          stack.push(n);
-        }
-      }
-    }
-    if (seen.size !== groupLocs.length) return 'Fire Group units must be in contiguous hexes';
-  }
+  if (!fireGroupContiguous(env, firers)) return 'Fire Group units must be in contiguous hexes';
   // Leader direction (SK1 3.2): a multi-hex FG may only be directed if a directing leader is
   // present in every firing hex; the worst of their leadership DRMs applies (see directionDrm).
   // A leader directs the units of his own Location (ASLRB A2.8: one Location per hex in the Starter Kit).

@@ -1,8 +1,8 @@
 import type { GameState, LoggedEvent, QueryEnv, SideId } from '@asl/engine';
-import { SKY_NAME, chartLabel, entrenchmentAt, minefieldAt, rubbleAt, fortifiedKnownTo, defOf, hexOfLoc, levelOfLoc, entryAfterFireParams, entryGroupsParams, secretLengthParams, fortifiedParams, fortKindName, hexOf, shownCounter, type FortRecord, scatterParams, isVisibleTo, isWeaponDef, statics, weatherLabel, type CounterDef, type IftResult, type VariableReinforcementsEvent, type EntryOrderDrEvent, type EntryLossesEvent, entryOrderDrParams, entryOrderLabel, type ForceChartEvent, type ScatterState, type ScatterLanding, type EntryGroupsState, type Weather, NATION, PHASE_NAME, defLabel, hexLabel, humanize, nameIds, nationName, pieceLabel, sideNameOf, entryStretchParams, type LeaderReliefEvent, type OnceDrEvent, type OnceDrNmcEvent, type OnceDrRallyEvent, type LeaderPtcEvent, type RoutStep, sideNationalities } from '@asl/rules';
+import { SKY_NAME, chartLabel, entrenchmentAt, minefieldAt, rubbleAt, fortifiedKnownTo, defOf, hexOfLoc, levelOfLoc, entryAfterFireParams, entryGroupsParams, secretLengthParams, fortifiedParams, fortKindName, hexOf, shownCounter, type FortRecord, scatterParams, isVisibleTo, isWeaponDef, statics, weatherLabel, type CounterDef, type IftResult, type VariableReinforcementsEvent, type EntryOrderDrEvent, type EntryLossesEvent, entryOrderDrParams, entryOrderLabel, type ForceChartEvent, type ScatterState, type ScatterLanding, type EntryGroupsState, type Weather, NATION, PHASE_NAME, defLabel, hexName, hexNamer, humanize, nameIds, nationName, pieceLabel, sideNameOf, entryStretchParams, type LeaderReliefEvent, type OnceDrEvent, type OnceDrNmcEvent, type OnceDrRallyEvent, type LeaderPtcEvent, type RoutStep, sideNationalities } from '@asl/rules';
 
 // The naming helpers live in @asl/rules (labels.ts) so the server can name units too; re-exported for the many callers here.
-export { NATION, PHASE_NAME, defLabel, hexLabel, humanize, nameIds, nationName, pieceLabel, sideNameOf };
+export { NATION, PHASE_NAME, defLabel, hexName, hexNamer, humanize, nameIds, nationName, pieceLabel, sideNameOf };
 
 /**
  * The side a phase belongs to, to name it by: the DEFENDER's in the Defensive Fire Phase (SK1 3.4: "the DEFENDER may
@@ -117,8 +117,6 @@ const FIRE_MODE_NAME: Record<string, string> = {
 const drText = (dr: readonly number[]) => `${dr[1]}+${dr[0]}=${dr[0]! + dr[1]!}`;
 /** The hexsides of the hex grid by `sideToward`'s numbering (0 south-east, clockwise), as the wind and falling rubble name them. */
 const HEXSIDE_NAME = ['south-east', 'south', 'south-west', 'north-west', 'north', 'north-east'];
-/** A Location for the log: its hex, and the level when above ground. */
-const locText = (loc: string) => `${hexLabel(hexOfLoc(loc))}${levelOfLoc(loc) ? ` level ${levelOfLoc(loc)}` : ''}`;
 const noteLabels = (xs: unknown) => ((xs as { label?: string }[] | undefined) ?? []).map((x) => x.label).filter((l): l is string => !!l);
 
 /**
@@ -126,6 +124,10 @@ const noteLabels = (xs: unknown) => ((xs as { label?: string }[] | undefined) ??
  * never reads of a piece still hidden from them (SK2 HIP): such lines are left out.
  */
 export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: SideId | null = null): LogLine[] {
+  // Hexes as players name them: with their board letter on a map of several boards.
+  const hexLabel = hexNamer(env);
+  // A Location for the log: its hex, and the level when above ground.
+  const locText = (loc: string) => `${hexLabel(hexOfLoc(loc))}${levelOfLoc(loc) ? ` level ${levelOfLoc(loc)}` : ''}`;
   const out: LogLine[] = [];
   const hiddenFrom = (id: string) => {
     const pc = env.state.pieces[id];
@@ -392,7 +394,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         if (pc && isWeaponDef(defOf(env, pc))) {
           const gun = defOf(env, pc).kind === 'gun';
           if (loc.kind === 'held' && loc.by) out.push({ seq: e.seq, kind: 'info', text: `  ⇄ ${name(pc.id)} now ${gun ? 'manned' : 'carried'} by ${name(loc.by)}` });
-          else if (loc.kind === 'hex' && loc.hex) out.push({ seq: e.seq, kind: 'info', text: `  ⤓ ${name(pc.id)} left in ${loc.hex.replace(/^[a-z]/, '')}` });
+          else if (loc.kind === 'hex' && loc.hex) out.push({ seq: e.seq, kind: 'info', text: `  ⤓ ${name(pc.id)} left in ${hexLabel(loc.hex)}` });
         }
         break;
       }
@@ -1498,6 +1500,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         break;
       case 'sk4.banzai.impulse':
         if ((p['mf'] as number) > 0) out.push({ seq: e.seq, kind: 'info', text: `  Impulse ${p['impulse']} over: every Banzai unit is charged ${p['mf']} MF; the defender may fire at each Banzai hex` });
+        else out.push({ seq: e.seq, kind: 'info', text: `  Banzai Impulse ${p['impulse']}: ${(p['units'] as string[]).map(name).join(', ')} each move one hex, then the defender may fire (SK4 8.1.8.6)` });
         break;
       case 'sk4.banzai.out':
         out.push({ seq: e.seq, kind: 'info', text: `  ${name(p['unit'] as string)} leaves the Banzai Charge: ${p['why']}` });

@@ -448,5 +448,23 @@
     "licence": "CC BY-SA 4.0",
     "author": "KarlHeintz",
     "notes": ""
+  },
+  {
+    "id": "beta-campaign",
+    "file": "beta-campaign.svg",
+    "commons": "",
+    "url": "",
+    "licence": "Open ASL (see LICENSE)",
+    "author": "Open ASL",
+    "notes": "The Beta Campaign Ribbon, drawn for Open ASL: its stripes mirrored about the centre, with the ribbing of the Commons ribbons."
+  },
+  {
+    "id": "beta-service",
+    "file": "beta-service.svg",
+    "commons": "",
+    "url": "",
+    "licence": "Open ASL (see LICENSE)",
+    "author": "Open ASL",
+    "notes": "The Beta Service Ribbon, drawn for Open ASL: its stripes mirrored about the centre, with the ribbing of the Commons ribbons."
   }
 ]

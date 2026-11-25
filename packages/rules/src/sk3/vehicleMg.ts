@@ -1,5 +1,5 @@
 import { hexOfLoc } from '../common/location';
-import type { Action, Piece, PieceId, QueryEnv, RuleModule } from '@asl/engine';
+import type { Action, Ctx, Piece, PieceId, QueryEnv, RuleModule } from '@asl/engine';
 import { defOf, hexOf, statics, swHeldBy } from '../common/pieces';
 import { PHASE_DECISION } from '../common/turn';
 import { FP, firedAt, isRofShot, type FireAttackCtx, type FireDeclaration, type FireMode, type FirePart, type ResolveFireFn } from '../sk1/fire';
@@ -9,8 +9,8 @@ import { isWoodsRoad, terrainOf } from '../sk1/terrain';
 import { caChangeDrm, inCoveredArc, nearestSpine, spineChange } from '../sk2/arc';
 import { OP, woodsBuildingOrRubble, type OrdnanceFireFn, type ShotCtx } from '../sk2/ordnance';
 import { ACQ_CLEAR, T2, caTurnedIllegal, coveredArc, ordnanceOf } from '../sk2/status';
-import { T3, crewCanAct, inMotion, isCe, isWreck, stunWord, tcaOf, vcaOf, vehicle, type VehicleMgKind } from './status';
-import { movingVehicle } from './vehicleMove';
+import { BOW_TURN, T3, crewCanAct, inMotion, isCe, isWreck, stunWord, tcaOf, vcaOf, vehicle, type VehicleMgKind } from './status';
+import { hullTurnRefusal, movingVehicle, turnRiskingBog, closeTerrain } from './vehicleMove';
 import { firerNonStoppedVehicle } from './vehicleFire';
 
 /*
@@ -61,17 +61,50 @@ function armamentFgIllegal(env: QueryEnv, v: PieceId, decl: FireDeclaration, mod
 // ---------------------------------------------------------------- turret turns
 // A turret weapon may turn the turret before firing and pays the Covered Arc change DRM (SK4 3.2.4 case 8: "To Hit
 // [or IFT if using MG/IFE] Firer Based penalties"), on its first shot after the change only. Once one turret weapon
-// has fired after a turn, the vehicle's other turret weapons firing in that TCA this phase pay the same penalty (ASL
-// D3.51 Maintaining CA; SK4 is silent). The turn this phase is kept on the vehicle: the phase, the hexspines, and the
-// turret weapons that have paid for it.
+// has fired after a turn, the vehicle's other turret weapons firing in that TCA this phase pay the same penalty (SK4
+// 7.8: "once a vehicle fires any turret-mounted weapon, any of its other turret-mounted weapons must pay the same CA
+// penalties as the first weapon that fired"; ASL D3.51 Maintaining CA). The turn this phase is kept on the vehicle: the
+// phase, the hexspines, and the turret weapons that have paid for it.
 const TURN = { phase: 'tcaTurnPhase', spines: 'tcaTurnSpines', paid: 'tcaTurnPaid' } as const;
+// The bow-mounted weapons the same (SK4 7.8: "These same principles apply to bow-mounted weapons if changing the VCA to
+// fire"): a BMG, or an NT vehicle's MA or its IFE, that turned the hull to fire; the other bow weapon firing in that VCA
+// this phase pays the same NT penalty ("BMG = NT").
+const BOW = BOW_TURN;
 const phaseKey = (env: QueryEnv) => `${env.state.turn}${env.state.attacker}${env.state.phase}`;
 const turreted = (env: QueryEnv, v: Piece) => (vehicle(env, v)?.turret ?? 'NT') !== 'NT';
 
-/** The turret turn a vehicle made this phase, if any, and which of its turret weapons have paid for it. */
-function turnThisPhase(env: QueryEnv, v: Piece): { spines: number; paid: string[] } | null {
-  if (v.tags[TURN.phase] !== phaseKey(env)) return null;
-  return { spines: (v.tags[TURN.spines] as number | undefined) ?? 0, paid: String(v.tags[TURN.paid] ?? '').split(',').filter(Boolean) };
+/** The turret (or, `bow`, hull) turn a vehicle made this phase, if any, and which of its weapons have paid for it. */
+function turnThisPhase(env: QueryEnv, v: Piece, rec: typeof TURN | typeof BOW = TURN): { spines: number; paid: string[] } | null {
+  if (v.tags[rec.phase] !== phaseKey(env)) return null;
+  return { spines: (v.tags[rec.spines] as number | undefined) ?? 0, paid: String(v.tags[rec.paid] ?? '').split(',').filter(Boolean) };
+}
+/** Record a turn for the attack's weapons, or that they paid for this phase's turn. */
+function recordTurn(ctx: Ctx, v: PieceId, rec: typeof TURN | typeof BOW, ids: PieceId[], spines: number) {
+  if (spines > 0) {
+    setTags(ctx, v, { [rec.phase]: phaseKey(ctx), [rec.spines]: spines, [rec.paid]: ids.join(',') });
+    return;
+  }
+  const turn = turnThisPhase(ctx, pieceOf(ctx, v), rec);
+  if (turn) setTags(ctx, v, { [rec.paid]: [...new Set([...turn.paid, ...ids])].join(',') });
+}
+/** Case 8 for a hull turned `spines` hexspines to fire a bow weapon: NT (SK4 7.8 "BMG = NT"), doubled as a turret's. */
+function hullDrm(env: QueryEnv, v: Piece, spines: number): number {
+  const hex = hexOf(env.state, v);
+  const close = !!hex && woodsBuildingOrRubble(env, hex) && !isWoodsRoad(env, hex);
+  return caChangeDrm('NT', spines) * (close ? 2 : 1);
+}
+/** The bow-mounted weapons among an attack's: the BMG, and an NT vehicle's MA as IFE. */
+function bowWeapons(env: QueryEnv, ids: PieceId[]): { v: Piece; ids: PieceId[] } | null {
+  let v: Piece | null = null;
+  const out: PieceId[] = [];
+  for (const id of ids) {
+    const mg = vehicleMgOf(env, id);
+    const veh = mg?.kind === 'bmg' ? mg.vehicle : ifeOf(env, id) && !turreted(env, pieceOf(env, id)) ? id : null;
+    if (!veh) continue;
+    v = pieceOf(env, veh);
+    out.push(id);
+  }
+  return v ? { v, ids: out } : null;
 }
 
 /**
@@ -120,6 +153,22 @@ export function turretTurnFor(env: QueryEnv, decl: Pick<FireDeclaration, 'sw' | 
 }
 
 /**
+ * The hull hexspine a vehicle's bow-weapon attack (its BMG, with an NT vehicle's MA as IFE) must turn to for them to
+ * bear on `target` (the fewest hexspines; SK4 7.8), or undefined when they already bear, when the attack has turret
+ * weapons too (they turn the turret instead), or when no MG takes part (the MA alone turns as it fires).
+ */
+export function hullTurnFor(env: QueryEnv, decl: Pick<FireDeclaration, 'sw' | 'target'>): number | undefined {
+  const bw = bowWeapons(env, decl.sw);
+  if (!bw || decl.sw.some((id) => !bw.ids.includes(id)) || !decl.sw.some((id) => vehicleMgOf(env, id)?.kind === 'bmg')) return undefined;
+  const at = hexOf(env.state, bw.v);
+  const map = statics(env).map;
+  const me = at ? map.hex(at) : undefined;
+  const target = map.hex(hexOfLoc(decl.target));
+  if (!me || !target || at === decl.target || inCoveredArc(me.cube, vcaOf(bw.v), target.cube)) return undefined;
+  return nearestSpine(me.cube, vcaOf(bw.v), target.cube) ?? undefined;
+}
+
+/**
  * Why a vehicle MG may not fire now whatever its target (disabled, or barred by the crew's posture: the AAMG only
  * Crew Exposed, SK4 7.8; ASLRB D1.83), or null. The wheel offers only the MGs this passes.
  */
@@ -141,6 +190,7 @@ export function vehicleMgIllegal(env: QueryEnv, decl: FireDeclaration, mode: Fir
   const mgs = decl.sw.map((id) => ({ id, mg: vehicleMgOf(env, id) })).filter((x) => x.mg);
   const ife = decl.sw.filter((id) => ifeOf(env, id));
   // The MA's IFE alone: the ordnance rules judge it, but for the Fire Group it may owe the MGs.
+  if (mgs.length === 0 && decl.vca !== undefined) return 'The Main Armament turns the hull as it fires its own shot';
   if (mgs.length === 0) return ife.length === 1 && decl.sw.length === 1 && decl.units.length === 0 ? armamentFgIllegal(env, ife[0]!, decl, mode, !!moving) : null;
   const vehicles = new Set([...mgs.map((x) => x.mg!.vehicle), ...ife]);
   if (vehicles.size > 1 || decl.units.length > 0 || decl.sw.length !== mgs.length + ife.length) return "A vehicle's MGs form a Fire Group only with each other and its MA's IFE";
@@ -162,6 +212,7 @@ export function vehicleMgIllegal(env: QueryEnv, decl: FireDeclaration, mode: Fir
   const me = map.hex(at)!;
   // Turning the turret to fire (SK4 3.2.4: a CMG "may ... change its CA prior to firing (and suffer the resulting ...
   // IFT ... Firer Based penalties)"): the CMG/RMG and the MA's IFE then fire through the new TCA.
+  if (decl.tca !== undefined && decl.vca !== undefined) return 'One attack turns the hull or the turret, not both';
   if (decl.tca !== undefined) {
     if (!Number.isInteger(decl.tca) || decl.tca < 0 || decl.tca > 5) return 'The turret turns to a hexspine 0-5';
     if (d.turret === 'NT') return 'This vehicle has no turret: its weapons turn with the hull';
@@ -169,13 +220,27 @@ export function vehicleMgIllegal(env: QueryEnv, decl: FireDeclaration, mode: Fir
     if (decl.tca === tcaOf(env, v)) return 'The turret already points that way';
     if (!ife.length && !mgs.some((x) => x.mg!.kind === 'cmg' || x.mg!.kind === 'rmg')) return 'Only the turret weapons (CMG, RMG, MA) turn with the turret';
   }
-  const tca = decl.tca ?? tcaOf(env, v);
+  // Turning the hull to fire (SK4 3.2.4: a BMG "may ... change its CA prior to firing"; 3.3.2: "A TCA/VCA may also be
+  // changed without MP expenditure as a result of firing outside the CA during any fire phase (other than its own MPh)";
+  // 7.8: "These same principles apply to bow-mounted weapons if changing the VCA to fire. If the VCA changes, the TCA
+  // changes the same number of hexspines relative to the VCA"): the bow weapons (BMG, an NT MA's IFE) then fire through
+  // the new VCA, and a turret weapon with them through the TCA the hull carried round.
+  if (decl.vca !== undefined) {
+    if (!Number.isInteger(decl.vca) || decl.vca < 0 || decl.vca > 5) return 'The hull turns to a hexspine 0-5';
+    if (mode === 'bounding') return 'In its MPh a vehicle turns its hull only by spending MP: a Bounding First Firer fires within its Covered Arc';
+    if (decl.vca === vcaOf(v)) return 'The hull already faces that way';
+    if (!bowWeapons(env, decl.sw)) return 'Only the bow-mounted weapons (BMG, an NT Main Armament) turn with the hull';
+    const never = hullTurnRefusal(env, v);
+    if (never) return never;
+  }
+  const vca = decl.vca ?? vcaOf(v);
+  const tca = decl.tca ?? (decl.vca !== undefined ? (tcaOf(env, v) + decl.vca - vcaOf(v) + 6) % 6 : tcaOf(env, v));
   for (const { id, mg } of mgs) {
     const kind = mg!.kind;
     const unavailable = vehicleMgUnavailable(env, id);
     if (unavailable) return unavailable;
     if (decl.target !== at && kind !== 'aamg') {
-      const spine = kind === 'bmg' ? vcaOf(v) : kind === 'rmg' ? (tca + 3) % 6 : tca;
+      const spine = kind === 'bmg' ? vca : kind === 'rmg' ? (tca + 3) % 6 : tca;
       if (!inCoveredArc(me.cube, spine, target.cube)) return `The ${kind.toUpperCase()} fires through the ${kind === 'bmg' ? 'Vehicle' : 'Turret'} Covered Arc: turn first`;
     }
   }
@@ -192,7 +257,8 @@ export function vehicleMgIllegal(env: QueryEnv, decl: FireDeclaration, mode: Fir
     if (mode === 'bounding') return 'Bounding First Fire with the MGs leaves the MA to fire on its own';
     // Everything that would stop the MA firing its IFE alone stops it here: crew, arc (no turning; SK4 7.8 "the
     // target lies within the CA for all"), range 16, its fire marker.
-    const why = env.query('ordnance.illegal', { shot: { weapon: v.id, target: decl.target, targetType: 'IFE', ...(decl.tca !== undefined ? { ca: decl.tca } : {}) }, mode, side, ...(moving ? { moving } : {}) }, null);
+    const ca = decl.tca ?? (decl.vca !== undefined ? tca : undefined);
+    const why = env.query('ordnance.illegal', { shot: { weapon: v.id, target: decl.target, targetType: 'IFE', ...(ca !== undefined ? { ca } : {}) }, mode, side, ...(moving ? { moving } : {}) }, null);
     if (why) return `MA (IFE): ${why}`;
   }
   return armamentFgIllegal(env, v.id, decl, mode, !!moving);
@@ -205,11 +271,31 @@ export const vehicleMgModule: RuleModule = {
   requires: ['sk1.fire', 'sk2.ordnance', 'sk3.vehicleMove'],
   install(r) {
     r.contribute({ id: 'sk3.fire.illegal.vehicle-mg', query: 'fire.illegal', apply: (v, { decl, mode, side, moving }, env) => v ?? vehicleMgIllegal(env, decl, mode, side, moving) });
+    // A bow weapon's attack turned the hull first (SK4 7.8): where it reached, and whether a Bog Check stopped it.
+    r.event<{ vehicle: PieceId; from: number; to: number; spines: number; bogged: boolean }>({ type: 'sk3.vehicle.hullTurnToFire', apply() {} });
     // The MA's IFE in the MGs' Fire Group has fired its MA, as a lone IFE shot does (SK4 6.8, 6.10): it loses any
     // acquisition and has fired other than Smoke this phase.
     r.procedure<ResolveFireFn>(FP.resolve, (next) => (ctx, declared, mode, opts) => {
       const tw = mode === 'bounding' ? null : turretWeapons(ctx, declared.sw);
+      const bw = mode === 'bounding' ? null : bowWeapons(ctx, declared.sw);
       let decl = declared;
+      if (bw && declared.vca !== undefined) {
+        // The hull turns first, the turret riding round with it (SK4 7.8), then the attack pays the NT case 8 for it.
+        // In woods or a building each hexspine takes a Bog Check (SK4 7.6; ASLRB D8.2): bogging stops the hull, and
+        // the attack is not made.
+        const v = bw.v;
+        const from = vcaOf(v);
+        const tca0 = tcaOf(ctx, v);
+        const hex = hexOf(ctx.state, v);
+        const reached = closeTerrain(ctx, hex) ? turnRiskingBog(ctx, v, hex!, declared.vca) : { vca: declared.vca, bogged: false };
+        const delta = (reached.vca - from + 6) % 6;
+        const spines = spineChange(from, declared.vca);
+        ctx.emit('sk3.vehicle.hullTurnToFire', { vehicle: v.id, from, to: reached.vca, spines, bogged: reached.bogged });
+        setTags(ctx, v.id, { [T3.vca]: reached.vca, [T2.ca]: turreted(ctx, v) ? (tca0 + delta) % 6 : reached.vca });
+        if (reached.vca !== declared.vca) return { column: null, dr: [0, 0], cowered: false, results: {}, rofKept: [], malfunctioned: [], residualFp: 0 };
+        const { vca: _vca, ...rest } = declared;
+        decl = { ...rest, caChange: { weapon: v.id, spines, mount: 'NT' } };
+      }
       if (tw && declared.tca !== undefined) {
         // The MGs' own turn comes first, then the attack pays for it as a Gun's IFE does (case 8, doubled in a building).
         const from = tcaOf(ctx, tw.v);
@@ -228,8 +314,11 @@ export const vehicleMgModule: RuleModule = {
         const v = mg?.kind === 'cmg' ? ctx.state.pieces[mg.vehicle] : undefined;
         if (v && v.tags[T2.acqHex] !== undefined && v.tags[T2.acqHex] !== hexOfLoc(decl.target)) setTags(ctx, v.id, ACQ_CLEAR);
       }
+      // The hull turned for this attack (a bow weapon's own turn, or an NT MA's IFE fired with a new CA), or it paid.
+      // (An NT MA's IFE fired with a new CA turned the hull through the ordnance rules, which recorded it with the VCA.)
+      if (bw && ctx.state.pieces[bw.v.id]?.loc.kind === 'hex') recordTurn(ctx, bw.v.id, BOW, bw.ids, declared.vca !== undefined && decl.caChange?.weapon === bw.v.id ? decl.caChange.spines : 0);
       if (tw && ctx.state.pieces[tw.v.id]?.loc.kind === 'hex') {
-        if (decl.caChange && decl.caChange.spines > 0 && decl.caChange.weapon === tw.v.id) {
+        if (decl.caChange && decl.caChange.spines > 0 && decl.caChange.weapon === tw.v.id && declared.vca === undefined) {
           // The turret turned for this attack (the MGs' own turn, or the MA's IFE fired with a new CA).
           setTags(ctx, tw.v.id, { [TURN.phase]: phaseKey(ctx), [TURN.spines]: decl.caChange.spines, [TURN.paid]: tw.ids.join(',') });
         } else {
@@ -246,21 +335,22 @@ export const vehicleMgModule: RuleModule = {
       handler(ctx, ev) {
         if (ev.payload.phase !== 'CCPh') return;
         for (const p of Object.values(ctx.state.pieces).sort((a, b) => (a.id < b.id ? -1 : 1)))
-          if (p.tags[TURN.phase] !== undefined) setTags(ctx, p.id, { [TURN.phase]: null, [TURN.spines]: null, [TURN.paid]: null });
+          // One change for both records, so a piece's tags come off together.
+          if (p.tags[TURN.phase] !== undefined || p.tags[BOW.phase] !== undefined)
+            setTags(ctx, p.id, { ...(p.tags[TURN.phase] !== undefined ? { [TURN.phase]: null, [TURN.spines]: null, [TURN.paid]: null } : {}), ...(p.tags[BOW.phase] !== undefined ? { [BOW.phase]: null, [BOW.spines]: null, [BOW.paid]: null } : {}) });
       },
     });
-    // The MA's To Hit shots: a turn records it; a shot without one pays for an earlier turn by another turret weapon.
+    // The MA's To Hit shots: a turn records it; a shot without one pays for an earlier turn by another weapon in that arc
+    // (the turret's for a turreted MA, the hull's for an NT one).
     r.procedure<OrdnanceFireFn>(OP.fire, (next) => (ctx, shot, mode, opts) => {
       const g = ctx.state.pieces[shot.weapon];
-      const v = g && ordnanceOf(ctx, g)?.vehicle && turreted(ctx, g) && mode !== 'bounding' && shot.targetType !== 'IFE' ? g : null;
+      const v = g && ordnanceOf(ctx, g)?.vehicle && mode !== 'bounding' && shot.targetType !== 'IFE' ? g : null;
       const spines = v && shot.ca !== undefined ? spineChange(coveredArc(v), shot.ca) : 0;
       const out = next!(ctx, shot, mode, opts);
+      // An NT MA's own turn was recorded with its VCA (`sk3.vehicleFire.nt-vca`); without one it pays for the BMG's.
       if (v && ctx.state.pieces[v.id]?.loc.kind === 'hex') {
-        if (spines > 0) setTags(ctx, v.id, { [TURN.phase]: phaseKey(ctx), [TURN.spines]: spines, [TURN.paid]: v.id });
-        else {
-          const turn = turnThisPhase(ctx, pieceOf(ctx, v.id));
-          if (turn) setTags(ctx, v.id, { [TURN.paid]: [...new Set([...turn.paid, v.id])].join(',') });
-        }
+        if (turreted(ctx, v)) recordTurn(ctx, v.id, TURN, [v.id], spines);
+        else if (spines === 0) recordTurn(ctx, v.id, BOW, [v.id], 0);
       }
       return out;
     });
@@ -282,6 +372,37 @@ export const vehicleMgModule: RuleModule = {
       const turn = turnThisPhase(env, v);
       return turn && ids.some((id) => !turn.paid.includes(id)) ? turretDrm(env, v, turn.spines) : 0;
     };
+    // The hull's turn earlier this phase, owed by a bow weapon firing in that VCA without one of its own (SK4 7.8).
+    const owedBow = (env: QueryEnv, v: Piece, ids: PieceId[]) => {
+      const turn = turnThisPhase(env, v, BOW);
+      return turn && ids.some((id) => !turn.paid.includes(id)) ? hullDrm(env, v, turn.spines) : 0;
+    };
+    const owedBowIft = (env: QueryEnv, attack: FireAttackCtx) => {
+      if (attack.mode === 'bounding' || attack.vca !== undefined || (attack.caChange && attack.caChange.spines > 0)) return 0;
+      const bw = bowWeapons(env, attack.parts.map((p) => p.piece));
+      return bw ? owedBow(env, bw.v, bw.ids) : 0;
+    };
+    r.contribute({
+      id: 'sk3.drm.maintain-vca',
+      query: 'fire.drm',
+      ref: 'SK4 7.8',
+      label: ({ attack }, env) => `+${owedBowIft(env, attack)} Covered Arc change (the hull turned earlier this phase)`,
+      when: ({ attack }, env) => owedBowIft(env, attack) > 0 && owedIft(env, attack) === 0,
+      apply: (v, { attack }, env) => v + owedBowIft(env, attack),
+    });
+    // Case 8 on the IFT for a bow weapon's own hull turn, as declared (previews); once resolving, the turn is a `caChange`.
+    const hullTurnOf = (env: QueryEnv, attack: FireAttackCtx) => {
+      const bw = bowWeapons(env, attack.parts.map((p) => p.piece));
+      return bw && attack.vca !== undefined ? hullDrm(env, bw.v, spineChange(vcaOf(bw.v), attack.vca)) : 0;
+    };
+    r.contribute({
+      id: 'sk3.drm.hull-turn',
+      query: 'fire.drm',
+      ref: 'SK4 7.8 (case 8, NT)',
+      label: ({ attack }, env) => `+${hullTurnOf(env, attack)} Covered Arc change (hull turned: NT)`,
+      when: ({ attack }, env) => attack.mode !== 'bounding' && hullTurnOf(env, attack) > 0,
+      apply: (v, { attack }, env) => v + hullTurnOf(env, attack),
+    });
     const owedIft = (env: QueryEnv, attack: FireAttackCtx) => {
       if (attack.mode === 'bounding' || attack.tca !== undefined || (attack.caChange && attack.caChange.spines > 0)) return 0;
       const tw = turretWeapons(env, attack.parts.map((p) => p.piece));
@@ -298,13 +419,13 @@ export const vehicleMgModule: RuleModule = {
     const owedTh = (sc: ShotCtx, env: QueryEnv) => {
       if (sc.mode === 'bounding' || sc.spines > 0 || !sc.def.vehicle) return 0;
       const v = pieceOf(env, sc.weapon);
-      return turreted(env, v) ? owedOn(env, v, [v.id]) : 0;
+      return turreted(env, v) ? owedOn(env, v, [v.id]) : owedBow(env, v, [v.id]);
     };
     r.contribute({
       id: 'sk3.th.maintain-ca',
       query: 'ordnance.thDrm',
       ref: 'ASL D3.51',
-      label: (sc: ShotCtx, env: QueryEnv) => `+${owedTh(sc, env)} Covered Arc change (the turret turned earlier this phase)`,
+      label: (sc: ShotCtx, env: QueryEnv) => `+${owedTh(sc, env)} Covered Arc change (the ${turreted(env, pieceOf(env, sc.weapon)) ? 'turret' : 'hull'} turned earlier this phase)`,
       when: (sc: ShotCtx, env: QueryEnv) => owedTh(sc, env) > 0,
       apply: (v: number, sc: ShotCtx, env: QueryEnv) => v + owedTh(sc, env),
     });

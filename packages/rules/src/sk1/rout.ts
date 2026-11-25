@@ -25,7 +25,7 @@ import {
   ppOf,
 } from './status';
 import { isWoodsRoad, terrainOf } from './terrain';
-import { hexLabel, pieceLabel } from '../labels';
+import { hexName, hexNamer, pieceLabel } from '../labels';
 
 declare module '@asl/engine' {
   interface QueryCatalog {
@@ -322,6 +322,19 @@ function inStartBuilding(env: QueryEnv, start: HexId, hex: HexId): boolean {
 /** A shelter hex a rout may not end in: beside an enemy unit (SK1 3.6 "not adjacent to an enemy unit"). */
 const enemyAdjacent = (env: QueryEnv, side: SideId, hex: HexId) => !env.query('rout.mayEndBeside', { node: hex }, false) && enemyHexes(env, side).some((eh) => enemyNear(env, hex, eh, nodeDistance(env, eh, hex) <= 1));
 
+/**
+ * Would a rout ending in `hex` be eliminated there? A broken unit "may not end a RtPh adjacent to or in the same location
+ * as a unbroken Known Enemy Unit" (SK1 3.6), so such a hex is never a place to rout to, by Low Crawl or with no building
+ * or woods in reach ("any hex consistent with the above restrictions").
+ */
+function endsBesideEnemy(env: QueryEnv, side: SideId, hex: LocId): boolean {
+  if (env.query('rout.mayEndBeside', { node: hex }, false)) return false;
+  return knownEnemyUnits(env, side).some((e) => {
+    const eh = enemyNode(env, e);
+    return !isBroken(e) && enemyNear(env, hex, eh, eh === hex || nodeDistance(env, eh, hex) === 1) && hasLos(env, hex, eh);
+  });
+}
+
 const routStepCost = (env: QueryEnv, unit: PieceId, from: LocId, to: LocId, woods = false) =>
   special(env, from) || special(env, to)
     ? env.query('move.cost', { unit, from: hexOfLoc(from), to: hexOfLoc(to), viaRoad: false, ...(parseLoc(to).sub ? { loc: to } : {}) }, 1)
@@ -360,8 +373,8 @@ function stepIllegal(env: QueryEnv, side: SideId, from: HexId, toLoc: LocId, see
   if (all.filter((p) => smc(env, p)).length > 4) return 'Stacking limit: 4 SMC';
   for (const eh of enemyHexes(env, side)) {
     const watching = seen.has(eh) || hasLos(env, from, eh);
-    if (watching && nodeDistance(env, to, eh) < nodeDistance(env, from, eh)) return `Cannot rout toward the enemy in ${hexLabel(hexOfLoc(eh))} (SK1 3.6: no step that shortens the range to a Known enemy unit in its LOS, even a broken one)`;
-    if (enemyNear(env, from, eh, nodeDistance(env, from, eh) === 1) && enemyNear(env, routNode(toLoc), eh, nodeDistance(env, to, eh) === 1)) return `Cannot rout from one hex adjacent to ${hexLabel(hexOfLoc(eh))} to another`;
+    if (watching && nodeDistance(env, to, eh) < nodeDistance(env, from, eh)) return `Cannot rout toward the enemy in ${hexName(env, hexOfLoc(eh))} (SK1 3.6: no step that shortens the range to a Known enemy unit in its LOS, even a broken one)`;
+    if (enemyNear(env, from, eh, nodeDistance(env, from, eh) === 1) && enemyNear(env, routNode(toLoc), eh, nodeDistance(env, to, eh) === 1)) return `Cannot rout from one hex adjacent to ${hexName(env, hexOfLoc(eh))} to another`;
   }
   return null;
 }
@@ -440,7 +453,7 @@ function planRoutAvoiding(env: QueryEnv, unitId: PieceId, avoid: Set<HexId>): Ro
   const ignorable = (h: HexId) => inStartBuilding(env, start, h) || seen.size === 0 || [...seen].some((e) => nodeDistance(env, h, e) <= nodeDistance(env, start, e));
   const destinations = new Set<HexId>();
   if (shelters.length === 0) {
-    for (const h of cost.keys()) if (h !== start) destinations.add(h);
+    for (const h of cost.keys()) if (h !== start && !endsBesideEnemy(env, side, h)) destinations.add(h);
   } else {
     // "Nearest" by the MF that count for it (full ASL A10.531: not a Fortification's entry cost).
     const near = (h: HexId) => env.query('rout.nearestCost', { unit: unitId, node: h, cost: cost.get(h)! }, cost.get(h)!);
@@ -618,13 +631,18 @@ function stepCheck(env: QueryEnv, v: RoutView, toLoc: LocId, lowCrawl: boolean, 
   if (lowCrawl) {
     if (v.spent > 0) return 'Low Crawl is a rout of exactly one hex';
     if (!v.plan.onTheWay.has(to) && !v.plan.destinations.has(to)) return headingRefusal(env, v, to, 'Low Crawl must head toward the nearest building or woods');
+    // Low Crawl ends the rout in the hex entered (SK1 3.6 "it still may not be adjacent to an unbroken Known Enemy Unit").
+    if (endsBesideEnemy(env, v.side, to)) return 'Low Crawl may not end beside an unbroken Known enemy unit';
     return null;
   }
   const cost = beneathOrStepCost(env, v.unit, v.at, toLoc, woods, beneath);
   if (typeof cost === 'string') return cost;
   if (v.spent + cost > v.mf) return `Not enough MF (${v.mf}) for that rout path`;
   if (v.reached && !isShelter(env, to)) return `Rout must stop in ${v.at}`;
-  if (!finishReachable(env, afterStep(env, v, toLoc, cost))) return headingRefusal(env, v, to, 'Rout must head for the nearest legal building or woods hex');
+  if (!finishReachable(env, afterStep(env, v, toLoc, cost))) {
+    if (!v.plan.sheltered) return 'With no building or woods in reach, the rout must end in a hex not beside an unbroken Known enemy unit (SK1 3.6)';
+    return headingRefusal(env, v, to, 'Rout must head for the nearest legal building or woods hex');
+  }
   return null;
 }
 
@@ -637,23 +655,23 @@ function stepCheck(env: QueryEnv, v: RoutView, toLoc: LocId, lowCrawl: boolean, 
 function headingRefusal(env: QueryEnv, v: RoutView, to: LocId, base: string): string {
   const dests = [...v.plan.destinations].filter((d) => d !== v.at).sort();
   if (dests.length === 0) return base;
-  const names = dests.map(hexLabel).join(' or ');
+  const names = dests.map(hexNamer(env)).join(' or ');
   const seen = new Set([...v.seen, ...knownEnemyHexes(env, v.side, v.at)]);
   const firstSteps = routNeighbours(env, v.at).filter((n) => v.plan.onTheWay.has(n) || v.plan.destinations.has(n)).sort();
-  const via = firstSteps.length && !firstSteps.some((h) => dests.includes(h)) ? `; the way there is through ${firstSteps.map(hexLabel).join(' or ')}` : '';
+  const via = firstSteps.length && !firstSteps.some((h) => dests.includes(h)) ? `; the way there is through ${firstSteps.map(hexNamer(env)).join(' or ')}` : '';
   // A shelter next door can be farther in MF than one two hexes off (a building uphill: COT doubled, SK4 1.1.1), and
   // "nearest" is in MF (SK1 3.6): give both costs, or the refusal reads as wrong.
   const cost = v.plan.cost;
   const toMf = cost?.get(to);
   const destMf = Math.min(...dests.map((d) => cost?.get(d) ?? Infinity));
   if (toMf !== undefined && destMf < toMf && isShelter(env, to) && !enemyAdjacent(env, v.side, to)) {
-    return `${base} (${names}): ${hexLabel(to)} is a building or woods hex too, but ${toMf} MF away against ${destMf} for ${names} (SK1 3.6: nearest in MF)${via}`;
+    return `${base} (${names}): ${hexName(env, to)} is a building or woods hex too, but ${toMf} MF away against ${destMf} for ${names} (SK1 3.6: nearest in MF)${via}`;
   }
   for (const e of knownEnemyUnits(env, v.side).sort(byId)) {
     const eh = hexOf(env.state, e);
     if (!eh || seen.has(eh) || !hasLos(env, to, eh)) continue;
     if (!dests.some((d) => nodeDistance(env, d, eh) < nodeDistance(env, to, eh))) continue;
-    return `${base}: from ${hexLabel(to)} the ${pieceLabel(env, e)} in ${hexLabel(eh)} would be in its LOS, and ${names} is closer to it (SK1 3.6: no rout toward a Known enemy unit in its LOS, even a broken one)${via}`;
+    return `${base}: from ${hexName(env, to)} the ${pieceLabel(env, e)} in ${hexName(env, eh)} would be in its LOS, and ${names} is closer to it (SK1 3.6: no rout toward a Known enemy unit in its LOS, even a broken one)${via}`;
   }
   return `${base} (${names})${via}`;
 }
@@ -670,9 +688,9 @@ function stopRefusal(env: QueryEnv, v: RoutView, base: string): string {
   const planned = reachable.filter((h) => v.plan.destinations.has(h));
   const ends = planned.length ? planned : reachable;
   const here = isShelter(env, v.at)
-    ? `; ${hexLabel(v.at)} is not it (SK1 3.6: the nearest in MF and not adjacent to an enemy unit, unless that one is no farther from a Known enemy unit than the start)`
+    ? `; ${hexName(env, v.at)} is not it (SK1 3.6: the nearest in MF and not adjacent to an enemy unit, unless that one is no farther from a Known enemy unit than the start)`
     : '';
-  return `${base} (${ends.map(hexLabel).join(' or ')})${here}`;
+  return `${base} (${ends.map(hexNamer(env)).join(' or ')})${here}`;
 }
 
 /**
@@ -1248,12 +1266,7 @@ function finishRout(ctx: Ctx, act: ActiveRout, alive: boolean) {
   // Ending adjacent to an unbroken Known Enemy Unit = eliminated for failure to rout.
   const p = ctx.state.pieces[act.unit];
   if (alive && p && p.loc.kind === 'hex') {
-    const hex = nodeOf(ctx, p)!;
-    const adjacent = !ctx.query('rout.mayEndBeside', { node: hex }, false) && knownEnemyUnits(ctx, p.side).some((e) => {
-      const eh = enemyNode(ctx, e);
-      return !isBroken(e) && enemyNear(ctx, hex, eh, eh === hex || nodeDistance(ctx, eh, hex) === 1) && hasLos(ctx, hex, eh);
-    });
-    if (adjacent) {
+    if (endsBesideEnemy(ctx, p.side, nodeOf(ctx, p)!)) {
       eliminate(ctx, act.unit, 'failure to rout (ended adjacent to enemy)');
       ctx.proc<FlushFn>(MP.flushLeaderLoss)(ctx);
       enlistBroken(ctx);

@@ -34,6 +34,58 @@ describe('Close Combat markers', () => {
   });
 });
 
+describe('Ambush drm (SK1 3.8, ASLRB A11.4)', () => {
+  type Roll = { side: string; dr: number; drm: number; final: number; notes: string[] };
+  /** Americans with a 10-2 advance into woods held by a German 9-1 and squad; the Ambush drs as the rules logged them. */
+  const ambush = (leaderTags: Record<string, unknown>, squadTags: Record<string, unknown> = {}) => {
+    const { engine, state } = makeEngine({
+      startPhase: 'APh',
+      terrain: { yO5: { terrain: 'woods' } },
+      dice: [4, 4, 6, 6, 6, 6, 6, 6],
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5' },
+        { id: 'aL', def: 'am.L102', side: 'am', hex: 'yN5' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yO5', tags: squadTags as never },
+        { id: 'gL', def: 'ge.L91', side: 'ge', hex: 'yO5', tags: leaderTags as never },
+      ],
+    });
+    let s: GameState = act(engine, state, { type: 'advance', units: ['a1', 'aL'], to: 'yO5' }).state;
+    const t = act(engine, s, { type: 'endPhase' });
+    s = t.state;
+    const rolls = t.events.flatMap((e) => (e.type === 'sk1.cc.state' ? ((e.payload as { ambush?: { rolls: Roll[] } }).ambush?.rolls ?? []) : []));
+    return { rolls: Object.fromEntries(rolls.map((r) => [r.side, r])) as Record<string, Roll>, engine, s };
+  };
+
+  it("a Good Order leader's leadership is a negative drm, named as such", () => {
+    const { rolls } = ambush({});
+    expect(rolls['am']).toMatchObject({ dr: 4, drm: -2, final: 2, notes: ['-2 leadership'] });
+    expect(rolls['ge']).toMatchObject({ dr: 4, drm: -1, final: 3, notes: ['-1 leadership'] });
+  });
+
+  it('a pinned 9-1 adds +1 for the pin and no leadership; the log names the pin, not his leadership', () => {
+    const { rolls } = ambush({ pinned: true });
+    expect(rolls['ge']).toMatchObject({ dr: 4, drm: 1, final: 5, notes: ['+1 Pinned'] });
+  });
+
+  it('every part is named, even ones that cancel out: a CX squad with its 9-1 is +1 CX, -1 leadership', () => {
+    const { rolls } = ambush({}, { cx: true });
+    expect(rolls['ge']).toMatchObject({ drm: 0, final: 4, notes: ['+1 CX', '-1 leadership'] });
+  });
+
+  it('a wounded 9-1 has no leadership left to give (SK1 3.2.1): the CX squad is +1 with nothing against it', () => {
+    const { rolls } = ambush({ wounds: 1 }, { cx: true });
+    expect(rolls['ge']).toMatchObject({ drm: 1, notes: ['+1 CX'] });
+  });
+
+  it('the CC goes on after the rolls and the next Player Turn begins with no CC state left', () => {
+    const { engine, s: s0 } = ambush({});
+    let s = s0;
+    for (let guard = 0; guard < 40 && s.phase === 'CCPh'; guard++) s = engine.submit(s, engine.legalActions(s, engine.currentDecision(s)!.owner)[0]!).state;
+    expect(s.phase).not.toBe('CCPh');
+    expect(s.ext['sk1.cc']).toBeUndefined();
+  });
+});
+
 describe('Close Combat strengths', () => {
   it('the attack event records each unit\u2019s CC FP behind the odds: a pinned unit\u2019s halved (SK4 Pin)', () => {
     const { engine, state } = makeEngine({

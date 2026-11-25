@@ -80,6 +80,8 @@ export const stunWord = (p: Piece, word: 'Stun' | 'Stunned') => (hasSTUN(p) ? wo
 /** The label of a Stunned vehicle's counter: `word` while the counter is fresh, "Stun +1" once it has flipped, in the case of `stunWord`. */
 export const stunLabel = (p: Piece, word: 'Stun' | 'Stunned' = 'Stunned') => (hasStunPlus1(p) ? `${stunWord(p, 'Stun')} +1` : stunWord(p, word));
 /** The hull's Covered Arc (hexspine 0–5). */
+/** The hull turn a vehicle made this phase to fire a bow weapon, kept on it (SK4 7.8; `sk3.vehicleFire`, `sk3.vehicleMg`). */
+export const BOW_TURN = { phase: 'vcaTurnPhase', spines: 'vcaTurnSpines', paid: 'vcaTurnPaid' } as const;
 export const vcaOf = (p: Piece): number => (p.tags[T3.vca] as number | undefined) ?? 0;
 /** The turret's Covered Arc: SK2's `ca` tag for a turreted vehicle, the VCA otherwise. */
 export const tcaOf = (env: QueryEnv, p: Piece): number => (vehicle(env, p)?.turret === 'NT' ? vcaOf(p) : ((p.tags[T2.ca] as number | undefined) ?? vcaOf(p)));

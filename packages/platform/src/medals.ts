@@ -280,8 +280,6 @@ export interface Medal {
   precedence: number;
   /** Shown as a picture of the medal itself (`/medals/<id>.webp`) rather than its ribbon. */
   art?: true;
-  /** The ribbon as CSS stripes, left to right, mirrored. Decorations without it use the ribbon image `/ribbons/<file>`. */
-  stripes?: string[];
   /** What each level beyond the first adds: a star, an oak leaf, or a class (named in `classes`). */
   device?: 'star' | 'oak-leaf' | 'class';
   classes?: string[];
@@ -560,11 +558,9 @@ const DEFS: Omit<Medal, 'precedence'>[] = [
   // Beta
   { id: 'beta-campaign', name: 'Beta Campaign Ribbon', short: 'BCR', nation: 'beta', tier: 'beta', beta: true,
     criteria: `Complete ${BETA_CAMPAIGN_GOAL} online matches during the beta, each in a different scenario.`,
-    stripes: ['#141414', '#d4af37', '#141414', '#d4af37', '#141414'],
     measure: (ctx) => ({ level: ctx.betaScenarios.length >= BETA_CAMPAIGN_GOAL ? 1 : 0, parts: [{ label: 'Scenarios', value: Math.min(ctx.betaScenarios.length, BETA_CAMPAIGN_GOAL), goal: BETA_CAMPAIGN_GOAL }] }) },
   { id: 'beta-service', name: 'Beta Service Ribbon', short: 'BSR', nation: 'beta', tier: 'beta', beta: true,
     criteria: 'Complete an online match during the beta.',
-    stripes: ['#f0c419', '#1d3f8a', '#ffffff', '#b22234', '#f0c419'],
     measure: (ctx) => ({ level: ctx.betaScenarios.length >= 1 ? 1 : 0, parts: [{ label: 'Online matches', value: Math.min(ctx.betaScenarios.length, 1), goal: 1 }] }) },
 ];
 

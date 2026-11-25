@@ -1,5 +1,5 @@
 import type { Piece, QueryEnv, SideId } from '@asl/engine';
-import { afvLeadTally, areaVp, mmcLost, victoryLeaves, vpTally, type VpTallyItem, type AreaVpUnit, casualties, losFirepower, type LosFirepowerUnit, cvpThresholds, exitVp, vehicleExitVp, exitVpCondition, exitedPieces, type Casualty, type ScenarioDef, type Statics, type VictoryCondition, clearAreasTally, squadEquivalentsLost, type ClearAreaState } from '@asl/rules';
+import { afvLeadTally, areaVp, hexName, mmcLost, victoryLeaves, vpTally, type VpTallyItem, type AreaVpUnit, casualties, losFirepower, type LosFirepowerUnit, cvpThresholds, exitVp, vehicleExitVp, exitVpCondition, exitedPieces, type Casualty, type ScenarioDef, type Statics, type VictoryCondition, clearAreasTally, squadEquivalentsLost, type ClearAreaState } from '@asl/rules';
 import { counterImage } from '../game/assets';
 import { defLabel, NATION } from '../game/describe';
 import { Modal } from '../ui/Modal';
@@ -207,7 +207,7 @@ export function CasualtyLedger({ env, scenario, first, sideName, onClose }: Prop
                       <span className="noimg" />
                       <span className="what">
                         {i.ids.length} × {i.label}
-                        <span className="meta">{i.each} VP each{i.ids.length ? ` · ${i.ids.map((h) => (env.state.pieces[h] ? pieceName(env.state.pieces[h]!) : h.replace(/^[a-z]/, ''))).join(', ')}` : ''}</span>
+                        <span className="meta">{i.each} VP each{i.ids.length ? ` · ${i.ids.map((h) => (env.state.pieces[h] ? pieceName(env.state.pieces[h]!) : hexName(env, h))).join(', ')}` : ''}</span>
                       </span>
                       <span className="vp">{i.vp}</span>
                     </li>
@@ -240,7 +240,7 @@ export function CasualtyLedger({ env, scenario, first, sideName, onClose }: Prop
                           {img ? <img src={img} alt="" width={36} height={36} draggable={false} /> : <span className="noimg" />}
                           <span className="what">
                             {d ? defLabel(d) : p.defId}
-                            <span className="meta">in {u.hex.replace(/^[a-z]/, '')}</span>
+                            <span className="meta">in {hexName(env, u.hex)}</span>
                           </span>
                           <span className="vp">{u.vp}</span>
                         </li>
@@ -283,7 +283,7 @@ export function CasualtyLedger({ env, scenario, first, sideName, onClose }: Prop
                           {img ? <img src={img} alt="" width={36} height={36} draggable={false} /> : <span className="noimg" />}
                           <span className="what">
                             {d ? defLabel(d) : p.defId}
-                            <span className="meta">vs {u.target.replace(/^[a-z]/, '')}</span>
+                            <span className="meta">vs {hexName(env, u.target)}</span>
                           </span>
                           <span className="vp">{u.fp}</span>
                         </li>
@@ -316,7 +316,7 @@ export function CasualtyLedger({ env, scenario, first, sideName, onClose }: Prop
                             <span className="meta">
                               {a.clear
                                 ? `no Good Order ${sideName(enemy)} unit`
-                                : `held by ${a.holders.map((id) => (env.state.pieces[id] ? `${pieceName(env.state.pieces[id]!)} in ${String((env.state.pieces[id]!.loc as { hex?: string }).hex ?? '').replace(/^[a-z]/, '')}` : id)).join(', ')}`}
+                                : `held by ${a.holders.map((id) => (env.state.pieces[id] ? `${pieceName(env.state.pieces[id]!)} in ${hexName(env, String((env.state.pieces[id]!.loc as { hex?: string }).hex ?? ''))}` : id)).join(', ')}`}
                             </span>
                           </span>
                           <span className="vp">{a.clear ? '✔' : '✖'}</span>

@@ -1,5 +1,5 @@
 import type { QueryEnv } from '@asl/engine';
-import { PHASE_NAME, achieved, casualtyVp, clearAreasTally, controlState, cvpGoal, exitVp, hasUnitsLeft, squadEquivalentsLost, statics, vpTally, type ScenarioDef, type VictoryCondition } from '@asl/rules';
+import { PHASE_NAME, achieved, casualtyVp, clearAreasTally, controlState, cvpGoal, exitVp, hasUnitsLeft, hexName, hexNamer, squadEquivalentsLost, statics, vpTally, type ScenarioDef, type VictoryCondition } from '@asl/rules';
 import type { AarVictory, AarVictoryItem } from '@asl/platform';
 
 /*
@@ -8,7 +8,6 @@ import type { AarVictory, AarVictoryItem } from '@asl/platform';
  * which lives in the web app and cannot be used by the server.
  */
 
-export const hexLabelOf = (h: string) => h.replace(/^[a-z]/, '');
 
 export function list(xs: string[]): string {
   return xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs.join('');
@@ -16,8 +15,7 @@ export function list(xs: string[]): string {
 
 /** A building named the way the card names it: by the hex the victory text mentions, else its first hex. */
 export function buildingLabel(env: QueryEnv, scenario: ScenarioDef, buildingId: string): string {
-  const multi = scenario.boards.length > 1;
-  const hexes = [...statics(env).map.hexes()].filter((h) => h.buildingId === buildingId).map((h) => (multi ? h.id : hexLabelOf(h.id)));
+  const hexes = [...statics(env).map.hexes()].filter((h) => h.buildingId === buildingId).map((h) => hexName(env, h.id));
   if (hexes.length === 0) return buildingId;
   return hexes.find((h) => new RegExp(`\\b${h}\\b`).test(scenario.victoryText ?? '')) ?? hexes[0]!;
 }
@@ -56,7 +54,7 @@ export function standing(env: QueryEnv, scenario: ScenarioDef, vc: VictoryCondit
     }
     case 'controlHexes': {
       const held = vc.hexes.filter((h) => ctl.hexes[map.hex(h)?.id ?? h] === vc.side);
-      const items = vc.hexes.length <= 12 ? vc.hexes.map((h) => ({ label: hexLabelOf(h), holder: ctl.hexes[map.hex(h)?.id ?? h] ?? null })) : [];
+      const items = vc.hexes.length <= 12 ? vc.hexes.map((h) => ({ label: hexName(env, h), holder: ctl.hexes[map.hex(h)?.id ?? h] ?? null })) : [];
       return { have: held.length, need: vc.atLeast, items };
     }
     case 'eliminateCvp': {
@@ -93,7 +91,7 @@ export function conditionText(env: QueryEnv, scenario: ScenarioDef, vc: VictoryC
       return `Control ${vc.atLeast >= names.length ? `buildings ${list(names)}` : `${vc.atLeast} of buildings ${list(names)}`}${vc.immediate ? '' : ' at game end'}`;
     }
     case 'controlHexes':
-      return `Control ${vc.atLeast >= vc.hexes.length ? 'all' : `≥ ${vc.atLeast}`} of ${vc.hexesLabel ? `the ${vc.hexes.length} ${vc.hexesLabel}` : vc.hexes.length > 12 ? `${vc.hexes.length} hexes` : list(vc.hexes.map(hexLabelOf))}${vc.immediate ? '' : vc.atEndOfTurn ? ` at the end of Turn ${vc.atEndOfTurn}` : ' at game end'}`;
+      return `Control ${vc.atLeast >= vc.hexes.length ? 'all' : `≥ ${vc.atLeast}`} of ${vc.hexesLabel ? `the ${vc.hexes.length} ${vc.hexesLabel}` : vc.hexes.length > 12 ? `${vc.hexes.length} hexes` : list(vc.hexes.map(hexNamer(env)))}${vc.immediate ? '' : vc.atEndOfTurn ? ` at the end of Turn ${vc.atEndOfTurn}` : ' at game end'}`;
     case 'eliminateCvp':
       return `Eliminate ${cvpGoal(env, vc)} CVP of ${plural(sideName(scenario, other))}${vc.immediate ? '' : ' by game end'}`;
     case 'cvpBelow':
@@ -103,7 +101,7 @@ export function conditionText(env: QueryEnv, scenario: ScenarioDef, vc: VictoryC
     case 'exitForce':
       return `Exit ${vc.hsEquivalents} half-squad equivalents and ${vc.smc} leader${vc.smc === 1 ? '' : 's'}${vc.immediate ? '' : ' by game end'}`;
     case 'noGoodOrderEnemyIn':
-      return `${enemyLimit(scenario, vc, other)} in ${vc.hexesLabel ? `the ${vc.hexes.length} ${vc.hexesLabel}` : vc.buildings ? 'the objective buildings' : vc.hexes.length > 12 ? 'the objective' : list(vc.hexes.map(hexLabelOf))} at game end`;
+      return `${enemyLimit(scenario, vc, other)} in ${vc.hexesLabel ? `the ${vc.hexes.length} ${vc.hexesLabel}` : vc.buildings ? 'the objective buildings' : vc.hexes.length > 12 ? 'the objective' : list(vc.hexes.map(hexNamer(env)))} at game end`;
     case 'clearAreas':
       return `No Good Order ${plural(sideName(scenario, other))} on ${vc.atLeast} of the ${vc.areas.length} ${vc.areasLabel ?? 'areas'} at game end`;
     case 'fewerLosses':
@@ -241,7 +239,7 @@ export function winningClause(env: QueryEnv, scenario: ScenarioDef, vc: VictoryC
       return vc.atLeast >= all.length ? `took ${list(all)}` : `took ${vc.atLeast} of the ${all.length} buildings`;
     }
     case 'controlHexes': {
-      const what = vc.hexesLabel ? `the ${vc.hexes.length} ${vc.hexesLabel}` : vc.hexes.length > 12 ? `${vc.hexes.length} hexes` : list(vc.hexes.map(hexLabelOf));
+      const what = vc.hexesLabel ? `the ${vc.hexes.length} ${vc.hexesLabel}` : vc.hexes.length > 12 ? `${vc.hexes.length} hexes` : list(vc.hexes.map(hexNamer(env)));
       return met ? `Controlled ${s.have} of ${what}` : `controlled ${vc.atLeast} of ${what} (${s.have} at the end)`;
     }
     case 'eliminateCvp':

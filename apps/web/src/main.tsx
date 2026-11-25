@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router';
 import { App } from './App';
 import { AuthProvider } from './auth/AuthProvider';
 import { installErrorLog } from './diagnostics/errorLog';
+import { installStaleBuildReload } from './diagnostics/staleBuild';
 import { installTranslateGuard } from './diagnostics/translateGuard';
 import { ErrorBoundary } from './ui/ErrorBoundary';
 import './styles.css';
@@ -13,6 +14,7 @@ import './aar/aar.css';
 
 installErrorLog();
 installTranslateGuard();
+installStaleBuildReload();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

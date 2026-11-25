@@ -311,6 +311,48 @@ describe('Flamethrowers, DCs and Open-Topped AFVs (SK4 4.2, 4.3, 7.13)', () => {
     expect(r2.state.pieces['dc']!.loc.kind).toBe('eliminated');
   });
 
+  it('a placer that fails its PAATC is pinned and moves no farther that Player Turn; the rest of its stack goes on (ASLRB A7.8)', () => {
+    // A pinned unit "may not move/advance farther during that Player Turn" (A7.8), and a failed PAATC pins (SK4 3.7, 4.3).
+    const { engine, state } = makeEngine({
+      pieces: [t34('yM5'), { id: 'sq', def: 'ge.467', side: 'ge', hex: 'yM6' }, { id: 'sq2', def: 'ge.467', side: 'ge', hex: 'yM6' }, { id: 'dc', def: 'ge.DC', side: 'ge', heldBy: 'sq' }],
+      scenario: { ...RU_VS_GE, firstSide: 'ge' },
+      extra,
+      startPhase: 'MPh',
+      dice: [6, 6, ...Array<number>(40).fill(3)],
+    });
+    let s = passDff(engine, act(engine, state, { type: 'move.start', units: ['sq', 'sq2'], doubleTime: false, assault: false }).state);
+    const r = act(engine, s, { type: 'move.placeDc', dc: 'dc', target: 'yM5', vehicle: 't34' });
+    expect(ev(r, 'sk3.paatc')[0]).toMatchObject({ unit: 'sq', reason: 'dc', passed: false });
+    s = passDff(engine, r.state);
+    expect(s.pieces['sq']!.tags['pinned']).toBe(true);
+    expect(s.pieces['dc']!.loc).toEqual({ kind: 'held', by: 'sq' });
+    s = passDff(engine, act(engine, s, { type: 'move.step', to: 'yM7' }).state);
+    expect(s.pieces['sq2']!.loc).toEqual({ kind: 'hex', hex: 'yM7' });
+    expect(s.pieces['sq']!.loc).toEqual({ kind: 'hex', hex: 'yM6' });
+    // Nor may it set out again on its own.
+    s = play(engine, s, { type: 'move.end' });
+    expect(validate(engine, s, { type: 'move.start', units: ['sq'], doubleTime: false, assault: false })).toMatch(/pinned/);
+    // The Pin comes off with the Player Turn, and the squad moves normally in its next MPh.
+    for (let i = 0; i < 80 && !(s.turn === 2 && s.attacker === 'ge' && s.phase === 'MPh'); i++) {
+      const d = engine.currentDecision(s)!;
+      s = act(engine, s, { type: d.kind === 'firstFire' ? 'defPass' : 'endPhase', side: d.owner }).state;
+    }
+    expect([s.turn, s.attacker, s.phase]).toEqual([2, 'ge', 'MPh']);
+    expect(s.pieces['sq']!.tags['pinned']).toBeUndefined();
+    s = passDff(engine, act(engine, s, { type: 'move.start', units: ['sq'], doubleTime: false, assault: false }).state);
+    s = passDff(engine, act(engine, s, { type: 'move.step', to: 'yM7' }).state);
+    expect(s.pieces['sq']!.loc).toEqual({ kind: 'hex', hex: 'yM7' });
+  });
+
+  it('a lone placer that fails its PAATC ends its move where it is', () => {
+    const { engine, state } = makeEngine({ pieces: [t34('yM5'), { id: 'sq', def: 'ge.467', side: 'ge', hex: 'yM6' }, { id: 'dc', def: 'ge.DC', side: 'ge', heldBy: 'sq' }], scenario: { ...RU_VS_GE, firstSide: 'ge' }, extra, startPhase: 'MPh', dice: [6, 6, 3, 3, 3, 3] });
+    let s = passDff(engine, act(engine, state, { type: 'move.start', units: ['sq'], doubleTime: false, assault: false }).state);
+    s = passDff(engine, act(engine, s, { type: 'move.placeDc', dc: 'dc', target: 'yM5', vehicle: 't34' }).state);
+    expect(s.pieces['sq']!.tags).toMatchObject({ pinned: true, moved: true });
+    expect(validate(engine, s, { type: 'move.step', to: 'yM7' })).not.toBeNull();
+    expect(validate(engine, s, { type: 'move.start', units: ['sq'], doubleTime: false, assault: false })).toMatch(/pinned/);
+  });
+
   it('an Open-Topped AFV takes -1 on the Area Target Type and -2 in CC, and fires only its bow MG when Buttoned Up', () => {
     const { engine, state } = makeEngine({ pieces: [{ id: 'ot', def: 'ge.otv', side: 'ge', hex: 'yM5', tags: { vca: 3, ca: 3 } }, sq('ru', 'yM7')], scenario: RU_VS_GE, extra, startPhase: 'CCPh' });
     const env = engine.env(state);

@@ -118,6 +118,11 @@ export const banzaiState = (env: QueryEnv) => env.state.ext[BANZAI] as BanzaiSta
 const map = (env: QueryEnv) => statics(env).map;
 const jaInfantry = (env: QueryEnv, p: Piece) => isJapanese(env, p) && !!(mmc(env, p) || smc(env, p));
 const charging = (p: Piece) => p.tags[T4.banzai] === 'charging';
+/**
+ * A Banzai unit, still charging or not: one that entered an enemy hex in an earlier Impulse is out of the charge
+ * but still "occupies the hex" for 8.1.8.6, as any friendly unit there does in full ASL (A25.233).
+ */
+const banzaiUnit = (p: Piece) => p.tags[T4.banzai] !== undefined;
 const enemyAt = (env: QueryEnv, hex: HexId, side: SideId) => unitsAt(env, hex, otherSide(env.state, side));
 
 /** Whether a set of units forms one chain of adjacent hexes (each adjacent to another of the set). */
@@ -150,6 +155,27 @@ export function dcChargeOptions(env: QueryEnv, side: SideId, opts: { skipLos?: b
 }
 
 /**
+ * Why one unit may not take part in a Banzai Charge now, or null (SK4 8.1.8.6): Japanese Infantry on the map, in Good
+ * Order, free to move, not yet started its MPh, not sharing its hex with an enemy, carrying no more than its IPC. A unit
+ * over its IPC may drop a SW first: dropped before it spends any MF, the SW was never possessed that phase (SK1 4.0).
+ * Neither LOS nor range is a unit's own requirement: one unit of the chain meeting them is enough (8.1.8.6 EX).
+ */
+export function chargerIllegal(env: QueryEnv, side: SideId, unit: PieceId): string | null {
+  const p = env.state.pieces[unit];
+  if (!p || p.side !== side) return 'Only your own units charge';
+  if (!jaInfantry(env, p)) return `${p.id} is not Japanese Infantry`;
+  if (p.loc.kind !== 'hex') return `${p.id} is not on the map`;
+  if (!isGoodOrder(env, p) || isPinned(p)) return `${p.id} must be in Good Order and free to move`;
+  if (p.tags[T.moved] !== undefined || p.tags[T4.banzai] !== undefined) return `${p.id} has already started its MPh`;
+  const halted = actionIllegal(env, [p.id]);
+  if (halted) return halted;
+  if (enemyAt(env, hexOf(env.state, p)!, side).length) return `${p.id} shares its hex with an enemy unit`;
+  if (ppCarried(env, p.id) > env.query('unit.ipc', { unit: p.id }, 0))
+    return `${p.id} carries more than its IPC (${swHeldBy(env.state, p.id).map((w) => w.id).join(', ')}): drop a SW before it moves to charge (SK1 4.0)`;
+  return null;
+}
+
+/**
  * Why a Banzai Charge may not be declared so, or null (SK4 8.1.8.6). `skipLos` leaves out its LOS requirement, for an
  * interface showing a declaration as it is being drawn up: the LOS is checked when it is declared, not by trying hexes
  * (ASLRB A6.11: no LOS checks ahead of time).
@@ -173,14 +199,8 @@ export function declareIllegal(env: QueryEnv, side: SideId, leader: PieceId, tar
   const ps = units.map((u) => env.state.pieces[u]).filter((p): p is Piece => !!p);
   if (ps.length !== units.length || ps.some((p) => p.side !== side)) return 'Only your own units charge';
   for (const p of ps) {
-    if (!jaInfantry(env, p)) return `${p.id} is not Japanese Infantry`;
-    if (p.loc.kind !== 'hex') return `${p.id} is not on the map`;
-    if (!isGoodOrder(env, p) || isPinned(p)) return `${p.id} must be in Good Order and free to move`;
-    if (p.tags[T.moved] !== undefined || p.tags[T4.banzai] !== undefined) return `${p.id} has already started its MPh`;
-    const halted = actionIllegal(env, [p.id]);
-    if (halted) return halted;
-    if (enemyAt(env, hexOf(env.state, p)!, side).length) return `${p.id} shares its hex with an enemy unit`;
-    if (ppCarried(env, p.id) > env.query('unit.ipc', { unit: p.id }, 0)) return `${p.id} carries more than its IPC`;
+    const why = chargerIllegal(env, side, p.id);
+    if (why) return why;
   }
   if (!chained(env, ps)) return 'Every charging unit must be adjacent to another unit of the charge';
   const near = ps.filter((p) => map(env).distance(hexOf(env.state, p)!, target) <= BANZAI_RANGE);
@@ -239,12 +259,8 @@ export function banzaiSteps(env: QueryEnv, unit: PieceId): HexId[] {
     return true;
   };
   const neighbors = m.neighbors(here).filter(enterable);
-  // Adjacent to the target: must enter it, unless a Banzai unit is already there.
-  if (d0 === 1 && neighbors.includes(st.target) && !own(st.target).some(charging)) return [st.target];
-  if (d0 === 1 && own(st.target).some(charging)) {
-    // Next to the target already, with a Banzai unit in it: on toward an enemy hex no farther, or stay adjacent.
-    return neighbors.filter((to) => (enemyAt(env, to, st.side).length > 0 && m.distance(to, st.target) <= d0) || m.distance(to, st.target) === 1);
-  }
+  // Adjacent to the target: must enter it, unless a Banzai unit is already there (this Impulse or an earlier one).
+  if (d0 === 1 && neighbors.includes(st.target) && !own(st.target).some(banzaiUnit)) return [st.target];
   return neighbors.filter((to) => m.distance(to, st.target) < d0 || (enemyAt(env, to, st.side).length > 0 && m.distance(to, st.target) <= d0) || m.distance(to, st.target) === 1);
 }
 
@@ -256,7 +272,7 @@ export function endIllegal(env: QueryEnv, unit: PieceId): string | null {
   if (st.moved.includes(unit)) return 'That unit has moved this Impulse';
   const here = hexOf(env.state, p);
   if (!here || map(env).distance(here, st.target) !== 1) return 'Only a unit adjacent to the target may end its charge';
-  const devoid = map(env).neighbors(here).find((h) => enemyAt(env, h, st.side).length > 0 && !personnelAt(env, h, st.side).some(charging));
+  const devoid = map(env).neighbors(here).find((h) => enemyAt(env, h, st.side).length > 0 && !personnelAt(env, h, st.side).some(banzaiUnit));
   if (devoid) return `An adjacent enemy-occupied hex (${devoid}) has no Banzai unit in it: the charge goes on`;
   return null;
 }

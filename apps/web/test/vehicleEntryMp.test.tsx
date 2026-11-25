@@ -25,20 +25,20 @@ afterEach(async () => {
   cleanup = undefined;
 });
 
-async function mountGame({ woods = false, inMotion = false, dice = [4, 4] } = {}) {
+async function mountGame({ woods = false, terrain = woods ? 'woods' : undefined as string | undefined, inMotion = false, dice = [4, 4], mySide = undefined as string | undefined } = {}) {
   const { engine, state } = makeEngine({
     pieces: [{ id: 't34', def: 'ru.T34M43', side: 'ru', hex: 'yM5', tags: { vca: 0, ca: 0, ...(inMotion ? { [T3.motion]: true } : {}) } }],
     scenario: RU_VS_GE,
     extra: [...sk2CoreModules, ...sk3CoreModules],
     startPhase: 'MPh',
-    ...(woods ? { terrain: { yM4: { terrain: 'woods' } }, dice } : {}),
+    ...(terrain ? { terrain: { yM4: { terrain, ...(terrain.startsWith('building') ? { buildingId: 'b' } : {}) } } as never, dice } : {}),
   });
   let latest = act(engine, state, { type: 'vmove.start', vehicle: 't34' }).state;
   const events: LoggedEvent[] = [];
   function Game() {
     const [current, setCurrent] = useState(latest);
     const session: Session = {
-      state: current, engine, log: [], undo: () => {}, canUndo: false, actionCount: 1, replayError: null,
+      state: current, engine, log: [], undo: () => {}, canUndo: false, actionCount: 1, replayError: null, ...(mySide ? { mySide } : {}),
       check: (action) => {
         const decision = engine.currentDecision(current)!;
         return engine.validate(current, { ...action, side: decision.owner, decisionId: decision.id } as Action);
@@ -96,28 +96,61 @@ it('declares a custom entry cost from the side panel without stopping the vehicl
   expect(move()).toMatchObject({ spent: { t34: 6.5 }, vehicle: { stopped: false } });
 });
 
-it.each([false, true])('can enter woods at full cost while reserving 1 MP for the stop (already in Motion: %s)', async (inMotion) => {
-  const { events, move, openWheel, wheelAction } = await mountGame({ woods: true, inMotion });
+it.each([false, true])('enters woods with all its MP and stops for free; no other woods cost is offered (already in Motion: %s)', async (inMotion) => {
+  const { host, events, move, openWheel, wheelAction } = await mountGame({ woods: true, inMotion });
   const left = inMotion ? 16 : 15;
   openWheel();
   expect(wheelAction('Enter at half MP (8 MP)')).toBeDefined();
   expect(wheelAction(`Enter with all MP (${left} MP)`)).toBeDefined();
-  reactAct(() => wheelAction(`Enter for ${left - 1} MP (1 MP to stop)`)!.click());
+  // Half or all, nothing between (SK4 1.1.1): one all-MP entry, no reserve-a-stop entry.
+  const labels = [...host.querySelectorAll('.aw-item .aw-label')].map((label) => label.textContent);
+  expect(labels.filter((label) => label?.startsWith('Enter'))).toEqual(['Enter at half MP (8 MP)', `Enter with all MP (${left} MP)`]);
+  reactAct(() => wheelAction(`Enter with all MP (${left} MP)`)!.click());
   expect(events.find((event) => event.type === 'sk3.vehicle.bog')?.payload).toMatchObject({ drm: 1, bogged: false });
-  expect(move()).toMatchObject({ hex: 'yM4', spent: { t34: 15 }, vehicle: { stopped: false } });
+  expect(move()).toMatchObject({ hex: 'yM4', spent: { t34: 16 }, vehicle: { stopped: false, freeStop: true } });
 
   openWheel();
-  const stop = wheelAction('Stop (1 MP)')!;
+  const stop = wheelAction('Stop (free)')!;
   expect(stop.getAttribute('aria-disabled')).toBeNull();
   reactAct(() => stop.click());
-  expect(move()).toMatchObject({ spent: { t34: 16 }, vehicle: { stopped: true } });
+  expect(move()).toMatchObject({ spent: { t34: 16 }, vehicle: { stopped: true, freeStop: false } });
 });
 
-it('ends movement without a paid stop if the vehicle bogs on entry', async () => {
+it('ends movement if the vehicle bogs on an all-MP woods entry', async () => {
   const { events, unit, move, openWheel, wheelAction } = await mountGame({ woods: true, dice: [6, 6] });
   openWheel();
-  reactAct(() => wheelAction('Enter for 14 MP (1 MP to stop)')!.click());
+  reactAct(() => wheelAction('Enter with all MP (15 MP)')!.click());
   expect(events.find((event) => event.type === 'sk3.vehicle.bog')?.payload).toMatchObject({ drm: 1, bogged: true });
   expect(unit().tags[T3.bog]).toBe('bogged');
   expect(move()).toBeUndefined();
+});
+
+it.each(['woods', 'building-wood', 'building-stone'])('leaves %s out of the declared-MP entries: no wheel "Enter with all MP" beyond the woods choice, no side-panel destination', async (terrain) => {
+  const { host, openWheel, wheelAction } = await mountGame({ terrain });
+  const destination = host.querySelector<HTMLSelectElement>('select[aria-label="Destination hex"]')!;
+  const options = [...destination.options].map((option) => option.value).filter(Boolean);
+  expect(options).not.toContain('yM4');
+  // The other hex ahead is Open Ground and keeps its declared entry (SK4 3.3.2).
+  expect(options.length).toBeGreaterThan(0);
+  openWheel();
+  if (terrain === 'woods') expect(wheelAction('Enter with all MP (15 MP)')).toBeDefined();
+  else {
+    expect(wheelAction('Enter with all MP (15 MP)')).toBeUndefined();
+    expect(host.querySelectorAll('.aw-item').length).toBeGreaterThan(0);
+  }
+});
+
+it('offers the open-ground all-MP entry on the wheel', async () => {
+  const { openWheel, wheelAction } = await mountGame();
+  openWheel();
+  expect(wheelAction('Enter with all MP (15 MP)')).toBeDefined();
+});
+
+it('shows the Enter hex panel only to the side whose decision it is', async () => {
+  const mover = await mountGame({ mySide: 'ru' });
+  expect(mover.host.querySelector('select[aria-label="Destination hex"]')).not.toBeNull();
+  await cleanup?.();
+  cleanup = undefined;
+  const other = await mountGame({ mySide: 'ge' });
+  expect(other.host.querySelector('select[aria-label="Destination hex"]')).toBeNull();
 });

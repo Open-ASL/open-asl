@@ -128,6 +128,7 @@ import {
   gun as gunDef,
   gunIdent,
   vehicle as vehicleDef,
+  vehicleEntryTerrain,
   vehicleIfe,
   turretTurnFor,
   ordnanceDirectorIllegal,
@@ -3382,8 +3383,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
 
   /**
    * A Fully Tracked vehicle moving into woods chooses its cost (SK4 1.1.1, ASLRB B13.42): half its MP
-   * with a +3 Bog Check DRM, or all its MP without it. The full-MP option can leave 1 MP for the stop
-   * if the entry still spends more than half its MP.
+   * with a +3 Bog Check DRM, or all its MP without it. Both entries, with what each costs, when the
+   * vehicle has more than half its MP left (with fewer, "all" would cost the same and earn nothing).
    */
   const woodsEntry = (hex: HexId): WheelItem[] | null => {
     if (!ms?.vehicle || !ms.hex || !legal.some((a) => a.type === 'move.step' && a['to'] === hex)) return null;
@@ -3395,15 +3396,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     if (half !== vd.mp / 2 || left <= vd.mp / 2 || session.check({ type: 'move.step', to: hex, declared: left }) !== null) return null;
     const drm = (halfMp: boolean) => env.query('vehicle.bogDrm', { vehicle: v.id, hex, halfMp }, 0);
     const sign = (n: number) => (n >= 0 ? `+${n}` : String(n));
-    const reserveStop = { type: 'move.step', to: hex, declared: left - 1 } as const;
     return [
       action(`Enter at half MP (${half} MP)`, () => run({ type: 'move.step', to: hex }, true), { icon: '½', hint: `Bog Check ${sign(drm(true))} DRM; ${left - half} MP left after it (SK4 1.1.1)` }),
-      action(`Enter with all MP (${left} MP)`, () => run({ type: 'move.step', to: hex, declared: left }, true), { icon: '■', hint: `Bog Check ${sign(drm(false))} DRM; uses every MP it has left (SK4 1.1.1)` }),
-      ...(reserveStop.declared > half && session.check(reserveStop) === null
-        ? [action(`Enter for ${reserveStop.declared} MP (1 MP to stop)`, () => run(reserveStop, true), {
-          icon: '■', hint: `Full-MP Bog Check (${sign(drm(false))} DRM). If the vehicle does not Bog, choose Stop (1 MP) after entering (SK4 1.1.1)`,
-        })]
-        : []),
+      action(`Enter with all MP (${left} MP)`, () => run({ type: 'move.step', to: hex, declared: left }, true), { icon: '■', hint: `Bog Check ${sign(drm(false))} DRM; uses every MP it has left, and it may still stop (SK4 1.1.1)` }),
     ];
   };
 
@@ -3970,7 +3965,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         if (woods) items.push(...woods);
         const v = state.pieces[ms.units[0]!]!;
         const vd = vehicleDef(env, v)!;
-        if (!woods && legal.some((a) => a.type === 'move.step' && a['to'] === hex && !a['bypass'])) {
+        // Declaring more MP than needed (SK4 3.3.2) is not open into woods (half or all, above) or a building (half its
+        // printed MP, ASLRB B23.41).
+        if (!vehicleEntryTerrain(env, ms, hex) && legal.some((a) => a.type === 'move.step' && a['to'] === hex && !a['bypass'])) {
           const minimum = env.query('move.stepCost', { ms, to: hex }, 0);
           const left = mfLeft(v.id);
           const enterAll = { type: 'move.step', to: hex, declared: left } as const;
@@ -6546,12 +6543,13 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                           {ms.hex && vehicleDef(env, state.pieces[ms.units[0]!]!)!.turret !== 'NT' && state.pieces[ms.units[0]!]!.tags['ca'] !== state.pieces[ms.units[0]!]!.tags['vca'] ? ` · turret ${spineLabel(env, ms.hex, Number(state.pieces[ms.units[0]!]!.tags['ca']))}` : ''}
                         </b>
                       </div>
-                      {!ms.vehicle.stopped && owner && mode === 'normal' && (() => {
+                      {!ms.vehicle.stopped && owner && decision.owner === owner && mode === 'normal' && (() => {
                         const left = mfLeft(ms.units[0]!);
                         const destinations = new Map<HexId, number>();
                         for (const a of legal) {
                           const to = a['to'];
-                          if (a.type !== 'move.step' || typeof to !== 'string' || a['bypass'] || a['woods'] || a['beneath'] || a['noTb']) continue;
+                          // Woods and buildings have their own entry costs (SK4 1.1.1; ASLRB B13.41, B23.41): the wheel offers them.
+                          if (a.type !== 'move.step' || typeof to !== 'string' || a['bypass'] || a['beneath'] || a['noTb'] || vehicleEntryTerrain(env, ms, to)) continue;
                           const minimum = env.query('move.stepCost', { ms, to }, 0);
                           if (minimum + 0.5 <= left && session.check({ type: 'move.step', to, declared: minimum + 0.5 }) === null)
                             destinations.set(to, minimum);

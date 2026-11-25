@@ -7,6 +7,7 @@ import {
   ammoUseIllegal,
   arcNeighbours,
   arcSpine,
+  caOfSpine,
   defaultAmmo,
   isMgOrdnance,
   ordnanceOf,
@@ -91,6 +92,15 @@ export function spineLabel(env: QueryEnv, gunHex: HexId, spine: number): string 
  * hex corner (0 east, clockwise), not a Gun's spine: `arcSpine` gives the spine of the same hexspine.
  */
 export const pillboxArcLabel = (env: QueryEnv, hex: HexId, ca: number): string => spineLabel(env, hex, arcSpine(ca));
+
+/**
+ * The Covered Arc corner (`FortPlacement.ca`) a pillbox in `hex` starts with when placed: facing `target` (the map's
+ * middle), so that hex is in its arc (B30.1, C3.2). Corner 0 when `target` is its own hex.
+ */
+export function pillboxCaToward(env: QueryEnv, hex: HexId, target: HexId): number {
+  const spine = spineToward(env, hex, target);
+  return spine === null ? 0 : caOfSpine(spine);
+}
 
 export interface ShotOption {
   type: TargetType;

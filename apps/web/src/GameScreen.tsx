@@ -163,7 +163,7 @@ import {
   type TargetType,
   type AmmoKind,
 } from '@asl/rules';
-import { caChangeFor, directedShotOptions, gunHexOf, pillboxArcLabel, shotOptions, spineLabel, spineToward, thPreview } from './game/ordnance';
+import { caChangeFor, directedShotOptions, gunHexOf, pillboxArcLabel, pillboxCaToward, shotOptions, spineLabel, spineToward, thPreview } from './game/ordnance';
 import { screenViewer } from './game/visibility';
 import { advanceTos, clickLoc } from './game/clickLoc';
 import { DirectorPicker, GunComposer } from './panels/GunComposer';
@@ -1306,7 +1306,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     if (c.kind === 'pillbox') {
       const hexes = [...statics.map.hexes()];
       const mid = hexes[Math.floor(hexes.length / 2)]?.id;
-      c.ca = (mid && spineToward(env, hex, mid)) || 0;
+      c.ca = mid ? pillboxCaToward(env, hex, mid) : 0;
     }
     // A-T mines on a paved road are placed in full view (B28.53).
     if (c.kind === 'mines' && hipIllegal(env, c)) c.hidden = !c.hidden;

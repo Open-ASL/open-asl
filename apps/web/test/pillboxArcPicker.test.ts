@@ -14,7 +14,7 @@ import {
 import { sk1CoreModules } from '../../../packages/rules/src/sk1';
 import { makeEngine } from '../../../packages/rules/test/fixtures';
 import { pillboxArtTurn } from '../src/board/BoardView';
-import { pillboxArcLabel } from '../src/game/ordnance';
+import { pillboxArcLabel, pillboxCaToward } from '../src/game/ordnance';
 
 /*
  * Setting a pillbox's Covered Arc on the map (full ASL, ASLRB B30.1). A pillbox's arc is a hex corner (0 east,
@@ -77,5 +77,16 @@ describe('the pillbox Covered Arc picker', () => {
     }
     // East of O5 on a flat-topped grid: the handle is named by the two hexes of the next column.
     expect(pillboxArcLabel(env, 'uO5', 0)).toMatch(/^P\d+ \/ P\d+$/);
+  });
+
+  it('a newly placed pillbox faces the middle of the map: that hex is in its default Covered Arc', () => {
+    const hexes = [...map.hexes()];
+    const mid = hexes[Math.floor(hexes.length / 2)]!.id;
+    for (const h of ['uA1', 'uGG10', 'uE3', ...hexes.map((x) => x.id)]) {
+      if (h === mid) continue;
+      const ca = pillboxCaToward(env, h, mid);
+      expect(inPillboxCa(env, { hex: h, ca }, mid), `${h} toward ${mid}`).toBe(true);
+    }
+    expect(pillboxCaToward(env, mid, mid)).toBe(0);
   });
 });

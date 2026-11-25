@@ -39,6 +39,9 @@ import { onWire, ownHiddenWire, wireKnownTo } from './wire';
 /** The spine of `sk2/arc.ts` (between its neighbour directions k and k+1) of a fortification's hexspine `ca` (corner `ca`, 0 east, clockwise). */
 export const arcSpine = (ca: number) => mod6(ca + 1);
 
+/** The inverse of `arcSpine`: the hexspine (corner, 0 east, clockwise) of a fortification whose Covered Arc is the `sk2/arc.ts` spine `spine` (B30.1, C3.2). */
+export const caOfSpine = (spine: number) => mod6(spine - 1);
+
 /**
  * Whether `hex` lies in the Covered Arc of the pillbox `pb` (B30.1, C3.2): the wedge between the two hexrows running out
  * through its CA hexsides, its own hex excluded ("Except for its two CA hexsides, the pillbox hex itself is not in the

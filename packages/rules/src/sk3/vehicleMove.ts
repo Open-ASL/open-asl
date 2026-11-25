@@ -1,11 +1,14 @@
 import { cubeEquals, type Action, type Ctx, type HexId, type Piece, type PieceId, type QueryEnv, type RuleModule, type SideId } from '@asl/engine';
 import { byId, hexOf, statics, swHeldBy, vehiclesInHex } from '../common/pieces';
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
+import { hexOfLoc } from '../common/location';
 import {
+  MOVE_ENTER,
   MOVE_ENTERED,
   MOVE_FINISH,
   moveInternals,
   moveState,
+  type MoveEnterFn,
   type MoveEnteredFn,
   type MoveFinishFn,
   type MoveState,
@@ -139,6 +142,23 @@ export function vehicleEntryCost(env: QueryEnv, p: Piece, from: HexId | null, to
 /** MP to turn the hull `spines` hexspines in `hex` (SK4 3.3.2): 1 per hexspine, 2 in woods or a building. */
 export const vehicleTurnCost = (env: QueryEnv, hex: HexId | null, spines: number): number => spines * (closeTerrain(env, hex) ? 2 : 1);
 
+/**
+ * The terrain whose rate fixes what a vehicle spends to enter `to`, so it may not declare a higher expenditure (SK4
+ * 3.3.2) there: `woods` (woods, and under PTO Terrain jungle and bamboo), which a Fully Tracked vehicle enters at half its
+ * MP with a Bog Check DRM or at all its MP without it and an Armored Car at all its MP (SK4 1.1.1; ASLRB B13.41-.42);
+ * `building`, entered at half the printed MP allotment and no other cost (SK4 1.1.1; ASLRB B23.41). Null elsewhere,
+ * along a road (the road rate applies, B13.41 "without using Road"), and for a hut or rubble, entered at their own rate.
+ */
+export function vehicleEntryTerrain(env: QueryEnv, ms: MoveState, to: HexId): 'woods' | 'building' | null {
+  const alongRoad = !!(ms.hex ?? ms.off) && moveInternals.roadSideTo(env, ms, to) && (isRoadHex(env, to) || isWoodsRoad(env, to));
+  return entryTerrain(env, to, alongRoad);
+}
+const entryTerrain = (env: QueryEnv, to: HexId, alongRoad: boolean): 'woods' | 'building' | null => {
+  if (alongRoad || !statics(env).map.hex(to)) return null;
+  if (isBuildingHex(env, to)) return isHutHex(env, to) || isRubbleHex(env, to) ? null : 'building';
+  return WOODS_LIKE.has(terrainOf(env, to).id) ? 'woods' : null;
+};
+
 /** The cost of the moving vehicle's step into `to` (`declared`: more MP than needed, SK4 3.3.2; the woods "all MP" choice is a declaration of all that is left). */
 function vehicleStepCost(env: QueryEnv, ms: MoveState & { vehicle: VehicleMoveState }, to: HexId, declared?: number): number {
   const p = pieceOf(env, ms.units[0]!);
@@ -180,6 +200,11 @@ function vehicleStepIllegal(env: QueryEnv, ms: MoveState & { vehicle: VehicleMov
   const cost = vehicleStepCost(env, ms, to, declared);
   if (!Number.isFinite(cost)) return 'The vehicle cannot enter that terrain';
   const left = remaining(ms);
+  // A declared expenditure above the terrain's rate (SK4 3.3.2) is not open in woods or a building: the Bog Check DRM
+  // follows the choice the rule offers, not the MP spent (SK4 1.1.1, 7.6; ASLRB B13.41-.42, B23.41).
+  const fixed = declared !== undefined && declared > vehicleStepCost(env, ms, to) ? vehicleEntryTerrain(env, ms, to) : null;
+  if (fixed === 'building') return 'A building costs half the printed MP: no more may be declared (SK4 1.1.1; ASLRB B23.41)';
+  if (fixed === 'woods' && declared !== left) return `Woods cost half the MP allotment or all ${left} MP left, nothing between (SK4 1.1.1; ASLRB B13.41)`;
   if (cost > left) return `Entering costs ${cost} MP (${left} left)`;
   return null;
 }
@@ -388,6 +413,18 @@ export const vehicleMoveModule: RuleModule = {
     }, () => 1);
 
     // ---------------------------------------------------------------- entering a hex: Bog Check, moving target
+    // Into woods at all its MP (an Armored Car always so; a Fully Tracked vehicle by declaring all it has left), a vehicle
+    // may still spend 1 MP to stop (SK4 1.1.1, 3.3.2; ASLRB B13.41 "other than for ... stopping"): `freeStop`, which
+    // also marks the entry for the Bog Check as not at half MP. Any other entry clears it; so do the stop and a start.
+    r.procedure<MoveEnterFn>(MOVE_ENTER, (next) => (ctx, ms, to, cost, woods, extra) => {
+      if (!ms.vehicle) return next?.(ctx, ms, to, cost, woods, extra);
+      const hex = hexOfLoc(to);
+      const d = vehicle(ctx, pieceOf(ctx, ms.units[0]!))!;
+      // A Fully Tracked vehicle's half-MP entry costs the step's own rate; anything else into woods is the all-MP one.
+      const allMp = vehicleEntryTerrain(ctx, ms, hex) === 'woods' && cost >= remaining(ms) && (!d.tracked || cost !== vehicleStepCost(ctx, ms as MoveState & { vehicle: VehicleMoveState }, hex));
+      const v = extra?.vehicle ?? ms.vehicle;
+      next?.(ctx, ms, to, cost, woods, { ...extra, vehicle: { ...v, freeStop: allMp } });
+    });
     r.procedure<MoveEnteredFn>(MOVE_ENTERED, (next) => (ctx, ms) => {
       next?.(ctx, ms);
       if (!ms.vehicle || !ms.hex) return;
@@ -399,11 +436,13 @@ export const vehicleMoveModule: RuleModule = {
       const cost = ms.mfHere;
       ctx.emit('sk1.move.state', { state: { ...ms, vehicle: { ...ms.vehicle, sinceTurret: ms.vehicle.sinceTurret + cost, turretTurned: false, sinceBff: (ms.vehicle.sinceBff ?? 0) + cost } } });
       if (ctx.query('vehicle.bogIn', { vehicle: p.id, hex: ms.hex, turn: false }, bogTerrain(ctx, ms.hex))) {
-        const d = vehicle(ctx, p)!;
-        const halfMp = ms.mfHere < d.mp && ms.mfHere <= d.mp / 2 + 0.01 && !ms.vehicle.freeStop;
+        // Half MP is the choice the terrain offered, not the MP spent: a vehicle or wreck already there, a Crest Line or
+        // Smoke add to the cost of a half-MP entry without making it an all-MP one (SK4 1.1.1, 7.6; ASLRB B13.42, B23.41).
+        // Wire or a trench in other terrain is no half-MP entry (ASLRB B26.43, B27.55).
+        const halfMp = !!entryTerrain(ctx, ms.hex, ms.viaRoad) && !ms.vehicle.freeStop;
         if (bogCheck(ctx, p, ms.hex, halfMp, 'enter')) {
           const after = moveState(ctx)!;
-          ctx.emit('sk1.move.state', { state: { ...after, halted: true, vehicle: { ...after.vehicle!, stopped: true, started: false } } });
+          ctx.emit('sk1.move.state', { state: { ...after, halted: true, vehicle: { ...after.vehicle!, stopped: true, started: false, freeStop: false } } });
         }
       }
     });

@@ -470,9 +470,10 @@ input[type='checkbox'] { accent-color: var(--brass); width: 16px; height: 16px; 
 .composer { display: grid; gap: 10px; }
 .composer .row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .composer .row b { text-align: right; }
-.composer .delay-ctl { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-.composer .delay-ctl button { padding: 2px 8px; min-height: 0; font: 600 11px var(--font-head); letter-spacing: 0.06em; }
-.composer .delay-ctl input { width: 54px; padding: 2px 6px; font: 600 12px var(--font-head); background: #141814; color: var(--text); border: 1px solid var(--line-hi); border-radius: 4px; }
+.composer .mp-ctl { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.composer .mp-ctl button { padding: 2px 8px; min-height: 0; font: 600 11px var(--font-head); letter-spacing: 0.06em; }
+.composer .mp-ctl input, .composer .mp-ctl select { padding: 2px 6px; font: 600 12px var(--font-head); background: #141814; color: var(--text); border: 1px solid var(--line-hi); border-radius: 4px; }
+.composer .mp-ctl input { width: 54px; }
 .composer .stuck { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line-hi); border-radius: 6px; font-size: 13px; }
 .composer .stuck button { justify-self: end; }
 .composer .check { display: flex; gap: 8px; align-items: center; font-family: var(--font-head); letter-spacing: 0.04em; }

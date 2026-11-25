@@ -132,7 +132,7 @@ export function DirectorPicker({ leaders, director, onDirector }: { leaders: { i
   return (
     <div className="row">
       <span>Directed by</span>
-      <b className="delay-ctl">
+      <b className="mp-ctl">
         <button className={`ghost small ${!director ? 'active' : ''}`} onClick={() => onDirector(null)}>
           no leader
         </button>

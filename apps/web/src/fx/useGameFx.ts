@@ -4,7 +4,6 @@ import { defOf, moveState, type IftResult, type Statics, isVisibleTo, hexOfLoc }
 import { playSfx } from '../audio/engine';
 import type { SfxName, SfxParams } from '../audio/sfx';
 import { mgSound, ordnanceSound, vehicleMoveSound } from '../audio/weapons';
-import { ccPlayOrder } from './ccOrder';
 import { counterImage } from '../game/assets';
 import { NATION, defLabel, entryRoll, hexNamer, humanize, pieceLabel, sideNameOf } from '../game/describe';
 import type { FxLevel } from './settings';
@@ -172,6 +171,13 @@ const away = () => typeof document !== 'undefined' && document.hidden;
  * `seek`: a replay's jump counter (Session.seek). When it changes, the position jumped to is taken as it stands: no
  * wheel, callout, dice or board effect for what was jumped over, and whatever was still playing is dropped.
  */
+/** A CC roll, or part of a Field Promotion made on one (its dr, the new leader, his MMC and his stacking on it, SK1 5.3). */
+function ccRollOrPromotion(e: { type: string; payload: unknown }): boolean {
+  const p = e.payload as { label?: unknown; tags?: Record<string, unknown> };
+  if (e.type === 'dice.rolled') return /^CC \S+ in |^Leader Creation for |MMC the new leader defends with/.test(String(p.label ?? ''));
+  return e.type === 'piece.created' || e.type === 'sk1.leaderCreation' || (e.type === 'piece.tagged' && !!p.tags && 'stackedOn' in p.tags);
+}
+
 export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision | undefined, level: FxLevel, viewer: SideId | null, present: PresentationControl, seek = 0): GameFx {
   const hexLabel = hexNamer(env);
   const enabled = level !== 'off';
@@ -526,19 +532,22 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
     const ordnanceFired = new Set<PieceId>();
     // An engine started in this batch: the first hex it enters is heard once it has caught.
     let engineStarted = false;
-    // A simultaneous CC is told one side at a time: each roll, then its outcome (ccPlayOrder). A beat then reveals the
-    // board up to the latest event played so far, which may lie past a roll still to be shown (rolls change nothing).
-    let playedSeq = 0;
-    for (const e of ccPlayOrder(fresh)) {
+    // Events are told as logged: a simultaneous CC rolls every DR, and makes every Field Promotion, before any result
+    // is applied (SK1 3.8), so both sides' dice land before either outcome. The outcomes start a beat of their own, so
+    // the last dice (or the new leader) are seen before anything they lead to.
+    let ccRolls = 0;
+    for (const e of fresh) {
       const p = e.payload as Record<string, unknown>;
-      const playedBefore = playedSeq;
-      playedSeq = Math.max(playedSeq, e.seq);
+      if (ccRolls && !ccRollOrPromotion(e)) {
+        if (ccRolls > 1) closeBeat(e.seq - 1);
+        ccRolls = 0;
+      }
       if (PHASE_EVENTS.has(e.type) && beat.splitSeq === undefined) beat.splitSeq = e.seq - 1;
       switch (e.type) {
         case 'dice.rolled': {
           // A secret roll (ASLRB B28.47's Secret dr) is shown only to its side: no dice, no sound for the other.
           if (p['secret'] !== undefined && p['secret'] !== viewer) break;
-          closeBeat(Math.max(e.seq - 1, playedBefore));
+          closeBeat(e.seq - 1);
           delay = 300;
           desperate.clear();
           snd('dice.roll', 0);
@@ -550,6 +559,7 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
           if (cc) {
             ccToasts[cc[1]!] = lastToast;
             beat.cc = true;
+            ccRolls++;
           }
           // A provisional reinforcement's entry dr: say whether the force comes on this turn.
           const entry = entryRoll(p['label'] as string, dice[0]!);

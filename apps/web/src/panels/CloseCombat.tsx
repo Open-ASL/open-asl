@@ -89,6 +89,12 @@ export interface Card {
   dice?: number[];
   result?: { odds: string; drm: number; dr: number; kill: number; result: string };
   note?: string;
+  /**
+   * The other side's Field Promotion has added a leader to this attack's targets, but it has not been told yet: the
+   * result is shown at the odds the attack was declared at until it is (`keepCardKeys`), then at the odds it was
+   * resolved at, so the player sees the new leader change it.
+   */
+  asDeclared?: boolean;
 }
 
 interface AmbushView {
@@ -191,26 +197,27 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
 
   // Units: the snapshot, plus anyone who joined since (a field-promoted leader), as they stand now.
   const roster = {} as Record<SideId, UnitView[]>;
+  const toView = (u: UnitSnap): UnitView => {
+    const p = env.state.pieces[u.id];
+    const dead = !p || p.loc.kind !== 'hex' || p.loc.hex !== hex;
+    const broken = !!p && isBroken(p);
+    const defId = p?.defId ?? u.defId;
+    return {
+      ...u,
+      label: p ? shortLabel(env, p) : u.label,
+      img: counterImage(defId, broken),
+      dead,
+      reduced: !!p && p.defId !== u.defId,
+      broken,
+      leader: !!p && !!smc(env, p),
+      stackedOn: p && !dead ? stackedOn(env, p) : null,
+      spent: !!here.attacked?.includes(u.id),
+    };
+  };
   for (const side of env.state.sides) {
     const known = new Set(session.units[side]?.map((u) => u.id));
     const extra = ccUnits(env, hex, side).filter((p) => !known.has(p.id)).map((p) => ({ id: p.id, side, defId: p.defId, label: shortLabel(env, p) }));
-    roster[side] = [...(session.units[side] ?? []), ...extra].map((u) => {
-      const p = env.state.pieces[u.id];
-      const dead = !p || p.loc.kind !== 'hex' || p.loc.hex !== hex;
-      const broken = !!p && isBroken(p);
-      const defId = p?.defId ?? u.defId;
-      return {
-        ...u,
-        label: p ? shortLabel(env, p) : u.label,
-        img: counterImage(defId, broken),
-        dead,
-        reduced: !!p && p.defId !== u.defId,
-        broken,
-        leader: !!p && !!smc(env, p),
-        stackedOn: p && !dead ? stackedOn(env, p) : null,
-        spent: !!here.attacked?.includes(u.id),
-      };
-    });
+    roster[side] = [...(session.units[side] ?? []), ...extra].map(toView);
   }
 
   // The ambush dice, one per side, as revealed; the verdict once the declarations have begun.
@@ -284,7 +291,28 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
   // A leader created for an attack whose result has not been told yet waits for it: the board is revealed up to the
   // latest event told, which in a simultaneous CC may lie past the other side's roll and its Field Promotion.
   const untold = new Set(cards.filter((c) => c.dice && !c.result).map((c) => c.side));
-  for (const [leader, side] of promoted) if (untold.has(side)) roster[side] = (roster[side] ?? []).filter((u) => u.id !== leader);
+  for (const [leader, side] of promoted) {
+    if (untold.has(side)) roster[side] = (roster[side] ?? []).filter((u) => u.id !== leader);
+    // Once told, he stays shown even if the CC has already killed him (he was not in the hex when it opened).
+    else if (!roster[side]?.some((u) => u.id === leader) && env.state.pieces[leader]) {
+      const p = env.state.pieces[leader]!;
+      roster[side] = [...(roster[side] ?? []), toView({ id: p.id, side, defId: p.defId, label: shortLabel(env, p) })];
+    }
+  }
+  // He also defends against the other side's attack on the MMC he is stacked with (ASLRB A18.12), which is resolved at
+  // the odds with him. If that result is told before his promotion, it shows the declared odds and leaves him out of
+  // the targets; once the promotion is told, it switches to the odds he changed, saying why.
+  for (const c of cards) {
+    const joined = c.result ? c.targets.filter((t) => promoted.has(t) && promoted.get(t) !== c.side) : [];
+    if (!joined.length) continue;
+    if (joined.some((l) => untold.has(promoted.get(l)!))) {
+      c.asDeclared = true;
+      c.targets = c.targets.filter((t) => !joined.includes(t));
+    } else {
+      const why = joined.map((l) => `${shortLabel(env, env.state.pieces[l])} joins the defence`).join(' · ');
+      c.note = c.note ? `${c.note} · ${why}` : why;
+    }
+  }
 
   let step: Step = 'resolving';
   let acting: SideId | undefined;
@@ -303,7 +331,8 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
  * rolled, then by its roll; a new key would make React mount a fresh card, which replays its entry animation, so the
  * attacks would seem to vanish and come back with their dice. A unit attacks at most once in a hex's Close Combat, so a
  * card sharing an attacker (on the same side) with one shown before is the same attack, even if a Field Promotion has
- * since added a leader to it. A card whose dice are in but whose result is not yet told also keeps its odds.
+ * since added a leader to it. A card also keeps the odds it was declared at, which a card whose dice are in but whose
+ * result is not yet told shows, as does one whose result a Field Promotion not yet told has changed (`asDeclared`).
  */
 export function keepCardKeys(prev: Card[], next: Card[]): Card[] {
   const used = new Set<string>();
@@ -316,9 +345,17 @@ export function keepCardKeys(prev: Card[], next: Card[]): Card[] {
     used.add(key);
     // A roll waiting for its turn to be told keeps the odds it was declared at: they cannot be worked out again from
     // the board, where the other side's result may already have been applied (simultaneous CC, SK1 3.8).
-    const preview = !c.result && !c.preview && before?.preview ? before.preview : c.preview;
-    return key === c.key && preview === c.preview ? c : { ...c, key, preview };
+    const preview = !c.preview && before?.preview ? before.preview : c.preview;
+    const result = c.asDeclared && c.result ? declaredResult(c.result, preview) : c.result;
+    return key === c.key && preview === c.preview && result === c.result ? c : { ...c, key, preview, ...(result ? { result } : {}) };
   });
+}
+
+/** The result a roll would have had at the odds its attack was declared at (SK1 3.8: under kill eliminates, on it CR). */
+function declaredResult(r: NonNullable<Card['result']>, pv: CcAttackPreview | null): NonNullable<Card['result']> {
+  if (!pv?.odds || pv.ccv || !(r.result in RESULT_TEXT) || r.result === 'immobilized') return r;
+  const final = r.dr + pv.drm;
+  return { odds: pv.odds, drm: pv.drm, dr: r.dr, kill: pv.kill, result: final < pv.kill ? 'eliminated' : final === pv.kill ? 'casualty reduction' : 'no effect' };
 }
 
 // ------------------------------------------------------------------ drag: a counter picked up with the pointer and dropped on a zone

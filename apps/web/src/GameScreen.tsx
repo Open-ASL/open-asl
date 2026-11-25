@@ -163,7 +163,7 @@ import {
   type TargetType,
   type AmmoKind,
 } from '@asl/rules';
-import { caChangeFor, directedShotOptions, gunHexOf, shotOptions, spineLabel, spineToward, thPreview } from './game/ordnance';
+import { caChangeFor, directedShotOptions, gunHexOf, pillboxArcLabel, pillboxCaToward, shotOptions, spineLabel, spineToward, thPreview } from './game/ordnance';
 import { screenViewer } from './game/visibility';
 import { advanceTos, clickLoc } from './game/clickLoc';
 import { DirectorPicker, GunComposer } from './panels/GunComposer';
@@ -1306,7 +1306,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     if (c.kind === 'pillbox') {
       const hexes = [...statics.map.hexes()];
       const mid = hexes[Math.floor(hexes.length / 2)]?.id;
-      c.ca = (mid && spineToward(env, hex, mid)) || 0;
+      c.ca = mid ? pillboxCaToward(env, hex, mid) : 0;
     }
     // A-T mines on a paved road are placed in full view (B28.53).
     if (c.kind === 'mines' && hipIllegal(env, c)) c.hidden = !c.hidden;
@@ -2676,7 +2676,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
             const err = counterTerrainIllegal(env, { ...ringed, hexside: k });
             return { id: `rb-${k}`, hex: ringed.hex, angle: hexsideScreenAngle(k, rotation), dist: 0.5, glyph: '▬', tag: 'ROAD', tone: 'turret' as const, active: ringed.hexside === k, disabled: !!err, hint: err ? plain(err)! : `Roadblock across this hexside (ASLRB B29.1)`, onClick: () => { if (!err) { changeFort(idx, { hexside: k }); setFortRingFor(null); } } };
           }
-          return { id: `pb-${k}`, hex: ringed.hex, spine: k, glyph: '▲', tone: 'hull' as const, active: ringed.ca === k, arc: statics.scenario.sides.find((x) => x.side === placing.owner)?.nationality, hint: `Pillbox Covered Arc ${spineLabel(env, ringed.hex, k)} (ASLRB B30.1)`, onClick: () => { changeFort(idx, { ca: k }); setFortRingFor(null); } };
+          // Handle `k` sets the arc to hex corner `k` (`FortPlacement.ca`): it is drawn on, and previews, the Gun spine of that hexspine.
+          return { id: `pb-${k}`, hex: ringed.hex, spine: arcSpine(k), glyph: '▲', tone: 'hull' as const, active: ringed.ca === k, arc: statics.scenario.sides.find((x) => x.side === placing.owner)?.nationality, hint: `Pillbox Covered Arc ${pillboxArcLabel(env, ringed.hex, k)} (ASLRB B30.1)`, onClick: () => { changeFort(idx, { ca: k }); setFortRingFor(null); } };
         });
         return { controls, selectedHex: ringed.hex, highlights, selectedPieces: new Set<PieceId>(), los: null };
       }
@@ -3769,7 +3770,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
               }),
             );
             if (c.kind === 'roadblock') items.push(action('Roadblock: choose the hexside…', () => setFortRingFor(i), { icon: '▬', hint: 'The road hexside it obstructs: pick one on the map (ASLRB B29.1)' }));
-            if (c.kind === 'pillbox') items.push(action('Pillbox: face toward…', () => setFortRingFor(i), { icon: '◠', hint: `Covered Arc: ${c.ca !== undefined ? spineLabel(env, hex, c.ca) : 'none yet'} · pick a hexspine on the map (ASLRB B30.1)` }));
+            if (c.kind === 'pillbox') items.push(action('Pillbox: face toward…', () => setFortRingFor(i), { icon: '◠', hint: `Covered Arc: ${c.ca !== undefined ? pillboxArcLabel(env, hex, c.ca) : 'none yet'} · pick a hexspine on the map (ASLRB B30.1)` }));
             items.push(action(`Take the ${name} back`, () => unplaceFort(i), { icon: '↩', hint: 'Back to the tray' }));
           }
         }

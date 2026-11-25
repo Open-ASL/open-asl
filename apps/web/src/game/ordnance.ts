@@ -6,6 +6,8 @@ import {
   ammoStatus,
   ammoUseIllegal,
   arcNeighbours,
+  arcSpine,
+  caOfSpine,
   defaultAmmo,
   isMgOrdnance,
   ordnanceOf,
@@ -83,6 +85,21 @@ export function spineLabel(env: QueryEnv, gunHex: HexId, spine: number): string 
   const label = `${name(a)} / ${name(b)}`;
   // From an offboard hex only the map side has names: say which way it points instead.
   return label === 'off / off' ? `${['N', 'NE', 'SE', 'S', 'SW', 'NW'][spine]! }-ish (away from the map)` : label;
+}
+
+/**
+ * "N5 / O5": the two hexes a pillbox's Covered Arc hexspine points between (ASLRB B30.1). A fortification's `ca` is a
+ * hex corner (0 east, clockwise), not a Gun's spine: `arcSpine` gives the spine of the same hexspine.
+ */
+export const pillboxArcLabel = (env: QueryEnv, hex: HexId, ca: number): string => spineLabel(env, hex, arcSpine(ca));
+
+/**
+ * The Covered Arc corner (`FortPlacement.ca`) a pillbox in `hex` starts with when placed: facing `target` (the map's
+ * middle), so that hex is in its arc (B30.1, C3.2). Corner 0 when `target` is its own hex.
+ */
+export function pillboxCaToward(env: QueryEnv, hex: HexId, target: HexId): number {
+  const spine = spineToward(env, hex, target);
+  return spine === null ? 0 : caOfSpine(spine);
 }
 
 export interface ShotOption {

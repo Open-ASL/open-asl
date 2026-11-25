@@ -53,6 +53,7 @@ const barrelRepairs: Record<string, { hullFront: number; radius: number; squareF
   pzvib: { squareFrame: true, hullFront: 27, radius: 6, textLeft: 106 },
   pzivf2: { hullFront: 39, radius: 5.5, textLeft: 130 },
   pzivh: { hullFront: 38, radius: 5.5, textLeft: 130 },
+  pzivj: { squareFrame: true, hullFront: 38, radius: 5.5, textLeft: 118 },
   cromiv: { hullFront: 30, radius: 7.5 },
   sheriiaa: { hullFront: 33, radius: 6 },
   T3485: { hullFront: 39, radius: 6 },

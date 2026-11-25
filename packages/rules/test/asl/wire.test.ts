@@ -558,7 +558,8 @@ describe('Vehicles and hidden Wire (B26.43; Q&A [K33] to A12.33)', () => {
       s = act(g.engine, s, { type: 'vmove.start', vehicle: 'pz' }).state;
       const t = act(g.engine, s, { type: 'move.step', to: 'uN5' });
       const states = t.events.filter((e) => e.type === 'sk1.move.state').map((e) => (e.payload as { state: { spent: Record<string, number> } }).state);
-      return { spent: states[0]!.spent['pz']!, bog: t.events.some((e) => e.type === 'sk3.vehicle.bog'), at: t.state.pieces['pz']!.loc };
+      const bog = t.events.find((e) => e.type === 'sk3.vehicle.bog')?.payload as { drm: number } | undefined;
+      return { spent: states[0]!.spent['pz']!, bog: !!bog, drm: bog?.drm, at: t.state.pieces['pz']!.loc };
     };
     const plain = step(false);
     const wired = step(true);
@@ -566,6 +567,8 @@ describe('Vehicles and hidden Wire (B26.43; Q&A [K33] to A12.33)', () => {
     expect(wired.spent - plain.spent).toBe(2);
     expect(plain.bog).toBe(false);
     expect(wired.bog).toBe(true);
+    // +1 normal ground pressure +2 Wire: Wire in Open Ground is no half-MP woods or building entry (D8.21, B13.42, B23.41).
+    expect(wired.drm).toBe(3);
   });
 
   it('a vehicle entering Wire it cannot know of finds it: revealed, the step refused with nothing spent; then it pays to enter', () => {

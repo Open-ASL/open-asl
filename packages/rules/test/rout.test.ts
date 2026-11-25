@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Engine, GameState } from '@asl/engine';
-import { activeRout, activeRoutEnds, pendingRouts, routEscorts, routMfLeft, sk2CoreModules } from '../src';
+import { activeRout, activeRoutEnds, pendingRouts, planRout, routEscorts, routMfLeft, sk2CoreModules } from '../src';
 import { RU_VS_GE, act, makeEngine, testMap } from './fixtures';
 
 /** The legal `rout.step` of `unit` into `to` (normal or Low Crawl). */
@@ -437,6 +437,51 @@ describe('Rout Phase', () => {
       expect(s.pieces[u]!.loc).toEqual({ kind: 'hex', hex: 'yM5' });
       expect(activeRout(engine.env(s))).toBeUndefined();
     }
+  });
+
+  it('a rout is never offered into a hex beside an unbroken Known enemy unit, where it would be eliminated (SK1 3.6)', () => {
+    // a1 need not rout (woods, the enemy two hexes off behind the N4 woods). Its other neighbours are full, so the only
+    // hex it could enter is N4, beside g1: ending there eliminates it, and with no building or woods in reach the rout
+    // may end only in a hex "consistent with the above restrictions". So it is offered no rout and simply stays.
+    const full = ['yO5', 'yO6', 'yN6', 'yM6', 'yM5'].flatMap((h) => [0, 1, 2].map((i) => ({ id: `f${h}${i}`, def: 'am.747', side: 'am', hex: h })));
+    const { engine, state } = makeEngine({
+      startPhase: 'RtPh',
+      terrain: { yN5: { terrain: 'woods' }, yN4: { terrain: 'woods' } },
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5', tags: { broken: true, dm: true } },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yN3' },
+        ...full,
+      ],
+    });
+    expect(planRout(engine.env(state), 'a1').destinations.size).toBe(0);
+    expect(stepTargets(engine, state, 'am', 'a1')).toEqual([]);
+    expect(stepTargets(engine, state, 'am', 'a1', true)).toEqual([]);
+    let s = state;
+    for (let i = 0; i < 6 && s.phase === 'RtPh'; i++) {
+      const side = engine.legalActions(s, 'am').length ? 'am' : 'ge';
+      const next = engine.legalActions(s, side).find((a) => a.type === 'rout.stay' || a.type === 'endPhase');
+      if (!next) break;
+      s = act(engine, s, next).state;
+    }
+    expect(s.phase).not.toBe('RtPh');
+    expect(s.pieces['a1']!.loc).toEqual({ kind: 'hex', hex: 'yN5' });
+  });
+
+  it('with no building or woods within reach, no hex beside an unbroken Known enemy unit is a place to stop (SK1 3.6)', () => {
+    const { engine, state } = makeEngine({
+      startPhase: 'RtPh',
+      terrain: { yN5: { terrain: 'woods' }, yN4: { terrain: 'woods' } },
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5', tags: { broken: true, dm: true } },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yN3' },
+      ],
+    });
+    const plan = planRout(engine.env(state), 'a1');
+    expect(plan.sheltered).toBe(false);
+    for (const h of testMap().neighbors('yN3')) expect(plan.destinations.has(h)).toBe(false);
+    // N4 may be passed through on the way elsewhere, but the rout may not stop there.
+    const s = act(engine, state, stepTo(engine, state, 'am', 'a1', 'yN4')!).state;
+    expect(engine.legalActions(s, 'am').some((a) => a.type === 'rout.stop')).toBe(false);
   });
 
   it('with no building or woods within reach the unit may rout up to its MF in any legal direction and stop where it likes', () => {

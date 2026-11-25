@@ -1,5 +1,5 @@
 import type { HexId, Piece, PieceId, QueryEnv, SideId } from '@asl/engine';
-import { UNKNOWN_DEF_ID, defOf, enemyVehicleAt, fireMarker, hexOf, hexOfLoc, isGoodOrder, isRofShot, mmc, ordnanceOf, personnelInHex, statics, swHeldBy, unitsInHex, vehicle } from '@asl/rules';
+import { UNKNOWN_DEF_ID, defOf, enemyVehicleAt, fireGroupContiguous, fireMarker, hexOf, hexOfLoc, isGoodOrder, isRofShot, mmc, ordnanceOf, personnelInHex, smc, statics, swHeldBy, unitsInHex, vehicle } from '@asl/rules';
 
 /**
  * What a click on an own stack picks up in a fire phase, so the stack is ready to shoot as
@@ -27,6 +27,21 @@ export function fireSelectable(env: QueryEnv, here: Piece[], opts: { firstFire: 
   // each other (SK4 3.2), and it fires from its own entries (MA, MGs, IFE + MGs). A vehicle alone in the hex is picked up.
   const infantry = pick(here.filter((p) => !vehicle(env, p)));
   return infantry.length ? infantry : pick(here);
+}
+
+/**
+ * Why a stack cannot join the declared fire group, or null when it can: every firing hex must be next to another one
+ * holding a squad, HS or crew of the group (SK1 3.2; a leader alone is no link). The group is built one stack at a
+ * time, so a stack two hexes away joins only after one in between.
+ */
+export function addToGroupBlocked(env: QueryEnv, selected: Iterable<PieceId>, own: PieceId[]): string | null {
+  // As the engine counts firers: the units, and a SW's holder; a leader who only directs is not one (ASLRB A7.5: a
+  // leader alone is a link only when he fires a SW).
+  const firers = [...selected, ...own].filter((id) => {
+    const p = env.state.pieces[id];
+    return !!p && (p.loc.kind === 'held' || !smc(env, p));
+  });
+  return fireGroupContiguous(env, firers) ? null : 'Not next to the fire group: each firing hex must be adjacent to another with a squad, HS or crew in it (SK1 3.2). Add a stack in between first';
 }
 
 /**

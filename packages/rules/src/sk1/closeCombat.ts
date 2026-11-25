@@ -405,20 +405,36 @@ export const closeCombatModule: RuleModule = {
       apply: (v, { side }, env) => v + (ccState(env)!.ambusher === side ? -1 : 1),
     });
 
+    // The Ambush drm (SK1 3.8, ASLRB A11.4 chart): +1 each for CX (SK1 3.3), Pinned and Inexperienced (SK1 5.4), once
+    // per side, plus the leadership of a leader not alone. One labelled part each, so the dr shows how it was made up
+    // (a pinned 9-1's +1 reads as his leadership otherwise).
+    const ambushPart = (id: string, label: string, ref: string, has: (env: QueryEnv, ps: Piece[]) => boolean) =>
+      r.contribute({
+        id: `sk1.cc.ambush-drm.${id}`,
+        query: 'cc.ambushDrm',
+        layer: 0,
+        label,
+        ref,
+        when: ({ units }, env) => has(env, units.map((u) => pieceOf(env, u))),
+        apply: (v) => v + 1,
+      });
+    ambushPart('cx', '+1 CX', 'SK1 3.3', (_env, ps) => ps.some(isCx));
+    ambushPart('pinned', '+1 Pinned', 'ASLRB A11.4', (_env, ps) => ps.some(isPinned));
+    ambushPart('inexperienced', '+1 Inexperienced', 'SK1 5.4', (env, ps) => ps.some((p) => env.query('unit.inexperienced', { unit: p.id }, false)));
+    const ambushLeadership = (env: QueryEnv, units: PieceId[]): number => {
+      const ps = units.map((u) => pieceOf(env, u));
+      const leaders = ps.filter((p) => smc(env, p) && !isBroken(p) && !isPinned(p));
+      const led = ps.filter((p) => mmc(env, p));
+      return leaders.length && led.length ? ccLeadership(env, [...leaders, ...led]) : 0;
+    };
     r.contribute({
-      id: 'sk1.cc.ambush-drm',
+      id: 'sk1.cc.ambush-drm.leadership',
       query: 'cc.ambushDrm',
       layer: 0,
-      apply(_v, { units }, env) {
-        let drm = 0;
-        const ps = units.map((u) => pieceOf(env, u));
-        if (ps.some(isCx)) drm += 1;
-        if (ps.some(isPinned)) drm += 1;
-        if (ps.some((p) => env.query('unit.inexperienced', { unit: p.id }, false))) drm += 1;
-        const leaders = ps.filter((p) => smc(env, p) && !isBroken(p) && !isPinned(p));
-        if (leaders.length && ps.some((p) => mmc(env, p))) drm += ccLeadership(env, [...leaders, ...ps.filter((p) => mmc(env, p))]);
-        return drm;
-      },
+      ref: 'SK1 3.8',
+      label: ({ units }, env) => `${ambushLeadership(env, units)} leadership`,
+      when: ({ units }, env) => ambushLeadership(env, units) !== 0,
+      apply: (v, { units }, env) => v + ambushLeadership(env, units),
     });
 
     r.on<{ phase: string }>({

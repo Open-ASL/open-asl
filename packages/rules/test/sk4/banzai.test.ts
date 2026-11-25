@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Engine, GameState, RuleModule } from '@asl/engine';
-import { banzaiModule, banzaiState, banzaiSteps, banzaiWindowsPending, concealmentModule, declareIllegal, hiddenUnitsModule, japaneseModule, moveState, sk2CoreModules, sk3CoreModules, type Statics } from '../../src';
+import { banzaiModule, banzaiState, banzaiSteps, banzaiWindowsPending, chargerIllegal, concealmentModule, declareIllegal, hiddenUnitsModule, japaneseModule, moveState, sk2CoreModules, sk3CoreModules, type Statics } from '../../src';
 import { act, makeEngine, type PieceSpec } from '../fixtures';
 
 /**
@@ -92,6 +92,77 @@ describe('Banzai Charge: declaration (SK4 8.1.8.6)', () => {
     // While the charge is on, nothing else moves and the phase cannot end.
     expect(legalTypes(engine, s)).not.toContain('move.start');
     expect(legalTypes(engine, s)).not.toContain('endPhase');
+  });
+});
+
+describe('Banzai Charge: who may charge, and a SW over the IPC (SK4 8.1.8.6, SK1 4.0)', () => {
+  // The leader holds a captured MTR (3 PP) over his IPC of 1; the squad next to him is free.
+  const LOADED: PieceSpec[] = [...CHARGE, { id: 'mtr', def: 'am.MTR', side: 'am', heldBy: 'l' }];
+
+  it('the leader himself need not see the target, nor be within eight hexes: one unit of the chain is enough', () => {
+    // A wall of blind hexes is not needed: the leader is nine hexes off, his squads within reach.
+    const { engine, state } = game([
+      { id: 'l', def: 'ja.L91', side: 'ja', hex: 'yG5' },
+      { id: 'a', def: 'ja.447', side: 'ja', hex: 'yH5' },
+      { id: 'm', def: 'am.768', side: 'am', hex: 'yP5' },
+    ]);
+    const env = engine.env(state);
+    expect(mapOf(engine).distance('yG5', 'yP5')).toBeGreaterThan(8);
+    expect(declareIllegal(env, 'ja', 'l', 'yP5', ['l', 'a'])).toBeNull();
+  });
+
+  it('a unit carrying more than its IPC may not charge, and is told to drop the SW first', () => {
+    const { engine, state } = game(LOADED);
+    const env = engine.env(state);
+    expect(chargerIllegal(env, 'ja', 'l')).toMatch(/more than its IPC.*drop/i);
+    expect(chargerIllegal(env, 'ja', 'a')).toBeNull();
+    expect(declareIllegal(env, 'ja', 'l', 'yP5', ['l', 'a', 'b'])).toMatch(/drop/i);
+  });
+
+  it('per unit: not Japanese, broken, pinned, moved, or sharing a hex with the enemy', () => {
+    const { engine, state } = game([
+      ...CHARGE,
+      { id: 'br', def: 'ja.447', side: 'ja', hex: 'yK6', tags: { broken: true } },
+      { id: 'pn', def: 'ja.447', side: 'ja', hex: 'yK6', tags: { pinned: true } },
+      { id: 'mv', def: 'ja.447', side: 'ja', hex: 'yL6', tags: { moved: true } },
+      { id: 'in', def: 'ja.447', side: 'ja', hex: 'yP5' },
+    ]);
+    const env = engine.env(state);
+    expect(chargerIllegal(env, 'ja', 'm')).toMatch(/own units/);
+    expect(chargerIllegal(env, 'ja', 'br')).toMatch(/Good Order/);
+    expect(chargerIllegal(env, 'ja', 'pn')).toMatch(/Good Order/);
+    expect(chargerIllegal(env, 'ja', 'mv')).toMatch(/started its MPh/);
+    expect(chargerIllegal(env, 'ja', 'in')).toMatch(/enemy/);
+  });
+
+  it('dropping the SW before moving frees him: the charge is declared, run, and over by the next Player Turn', () => {
+    const { engine, state: s0 } = game(LOADED);
+    events = [];
+    // SK1 4.0: dropped at the start of the phase before any MF, the SW was never possessed; the leader has not moved.
+    let s = step(act(engine, s0, { type: 'move.drop', sw: 'mtr' }));
+    expect(s.pieces['mtr']!.loc).toMatchObject({ kind: 'hex', hex: 'yK5' });
+    expect(s.pieces['l']!.tags['moved']).toBeUndefined();
+    expect(chargerIllegal(engine.env(s), 'ja', 'l')).toBeNull();
+    s = declare(engine, s, 'l', 'yP5', ['l', 'a', 'b']);
+    expect(bst(s)!.units).toEqual(['a', 'b', 'l']);
+    for (let i = 0; i < 200 && !(s.turn === 2 && s.attacker === 'ja'); i++) {
+      const st = bst(s);
+      const d = engine.currentDecision(s)!;
+      const mover = st && d.kind === 'phase' && d.owner === 'ja' ? st.units.find((u) => !st.moved.includes(u) && banzaiSteps(engine.env(s), u).length > 0) : undefined;
+      s = mover ? go(engine, s, mover, banzaiSteps(engine.env(s), mover)[0]!) : onward(engine, s);
+    }
+    expect([s.turn, s.attacker, s.phase, engine.currentDecision(s)?.kind]).toEqual([2, 'ja', 'RPh', 'phase']);
+    expect(bst(s)).toBeFalsy();
+    for (const id of ['l', 'a', 'b']) if (s.pieces[id]!.loc.kind === 'hex') expect(s.pieces[id]!.tags['banzai']).toBeUndefined();
+    // In the next MPh the survivors in Good Order move, or charge again, as any unit does.
+    for (let i = 0; i < 20 && s.phase !== 'MPh'; i++) s = onward(engine, s);
+    expect(s.phase).toBe('MPh');
+    const fit = ['l', 'a', 'b'].filter((id) => s.pieces[id]!.loc.kind === 'hex' && s.pieces[id]!.tags['broken'] !== true && s.pieces[id]!.tags['pinned'] !== true);
+    expect(fit.length).toBeGreaterThan(0);
+    for (const id of fit) {
+      expect(engine.validate(s, { type: 'move.start', units: [id], doubleTime: false, assault: false, side: 'ja', decisionId: engine.currentDecision(s)!.id } as Action), id).toBeNull();
+      if (!Object.values(s.pieces).some((p) => p.side === 'am' && p.loc.kind === 'hex' && p.loc.hex === hexOf(s, id))) expect(chargerIllegal(engine.env(s), 'ja', id), id).toBeNull();
+    }
   });
 });
 
@@ -234,6 +305,49 @@ describe('Banzai Charge: Impulses (SK4 8.1.8.6)', () => {
     expect(s.pieces['a']!.loc.kind === 'eliminated' || s.pieces['a']!.tags['banzai'] === 'done').toBe(true);
     expect(s.pieces['l']!.tags['banzai']).toBe('done');
     expect(events.filter((e) => e.type === 'sk4.banzai.out').map((e) => (e.payload as { why: string }).why)).toEqual(expect.arrayContaining(['in a hex with an enemy unit']));
+  });
+
+  it('need not enter the target once a Banzai unit occupies it, even one that entered it in an earlier Impulse', () => {
+    // "A Banzai unit must enter the target hex unless another Banzai unit already occupies the hex" (8.1.8.6). The
+    // squad that entered M5 in Impulse 1 is out of the charge from Impulse 2 (in a hex with an enemy unit) but is still
+    // a Banzai unit occupying the target, so b, next to it in Impulse 2, may step beside it or end its charge (full ASL
+    // A25.233: one unit's entry frees the others). Dice of 6: no shot has any effect.
+    const { engine, state: s0 } = game([
+      { id: 'l', def: 'ja.L91', side: 'ja', hex: 'yK5' },
+      { id: 'a', def: 'ja.447', side: 'ja', hex: 'yL5' },
+      { id: 'b', def: 'ja.447', side: 'ja', hex: 'yK5' },
+      { id: 'm', def: 'am.768', side: 'am', hex: 'yM5' },
+    ], { terrain: {}, dice: new Array(200).fill(6) });
+    let s = declare(engine, s0, 'l', 'yM5', ['l', 'a', 'b']);
+    s = go(engine, s, 'a', 'yM5');
+    const m = mapOf(engine);
+    // b and the leader step next to the target (K5 is two hexes from M5).
+    const besides = banzaiSteps(engine.env(s), 'b').filter((h) => m.distance(h, 'yM5') === 1);
+    expect(besides.length).toBeGreaterThan(0);
+    s = go(engine, s, 'b', besides[0]!);
+    s = go(engine, s, 'l', banzaiSteps(engine.env(s), 'l').filter((h) => m.distance(h, 'yM5') === 1)[0]!);
+    while (engine.currentDecision(s)!.kind === 'firstFire') s = step(act(engine, s, { type: 'defPass' }));
+    expect(bst(s)!.impulse).toBe(2);
+    expect(bst(s)!.units).toEqual(['b', 'l']);
+    expect(s.pieces['a']!.tags['banzai']).toBe('done');
+    // What b is offered: the target, or a hex next to it it has not left; and ending its charge where it stands.
+    const env = engine.env(s);
+    const steps = banzaiSteps(env, 'b');
+    expect(steps).toContain('yM5');
+    expect(steps.some((h) => h !== 'yM5' && m.distance(h, 'yM5') === 1)).toBe(true);
+    const offered = engine.legalActions(s, 'ja');
+    expect(offered.some((x) => x.type === 'banzai.end' && x['unit'] === 'b')).toBe(true);
+    expect(offered.some((x) => x.type === 'banzai.step' && x['unit'] === 'b' && x['to'] !== 'yM5')).toBe(true);
+    // Both end their charge next to the target: the charge is over and the MPh may end.
+    s = step(act(engine, s, { type: 'banzai.end', unit: 'b' }));
+    s = step(act(engine, s, { type: 'banzai.end', unit: 'l' }));
+    expect(bst(s)).toBeUndefined();
+    expect(legalTypes(engine, s)).toContain('endPhase');
+    // Into the next Japanese Player Turn: the tags are gone, b and the leader move normally.
+    for (let i = 0; i < 200 && !(s.turn === 2 && s.attacker === 'ja' && s.phase === 'MPh'); i++) s = onward(engine, s);
+    expect(s.phase).toBe('MPh');
+    for (const id of ['l', 'b']) expect(s.pieces[id]!.tags['banzai']).toBeUndefined();
+    expect(engine.legalActions(s, 'ja').some((x) => x.type === 'move.start' && (x['units'] as string[]).includes('b'))).toBe(true);
   });
 
   it('ignores Pin results while charging, and ends when no unit can go on; the units are done moving', () => {

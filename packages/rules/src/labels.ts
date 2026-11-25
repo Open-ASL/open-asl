@@ -66,20 +66,42 @@ export function pieceLabel(env: { statics: unknown; state: GameState }, p: Piece
   return base;
 }
 
-/** A hex id without its board letter, e.g. yN5 → N5; a full ASL Location id names its level, e.g. uK4:1 → K4 level 1. */
-export const hexLabel = (hex: string) => {
+/**
+ * Does the scenario's map have several boards? Then two hexes may share a name (board x's M4 and board y's M4), so a hex
+ * keeps its board letter wherever a player reads it, as the cards write it ("yM4").
+ */
+const severalBoards = (env: { statics: unknown }): boolean => ((env.statics as { scenario?: ScenarioDef } | undefined)?.scenario?.boards.length ?? 1) > 1;
+
+/**
+ * A hex as players name it: on a map of one board without its board letter (yN5 → N5), on a map of several boards with it
+ * (yN5), since another board has an N5 too. A full ASL Location id names its level, e.g. uK4:1 → K4 level 1.
+ */
+export function hexName(env: { statics: unknown }, hex: string): string {
+  return scenarioHexName((env.statics as { scenario?: ScenarioDef } | undefined)?.scenario, hex);
+}
+
+/** `hexName` for a scenario not yet in play (the briefing): by the card's boards. */
+export function scenarioHexName(scenario: Pick<ScenarioDef, 'boards'> | undefined, hex: string): string {
+  const keep = (scenario?.boards.length ?? 1) > 1;
+  const name = (h: string) => (keep ? h : h.replace(/^[a-z]/, ''));
   const i = hex.indexOf(':');
-  if (i < 0) return hex.replace(/^[a-z]/, '');
+  if (i < 0) return name(hex);
   const rest = hex.slice(i + 1);
-  return `${hex.slice(0, i).replace(/^[a-z]/, '')} ${/^\d+$/.test(rest) ? `level ${rest}` : rest === 'cave' ? 'Cave' : rest}`;
-};
+  return `${name(hex.slice(0, i))} ${/^\d+$/.test(rest) ? `level ${rest}` : rest === 'cave' ? 'Cave' : rest}`;
+}
+
+/** `hexName` bound to a scenario, for `hexes.map(hexLabel)` and the like. */
+export const hexNamer =
+  (env: { statics: unknown }) =>
+  (hex: string): string =>
+    hexName(env, hex);
 
 /** Where a piece is, for messages: its hex (a held SW: its holder's hex). */
-function whereIs(state: GameState, p: Piece): string | null {
-  if (p.loc.kind === 'hex' || p.loc.kind === 'offboard') return p.loc.hex ? hexLabel(p.loc.hex) : null;
+function whereIs(env: { statics: unknown; state: GameState }, p: Piece): string | null {
+  if (p.loc.kind === 'hex' || p.loc.kind === 'offboard') return p.loc.hex ? hexName(env, p.loc.hex) : null;
   if (p.loc.kind === 'held') {
-    const by = state.pieces[p.loc.by];
-    return by ? whereIs(state, by) : null;
+    const by = env.state.pieces[p.loc.by];
+    return by ? whereIs(env, by) : null;
   }
   return null;
 }
@@ -90,7 +112,8 @@ const HEX_RE = /\b[a-z]([A-Z]{1,2}\d{1,2})\b/g;
 
 /**
  * Engine messages name pieces by id ("ge.1.0.ge.467.1") and hexes with their board letter
- * ("yN5"). Rewrite them for people: "German 4-6-7 in N5", "N5", nation names for side codes.
+ * ("yN5"). Rewrite them for people: "German 4-6-7 in N5", "N5" (on a map of several boards "yN5", as hexName),
+ * nation names for side codes.
  */
 export function humanize(env: { statics: unknown; state: GameState }, text: string): string {
   return text
@@ -100,10 +123,10 @@ export function humanize(env: { statics: unknown; state: GameState }, text: stri
       const rest = tok.slice(id.length);
       const p = env.state.pieces[id];
       if (!p) return tok;
-      const at = whereIs(env.state, p);
+      const at = whereIs(env, p);
       return (at ? `${pieceLabel(env, p)} in ${at}` : pieceLabel(env, p)) + rest;
     })
-    .replace(HEX_RE, (_, h: string) => h)
+    .replace(HEX_RE, (id: string, h: string) => (severalBoards(env) ? id : h))
     .replace(new RegExp(`\\((${NAT_RE})\\)`, 'g'), (_, s: string) => `(${sideNameOf(env, s)})`)
     .replace(new RegExp(`\\bCC (${NAT_RE})\\b`, 'g'), (_, s: string) => `CC: ${sideNameOf(env, s)}`);
 }

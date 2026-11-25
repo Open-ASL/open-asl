@@ -535,21 +535,12 @@ export const aslEntrenchmentsModule: RuleModule = {
     // B27.52: "Any vehicle beneath a trench counter is considered HD, but may not change its VCA or expend a Start MP" (HD:
     // `asl/hullDown.ts`). Nor may it attempt Motion (Q&A [K33] to B27.52 & D2.401), or pivot its hull to fire (an NT
     // vehicle's CA is its VCA, C3.22); the turret turns freely (D4.221 "the vehicle's TCA may be"). The Infantry in its
-    // Location get no +1 from it (D9.3: "that AFV/wreck is entrenched (B27.52)"); its Hindrance is unchanged.
+    // Location get no +1 from it (D9.3: "that AFV/wreck is entrenched (B27.52)"); its Hindrance is unchanged. The pivot to
+    // fire is refused with every other hull turn, by `vehicle.cannotTurn` (`hullTurnRefusal`).
     const trenchVehicle = (env: QueryEnv, id: PieceId) => isEntrenchedVehicle(env, env.state.pieces[id]);
     r.contribute({ id: 'asl.ent.vehicleNoStart', query: 'vehicle.cannotStart', ref: 'ASLRB B27.52', apply: (v, { vehicle: id }, env) => v ?? (trenchVehicle(env, id) && env.state.pieces[id]!.side === env.state.attacker && env.state.phase === 'MPh' ? 'Beneath the trench: no Start MP (ASLRB B27.52)' : null) });
     r.contribute({ id: 'asl.ent.vehicleNoTurn', query: 'vehicle.cannotTurn', ref: 'ASLRB B27.52', apply: (v, { vehicle: id }, env) => v ?? (trenchVehicle(env, id) ? 'Beneath the trench: no VCA change (ASLRB B27.52)' : null) });
     r.contribute({ id: 'asl.ent.vehicleNoMotion', query: 'vehicle.cannotAttemptMotion', ref: 'ASLRB B27.52, D2.401', apply: (v, { vehicle: id }, env) => v ?? (trenchVehicle(env, id) ? 'Beneath the trench: no Motion attempt (ASLRB B27.52; Q&A [K33] to B27.52 & D2.401)' : null) });
-    r.contribute({
-      id: 'asl.ent.vehicleNoPivot',
-      query: 'ordnance.illegal',
-      ref: 'ASLRB B27.52, C3.22',
-      apply(v, { shot }, env) {
-        if (v || shot.ca === undefined) return v;
-        const p = env.state.pieces[shot.weapon];
-        return p && trenchVehicle(env, p.id) && vehicle(env, p)?.turret === 'NT' && shot.ca !== (p.tags['ca'] as number | undefined) ? 'Beneath the trench: an NT vehicle may not pivot its hull to fire (ASLRB B27.52)' : null;
-      },
-    });
     r.contribute({ id: 'asl.ent.vehicleNoCover', query: 'vehicle.givesCover', ref: 'ASLRB D9.3, B27.52', apply: (v, { vehicle: id }, env) => v && !trenchVehicle(env, id) });
 
     // B27.43: "Foxholes are not a movement obstacle to tracked vehicles, but do slow down other vehicles": the Movement

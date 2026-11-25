@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
-import { entrenchmentAt, entrenchmentName, entrenchmentRoom, isEntrenched, stunLabel } from '@asl/rules';
+import { entrenchmentAt, entrenchmentName, entrenchmentRoom, hexName, isEntrenched, stunLabel } from '@asl/rules';
 import { AMMO_NAME, haltedUnits, hexOfLoc, isCaveLoc, ppOf, terrainOf, acquisitionsAt, ammoOut, coveredArc, defOf, fireMarker, gunIdent, isWeaponDef, levelOfLoc, locOf, locationsOf, moveState, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, unitsInHex, unpossessedWeaponsAt, unpossessedWeaponsInHex, type Statics } from '@asl/rules';
 import { counterImage, hasBack, markerImage } from '../game/assets';
 import { counterNotes, latwToHit } from '../game/counterNotes';
@@ -193,13 +193,13 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
                 {gunIdent(env, p) ? `${gunIdent(env, p)} · ` : ''}{d.mp} MP · AF {d.af.hull.front}/{d.af.hull.side}{d.ma ? ` · ${d.ma.caliber}${d.ma.barrel ?? ''}${d.ma.rof ? ` ROF${d.ma.rof}` : ''}` : ''}
                 {p.tags['vca'] !== undefined ? ` · VCA ${SPINE_NAME[Number(p.tags['vca'])]}` : ''}
                 {d.turret !== 'NT' && p.tags['ca'] !== undefined && p.tags['ca'] !== p.tags['vca'] ? ` · TCA ${SPINE_NAME[Number(p.tags['ca'])]}` : ''}
-                {p.tags['acqHex'] ? ` · has acquired ${String(p.tags['acqHex']).replace(/^[a-z]/, '')} (-${p.tags['acqLevel']})` : ''}
+                {p.tags['acqHex'] ? ` · has acquired ${hexName(env, String(p.tags['acqHex']))} (-${p.tags['acqLevel']})` : ''}
               </span>
             )}
             {d.kind === 'gun' && (
               <span className="muted small">
                 {' '}
-                Gun {gunIdent(env, p)} · {d.rof ? `ROF${d.rof} ` : ''}{d.ife ? `IFE ${d.ife} ` : ''}· CA {SPINE_NAME[coveredArc(p)]}{p.tags['acqHex'] ? ` · has acquired ${String(p.tags['acqHex']).replace(/^[a-z]/, '')} (-${p.tags['acqLevel']})` : ''}
+                Gun {gunIdent(env, p)} · {d.rof ? `ROF${d.rof} ` : ''}{d.ife ? `IFE ${d.ife} ` : ''}· CA {SPINE_NAME[coveredArc(p)]}{p.tags['acqHex'] ? ` · has acquired ${hexName(env, String(p.tags['acqHex']))} (-${p.tags['acqLevel']})` : ''}
               </span>
             )}
             {p.loc.kind === 'hex' && d.kind !== 'vehicle' && (() => {
@@ -255,7 +255,7 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
             .filter((f) => hexOfLoc(f.loc) === h.id)
             .map((f) => (
               <span key={f.loc} className="tag tag-fortified">
-                Fortified {levelOfLoc(f.loc) ? `level ${levelOfLoc(f.loc)}` : 'ground'} (+1 TEM){f.breached.length ? ` · Breached: ${f.breached.map((t) => t.replace(/^[a-z]/, '')).join(', ')} side${f.breached.length === 1 ? '' : 's'}` : ''}
+                Fortified {levelOfLoc(f.loc) ? `level ${levelOfLoc(f.loc)}` : 'ground'} (+1 TEM){f.breached.length ? ` · Breached: ${f.breached.map((t) => hexName(env, t)).join(', ')} side${f.breached.length === 1 ? '' : 's'}` : ''}
               </span>
             ))}
         </div>

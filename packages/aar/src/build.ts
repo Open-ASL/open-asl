@@ -1,6 +1,6 @@
 import { COUNTERS, newGame } from '@asl/content';
 import type { Action, GameEvent, GameState, Piece, QueryEnv } from '@asl/engine';
-import { casualtyVp, controlState, defLabel, defOf, exitVp, hexLabel, hexOfLoc, humanize, isWeaponDef, pieceLabel, statics, vpTally, type Casualty, type ScenarioDef, type VictoryCondition } from '@asl/rules';
+import { casualtyVp, controlState, defLabel, defOf, exitVp, hexName, hexNamer, hexOfLoc, humanize, isWeaponDef, pieceLabel, statics, vpTally, type Casualty, type ScenarioDef, type VictoryCondition } from '@asl/rules';
 import { AAR_VERSION, type AarCasualty, type AarControl, type AarDice, type AarDoc, type AarFire, type AarRollKind, type AarHighlight, type AarLuck, type AarPlayer, type AarRace, type AarStrength, type AarVictory, type Competition, type MatchMode, type Timestamp } from '@asl/platform';
 import { buildingLabel, conditionText, gameDecision, leaves, list, metLeaves, plural, sideName, victoryStandings } from './vc';
 
@@ -51,14 +51,14 @@ function carried(env: QueryEnv, unit: string): string | undefined {
   return names.length ? names.join(' + ') : undefined;
 }
 
-function hexOfUnit(state: GameState, unit: string): string | null {
-  const p = state.pieces[unit];
+function hexOfUnit(env: { statics: unknown; state: GameState }, unit: string): string | null {
+  const p = env.state.pieces[unit];
   if (!p) return null;
-  if (p.loc.kind === 'hex') return hexLabel(p.loc.hex);
-  if (p.loc.kind === 'held') return hexOfUnit(state, p.loc.by);
+  if (p.loc.kind === 'hex') return hexName(env, p.loc.hex);
+  if (p.loc.kind === 'held') return hexOfUnit(env, p.loc.by);
   const last = p.tags['lastHex'];
   // The Location it died in (a LocId: the hex id at ground level).
-  return typeof last === 'string' ? hexLabel(hexOfLoc(last)) : null;
+  return typeof last === 'string' ? hexName(env, hexOfLoc(last)) : null;
 }
 
 const tidy = (s: string) => s.replace(/\bIFT\s+/g, '').replace(/\s+/g, ' ').trim();
@@ -81,7 +81,7 @@ function causeText(env: QueryEnv, c: Casualty, ctx: { fire?: Ev; cc?: Ev }): str
   let m: RegExpMatchArray | null;
   let text: string;
   const fire = ctx.fire?.payload;
-  const fireContext = fire ? ` · ${fire['fp']} FP${fire['from']?.length ? ` from ${(fire['from'] as string[]).map(hexLabel).join(', ')}` : ''}, DR ${(fire['dr'] as number[])[0]! + (fire['dr'] as number[])[1]!}` : '';
+  const fireContext = fire ? ` · ${fire['fp']} FP${fire['from']?.length ? ` from ${(fire['from'] as string[]).map(hexNamer(env)).join(', ')}` : ''}, DR ${(fire['dr'] as number[])[0]! + (fire['dr'] as number[])[1]!}` : '';
   const cc = ctx.cc?.payload;
   const ccContext = cc ? ` · ${cc['odds']}, DR ${cc['dr']}` : '';
   if (r === 'IFT KIA') text = `KIA${fireContext}`;
@@ -395,14 +395,14 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
         case 'sk1.fire.result':
           if (p['critical'] === true) {
             const u = pre.pieces[p['unit']];
-            if (u) hl(other(u.side), m, 'Critical Hit', `A Critical Hit on ${pieceLabel(preEnv, u)} in ${hexOfUnit(pre, u.id) ?? '?'}.`, 8);
+            if (u) hl(other(u.side), m, 'Critical Hit', `A Critical Hit on ${pieceLabel(preEnv, u)} in ${hexOfUnit(preEnv, u.id) ?? '?'}.`, 8);
           }
           break;
         case 'sk2.ordnance.shot':
           openShot((pre.pieces[p['firer']] ?? pre.pieces[p['weapon']])?.side);
           if (p['outcome'] === 'ch') {
             const f = pre.pieces[p['firer']] ?? pre.pieces[p['weapon']];
-            if (f) hl(f.side, m, 'Critical Hit', `${pieceLabel(preEnv, f)} scores a Critical Hit on ${hexLabel(String(p['target']))}.`, 8);
+            if (f) hl(f.side, m, 'Critical Hit', `${pieceLabel(preEnv, f)} scores a Critical Hit on ${hexName(preEnv, String(p['target']))}.`, 8);
           }
           break;
         case 'sk1.cc.attack':
@@ -421,7 +421,7 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
           if (kind === 'rally') {
             if (outcome === 'rallied') d.rally.made++;
             else d.rally.failed++;
-            if (outcome === 'reduced' && u) hl(other(s), m, 'Boxcars on the rally', `${pieceLabel(preEnv, u)} in ${hexOfUnit(pre, u.id) ?? '?'} rolls 12 on its rally and is Casualty Reduced.`, 5);
+            if (outcome === 'reduced' && u) hl(other(s), m, 'Boxcars on the rally', `${pieceLabel(preEnv, u)} in ${hexOfUnit(preEnv, u.id) ?? '?'} rolls 12 on its rally and is Casualty Reduced.`, 5);
           } else {
             if (kind === 'MC') {
               if (outcome === 'passed') d.mc.passed++;
@@ -432,11 +432,11 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
               if (streak[s]! > d.streak) d.streak = streak[s]!;
               const sev = reason.match(/(\d)MC|K\/(\d)/);
               const n = sev ? Number(sev[1] ?? sev[2]) : 0;
-              if (u && dr <= 3) hl(s, m, dr === 2 ? 'Snake eyes' : 'Nerves of steel', `${pieceLabel(preEnv, u)} in ${hexOfUnit(pre, u.id) ?? '?'} passes ${phrase(reason)} on an original ${dr}.`, dr === 2 ? 6 : 5);
-              else if (u && n >= 3) hl(s, m, 'Held under fire', `${pieceLabel(preEnv, u)} in ${hexOfUnit(pre, u.id) ?? '?'} takes ${phrase(reason)} and passes it on a ${dr}.`, 7);
+              if (u && dr <= 3) hl(s, m, dr === 2 ? 'Snake eyes' : 'Nerves of steel', `${pieceLabel(preEnv, u)} in ${hexOfUnit(preEnv, u.id) ?? '?'} passes ${phrase(reason)} on an original ${dr}.`, dr === 2 ? 6 : 5);
+              else if (u && n >= 3) hl(s, m, 'Held under fire', `${pieceLabel(preEnv, u)} in ${hexOfUnit(preEnv, u.id) ?? '?'} takes ${phrase(reason)} and passes it on a ${dr}.`, 7);
             } else {
               streak[s] = 0;
-              if (u && dr === 12 && kind === 'MC') hl(other(s), m, 'Boxcars', `${pieceLabel(preEnv, u)} in ${hexOfUnit(pre, u.id) ?? '?'} rolls 12 on ${phrase(reason)} and is ${outcome}.`, 5);
+              if (u && dr === 12 && kind === 'MC') hl(other(s), m, 'Boxcars', `${pieceLabel(preEnv, u)} in ${hexOfUnit(preEnv, u.id) ?? '?'} rolls 12 on ${phrase(reason)} and is ${outcome}.`, 5);
             }
           }
           break;
@@ -451,7 +451,7 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
           if (u && p['leader']) {
             dice[u.side]!.hob++;
             const def = p['defId'] ? COUNTERS[p['defId']] : undefined;
-            hl(u.side, m, 'Heat of Battle', `${pieceLabel(preEnv, u)} in ${hexOfUnit(pre, u.id) ?? '?'} rolls a 2 and creates ${def ? `${name(u.side)} ${defLabel(def)}` : 'a leader'}.`, 9);
+            hl(u.side, m, 'Heat of Battle', `${pieceLabel(preEnv, u)} in ${hexOfUnit(preEnv, u.id) ?? '?'} rolls a 2 and creates ${def ? `${name(u.side)} ${defLabel(def)}` : 'a leader'}.`, 9);
           }
           break;
         }
@@ -461,9 +461,9 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
           const goneDef = gone ? defOf(preEnv, gone) : undefined;
           const reason = String(p['reason'] ?? '');
           if (gone && goneDef && isWeaponDef(goneDef) && /breakdown|removed|X#/.test(reason)) {
-            hl(other(gone.side), m, heavyWeapon(goneDef) ? `${defLabel(goneDef)} lost` : 'Weapon lost', `${name(gone.side)} ${defLabel(goneDef)} in ${hexOfUnit(pre, gone.id) ?? '?'} breaks down for good and is removed.`, heavyWeapon(goneDef) ? 7 : 5);
+            hl(other(gone.side), m, heavyWeapon(goneDef) ? `${defLabel(goneDef)} lost` : 'Weapon lost', `${name(gone.side)} ${defLabel(goneDef)} in ${hexOfUnit(preEnv, gone.id) ?? '?'} breaks down for good and is removed.`, heavyWeapon(goneDef) ? 7 : 5);
           } else if (gone && goneDef?.kind === 'gun') {
-            hl(other(gone.side), m, 'Gun knocked out', `${name(gone.side)} ${defLabel(goneDef)} in ${hexOfUnit(pre, gone.id) ?? '?'} is destroyed.`, 7);
+            hl(other(gone.side), m, 'Gun knocked out', `${name(gone.side)} ${defLabel(goneDef)} in ${hexOfUnit(preEnv, gone.id) ?? '?'} is destroyed.`, 7);
           }
           if (lastCc && lastCc.payload['attack']?.targets?.includes(p['id']) && p['reason'] === 'Close Combat') ccKills.get(lastCc)?.push(p['id']);
           break;
@@ -473,7 +473,7 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
           felt(c.unit);
           const u = pre.pieces[c.unit];
           const def = COUNTERS[c.defId];
-          const fire = lastFire && u && lastFire.payload['attack']?.target && hexOfUnit(pre, u.id) === hexLabel(String(lastFire.payload['attack'].target)) ? lastFire : undefined;
+          const fire = lastFire && u && lastFire.payload['attack']?.target && hexOfUnit(preEnv, u.id) === hexName(preEnv, String(lastFire.payload['attack'].target)) ? lastFire : undefined;
           const cc = lastCc && (lastCc.payload['attack']?.targets?.includes(c.unit) || lastCc.payload['attack']?.attackers?.includes(c.unit)) ? lastCc : undefined;
           const row: AarCasualty = {
             side: c.side,
@@ -481,7 +481,7 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
             phase: c.phase,
             def: c.defId,
             label: def ? defLabel(def) : c.defId,
-            hex: u ? hexOfUnit(pre, u.id) : null,
+            hex: u ? hexOfUnit(preEnv, u.id) : null,
             kind: c.kind,
             cause: causeText(preEnv, c, { ...(fire ? { fire } : {}), ...(cc ? { cc } : {}) }),
             cvp: c.vp,
@@ -518,14 +518,14 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
       const what = d.kind === 'vehicle' ? `${defLabel(d)}'s Main Armament` : defLabel(d);
       const holder = w.loc.kind === 'held' ? post.pieces[w.loc.by] : undefined;
       const by = holder && d.kind !== 'vehicle' ? ` of the ${defLabel(defOf(postEnv, holder))}` : '';
-      hl(other(w.side), m, heavyWeapon(d) ? `${d.kind === 'vehicle' ? 'Main Armament' : defLabel(d)} breaks down` : 'Weapon breaks down', `The ${name(w.side)} ${what}${by} in ${hexOfUnit(post, w.id) ?? '?'} ${w.tags['maDisabled'] === true ? 'is disabled' : 'malfunctions'}.`, heavyWeapon(d) ? 6 : 4);
+      hl(other(w.side), m, heavyWeapon(d) ? `${d.kind === 'vehicle' ? 'Main Armament' : defLabel(d)} breaks down` : 'Weapon breaks down', `The ${name(w.side)} ${what}${by} in ${hexOfUnit(postEnv, w.id) ?? '?'} ${w.tags['maDisabled'] === true ? 'is disabled' : 'malfunctions'}.`, heavyWeapon(d) ? 6 : 4);
     }
     for (const [cc, ids] of ccKills) {
       const leader = ids.some((id) => COUNTERS[pre.pieces[id]?.defId ?? '']?.kind === 'leader');
       if (ids.length >= 2 || leader) {
         const side = String(cc.payload['side']);
         const names = ids.map((id) => pre.pieces[id]).filter((x): x is Piece => !!x).map((x) => pieceLabel(preEnv, x));
-        hl(side, m, `Close Combat in ${hexLabel(String(cc.payload['hex']))}`, `${plural(name(side))} wipe out ${list(names)} at ${cc.payload['odds']}, DR ${cc.payload['dr']}.`, 8);
+        hl(side, m, `Close Combat in ${hexName(preEnv, String(cc.payload['hex']))}`, `${plural(name(side))} wipe out ${list(names)} at ${cc.payload['odds']}, DR ${cc.payload['dr']}.`, 8);
       }
     }
     if (ptChanged) sample(postEnv, m.pt);
@@ -572,7 +572,7 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
   let control: AarControl | null = null;
   let raceDoc: AarRace | null = null;
   if (controlVc) {
-    const objLabels = controlVc.kind === 'controlBuildings' ? controlVc.buildings.map((b) => buildingLabel(env, scenario, b)) : controlVc.hexes.map(hexLabel);
+    const objLabels = controlVc.kind === 'controlBuildings' ? controlVc.buildings.map((b) => buildingLabel(env, scenario, b)) : controlVc.hexes.map(hexNamer(env));
     const rows: AarControl['byTurn'] = [];
     for (let t = 0; t < Math.max(state.turn, 1); t++) rows.push({ holders: controlByTurn[t] ?? controlByTurn[t - 1] ?? objLabels.map(() => null) });
     control = { kind: controlVc.kind === 'controlBuildings' ? 'buildings' : 'hexes', labels: objLabels, byTurn: rows };

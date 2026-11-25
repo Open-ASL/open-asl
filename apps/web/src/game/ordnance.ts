@@ -1,6 +1,7 @@
 import type { HexId, PieceId, QueryEnv, SideId } from '@asl/engine';
 import {
   AMMO_NAME,
+  hexName,
   ammoColumn,
   ammoKinds,
   ammoStatus,
@@ -81,7 +82,10 @@ export function spineLabel(env: QueryEnv, gunHex: HexId, spine: number): string 
   const h = map.hex(gunHex) ?? map.offboardHex(gunHex);
   if (!h) return `spine ${spine}`;
   const [a, b] = arcNeighbours(h.cube, spine);
-  const name = (c: { q: number; r: number; s: number }) => map.atCube(c)?.id.replace(/^[a-z]/, '') ?? 'off';
+  const name = (c: { q: number; r: number; s: number }) => {
+    const id = map.atCube(c)?.id;
+    return id ? hexName(env, id) : 'off';
+  };
   const label = `${name(a)} / ${name(b)}`;
   // From an offboard hex only the map side has names: say which way it points instead.
   return label === 'off / off' ? `${['N', 'NE', 'SE', 'S', 'SW', 'NW'][spine]! }-ish (away from the map)` : label;

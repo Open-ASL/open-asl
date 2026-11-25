@@ -45,6 +45,25 @@ describe('entering by the hexes the card names', () => {
     expect(() => act(engine, s, { type: 'move.step', to: barred })).toThrow(`${barred} is not one of this group's entry hexes: it enters along the north edge`);
   });
 
+  it('names the hexes when they are a recorded entry hex and its neighbours ("enters on or adjacent to its recorded hex")', () => {
+    const probe = makeEngine({ pieces: [], scenario: RU_VS_GE, startPhase: 'MPh' });
+    const map = mapOf(probe.engine, probe.state);
+    // An offboard hex touching two edge hexes: the recorded one and the next, which is barred.
+    const edge = map.edge('N');
+    const off = map.offboard('N').find((o) => {
+      const on = map.offboardNeighbors(o.id).onboard;
+      return on.length === 2 && edge.indexOf(on[0]!) > 0 && edge.indexOf(on[0]!) < edge.length - 1;
+    })!.id;
+    const [recorded, barred] = map.offboardNeighbors(off).onboard as [string, string];
+    const at = edge.indexOf(recorded);
+    const allowed = [edge[at - 1]!, recorded, edge[at + 1]!].filter((h) => h !== barred);
+    const squad: PieceSpec = { id: 'a', def: 'ru.447', side: 'ru', tags: { force: 0, entryTurn: 1, entryEdge: 'N', entryHexes: allowed.join(',') } };
+    const scenario = { ...RU_VS_GE, forces: [{ side: 'ru', units: [{ def: 'ru.447', count: 1 }], setup: { kind: 'enter' as const, turn: 1, edge: 'N,E,S,W', description: 'Enter on Turn 1 (see SSR 2)' } }] };
+    const { engine, state } = makeEngine({ pieces: [squad], scenario, startPhase: 'MPh' });
+    const s = act(engine, { ...state, pieces: { a: { ...state.pieces['a']!, loc: { kind: 'offboard' as const, edge: 'N', hex: off } } } }, { type: 'move.start', units: ['a'] }).state;
+    expect(() => act(engine, s, { type: 'move.step', to: barred })).toThrow(`${barred} is not one of this group's entry hexes (${allowed.join(', ')}): enter on Turn 1 (see SSR 2)`);
+  });
+
   it('an allowed hex out of reach of the offboard position asks for a move along the edge first', () => {
     const { engine, s, map, off, allowed } = build();
     const far = allowed.find((h) => !map.offboardNeighbors(off).onboard.includes(h))!;

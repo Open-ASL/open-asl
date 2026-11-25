@@ -6,7 +6,8 @@ import { phaseOwner } from '../sk1/firePhases';
 import { fireMarker, isMalf, pieceOf, setTags } from '../sk1/status';
 import { SPINES } from '../sk2/arc';
 import { ACQ_CLEAR, T2, firePhaseKey } from '../sk2/status';
-import { T3, crewCanAct, inMotion, isImmobile, isWreck, stunWord, tcaOf, vcaOf, vehicle } from './status';
+import { T3, crewCanAct, inMotion, isWreck, stunWord, tcaOf, vcaOf, vehicle } from './status';
+import { hullTurnRefusal } from './vehicleMove';
 import { maIllegal } from './vehicleFire';
 import { vehicleMgOf } from './vehicleMg';
 
@@ -59,16 +60,16 @@ export function faceIllegal(env: QueryEnv, a: { vehicle: PieceId; vca?: number; 
   const ready = (id: PieceId) => weaponReady(env, v.id, id, mode);
   if (a.vca !== undefined) {
     if (a.vca === vcaOf(v)) return 'The hull already faces that way';
-    // An Immobilized or Bogged vehicle may not turn its VCA (SK4 glossary), nor a dug-in one (S28/S35 SSR).
-    if (isImmobile(v)) return 'An Immobilized or Bogged vehicle may not turn its hull';
-    const never = env.query('vehicle.cannotTurn', { vehicle: v.id }, null);
+    const never = hullTurnRefusal(env, v);
     if (never) return never;
     const bow = (d.turret === 'NT' && d.ma && ready(v.id)) || mgs.some((x) => x.kind === 'bmg' && ready(x.id));
     if (!bow) return 'Only a vehicle that could still fire a bow-mounted weapon (an NT Main Armament or the BMG) turns its hull at the end of the phase';
   }
   if (a.tca !== undefined) {
     if (d.turret === 'NT') return 'The vehicle has no turret';
-    if (a.tca === tcaOf(env, v)) return 'The turret already points that way';
+    // Turned with the hull, the turret rides round with it (SK4 7.8): it "already points" where the hull would carry it.
+    const riding = a.vca === undefined ? tcaOf(env, v) : (tcaOf(env, v) + a.vca - vcaOf(v) + SPINES) % SPINES;
+    if (a.tca === riding) return a.vca === undefined ? 'The turret already points that way' : 'The turret rides there with the hull anyway';
     // "bow mounted NA for TCA": only a turret weapon earns the turret its turn.
     const turret = (!!d.ma && ready(v.id)) || mgs.some((x) => (x.kind === 'cmg' || x.kind === 'rmg') && ready(x.id));
     if (!turret) return 'Only a vehicle that could still fire a turret weapon (its Main Armament or CMG) turns its turret at the end of the phase';

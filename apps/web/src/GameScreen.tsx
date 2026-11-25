@@ -132,6 +132,7 @@ import {
   vehicleEntryTerrain,
   vehicleIfe,
   turretTurnFor,
+  hullTurnFor,
   ordnanceDirectorIllegal,
   swDirectorIllegal,
   ordnanceOf,
@@ -179,7 +180,7 @@ import { ccStateOf, isGroundLoc, arcSpine, bunkerTrenches, inPillboxCa, pillboxC
 import { BoardView, type BoardOverlay, type FireHex, type FortHex, type FortifiedHex, type HexBadge, type HexControl, type Placement, type RubbleHex } from './board/BoardView';
 import { ActionWheel, action, group, type WheelItem } from './board/ActionWheel';
 import { StackPeek, hasPeek, stackIn } from './board/StackPeek';
-import { NATION, PHASE_NAME, defLabel, describeEvents, hexLabel, humanize, phaseSections, pieceLabel } from './game/describe';
+import { NATION, PHASE_NAME, defLabel, describeEvents, hexNamer, humanize, phaseSections, pieceLabel } from './game/describe';
 import { targetOwnDrms } from './game/targetDrm';
 import { LogSections } from './game/LogEntries';
 import { pillboxRoutMarks } from './game/pillboxRout';
@@ -197,7 +198,7 @@ import { appearMix, appearWords } from './game/appear';
 import { moverHex, turnSpineToward } from './game/vehicleTurn';
 import { staleFire, weaponHolder } from './game/staleFire';
 import { keepsTicks } from './game/stackClick';
-import { aimsAt, beyondRange, blindFireOffered, fireLeaders, fireSelectable, swCarriers, withinRange } from './game/fireSelection';
+import { addToGroupBlocked, aimsAt, beyondRange, blindFireOffered, fireLeaders, fireSelectable, swCarriers, withinRange } from './game/fireSelection';
 import { endPhaseWarning, type EndPhaseWarning } from './game/endPhaseGuard';
 import { Modal } from './ui/Modal';
 import { deployEntries, type DeployEntry, type DeployOption } from './game/deployEntries';
@@ -221,6 +222,7 @@ import { PhaseWheel, resetWheel } from './fx/PhaseWheel';
 import { DiceLog, DiceTray } from './fx/DiceTray';
 import { CalloutBanner, GameOver, YourCall, type AarCue } from './fx/Overlays';
 import { gameOverText } from './game/gameOver';
+import { banzaiCandidates, toggleBanzaiHex } from './game/banzaiDraft';
 import type { MatchAwards } from '@asl/platform';
 import { DICE_LOG_LIMIT, useGameFx } from './fx/useGameFx';
 import { usePresentation } from './game/presentation';
@@ -378,7 +380,8 @@ export function GameScreen(props: Props) {
   );
 }
 
-function VehicleEntryMp({ destinations, left, check, enter }: {
+function VehicleEntryMp({ hexLabel, destinations, left, check, enter }: {
+  hexLabel(hex: HexId): string;
   destinations: ReadonlyMap<HexId, number>;
   left: number;
   check: Session['check'];
@@ -423,6 +426,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   const resolving = present.resolving;
   const statics = engine.statics as Statics;
   const env: QueryEnv = useMemo(() => engine.env(state), [engine, state]);
+  // Hexes as players name them: with their board letter on a map of several boards (two boards may both have an M4).
+  const hexLabel = hexNamer(env);
   const realEnv: QueryEnv = useMemo(() => engine.env(session.state), [engine, session.state]);
   const placements: Placement[] = useMemo(
     () =>
@@ -823,8 +828,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   const routing = phase === 'RtPh' && decision?.kind === 'phase' ? activeRout(env) : undefined;
   const routReason = (r: RoutReason) =>
     r.kind === 'adjacent'
-      ? `adjacent to ${pieceLabel(env, state.pieces[r.enemy])} in ${r.hex.replace(/^[a-z]/, '')}`
-      : `in Open Ground in the LOS and range of ${pieceLabel(env, state.pieces[r.enemy])} in ${r.hex.replace(/^[a-z]/, '')}`;
+      ? `adjacent to ${pieceLabel(env, state.pieces[r.enemy])} in ${hexLabel(r.hex)}`
+      : `in Open Ground in the LOS and range of ${pieceLabel(env, state.pieces[r.enemy])} in ${hexLabel(r.hex)}`;
   const endBlocked = decision?.kind === 'phase' ? plain(env.query('phase.endBlocked', {}, null)) : null;
 
   // ------------------------------------------------------------------ setup (scenario + offboard)
@@ -850,7 +855,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       .sort(([a], [b]) => a - b)
       .map(([fi, ps]) => {
         const f = forces[fi]!;
-        return { key: String(fi), label: f.group ?? f.id ?? `Group ${fi + 1}`, rule: setupRule(f), pieces: ps };
+        return { key: String(fi), label: f.group ?? f.id ?? `Group ${fi + 1}`, rule: setupRule(f, scenario), pieces: ps };
       });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -883,7 +888,12 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
    */
   /** The side panel's free Delay amount (SK4 3.3.2), typed while a vehicle stands stopped. */
   const [delayMp, setDelayMp] = useState('');
-  const [ring, setRing] = useState<{ hex: HexId; piece: PieceId; what: string; current: number; turret?: boolean; note: string; action(spine: number): Omit<Action, 'side' | 'decisionId'> | null } | null>(null);
+  /**
+   * The hexspine ring on the map. `then` makes it the first of two picks: the spine chosen opens the next ring instead of
+   * acting (the end-of-phase hull and turret turn, taken together).
+   */
+  type Ring = { hex: HexId; piece: PieceId; what: string; current: number; turret?: boolean; note: string; action(spine: number): Omit<Action, 'side' | 'decisionId'> | null; then?: (spine: number) => Ring };
+  const [ring, setRing] = useState<Ring | null>(null);
   useEffect(() => setRing(null), [decision?.id]);
   // A facing ring wants the hex to itself: no stack card pops up over it while it is shown.
   useEffect(() => {
@@ -1729,7 +1739,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           const holder = p?.loc.kind === 'held' ? p.loc.by : sw;
           const canFire =
             decision.kind === 'firstFire' && !!p && defOf(env, p).kind === 'sw' && legal.some((a) => a.type === 'defFire' && (a['decl'] as FireDeclaration).sw.includes(sw));
-          return { sw, label: p ? pieceLabel(env, p).replace(/^\S+ /, '') : sw, at: hexOfId(state, holder), target: c.hex, residual: rofDeclineResidual(env, sw)?.residual ?? 0, canFire };
+          return { sw, label: p ? pieceLabel(env, p).replace(/^\S+ /, '') : sw, at: hexOfId(state, holder), target: c.hex, targetName: hexLabel(c.hex), residual: rofDeclineResidual(env, sw)?.residual ?? 0, canFire };
         }),
       )
       .filter((c) => c.residual > 0);
@@ -1990,6 +2000,22 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   const ssrMarks = [...scatterUi.highlights, ...entryUi.highlights, ...stretchUi.highlights].map(([h, r]) => `${h}:${r}`).join(',');
 
   // ------------------------------------------------------------------ fire composer
+  /**
+   * The turn a vehicle's weapons make before they fire at `target`: the turret for its CMG/RMG/IFE (case 8, SK4 3.2.4),
+   * else the hull for its BMG (NT case 8, SK4 7.8); none with Infantry in the group.
+   */
+  const armTurn = (sw: PieceId[], target: HexId, units: PieceId[]): { tca?: number; vca?: number } => {
+    if (units.length > 0) return {};
+    const tca = turretTurnFor(env, { sw, target });
+    if (tca !== undefined) return { tca };
+    const vca = hullTurnFor(env, { sw, target });
+    return vca !== undefined ? { vca } : {};
+  };
+  /** A declaration without its turn, to be worked out again for what is left of it. */
+  const unturned = (d: FireDeclaration): FireDeclaration => {
+    const { tca: _tca, vca: _vca, ...base } = d;
+    return base;
+  };
   /** The declaration the selected fire group would make against `at`, every selected SW in it. */
   const chosenDecl = (at: HexId): FireDeclaration => {
     const units: PieceId[] = [];
@@ -2001,9 +2027,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       if (defOf(env, p).kind === 'sw' || defOf(env, p).kind === 'vehicle') sws.push(id);
       else if (defOf(env, p).kind !== 'leader' && defOf(env, p).kind !== 'gun') units.push(id);
     }
-    // A vehicle's CMG/RMG/IFE aimed outside the turret's arc turn it first, paying case 8 (SK4 3.2.4), as a Gun turns to fire.
-    const tca = units.length === 0 ? turretTurnFor(env, { sw: sws, target: at }) : undefined;
-    return { units, sw: sws, target: at, ...(directors.length ? { directors } : {}), ...(tca !== undefined ? { tca } : {}) };
+    // A vehicle's CMG/RMG/IFE aimed outside the turret's arc turn it first, paying case 8 (SK4 3.2.4), as a Gun turns to fire;
+    // its BMG outside the hull's arc turns the hull (SK4 7.8).
+    return { units, sw: sws, target: at, ...(directors.length ? { directors } : {}), ...armTurn(sws, at, units) };
   };
   /**
    * A half-squad or crew selected together with the weapon it holds fires the weapon, not its own FP (SK1 4.0: it
@@ -2022,18 +2048,14 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     const illegal = (d: FireDeclaration) => plain(env.query('fire.illegal', { decl: d, mode: fireModeFor(d), side: owner, ...moving }, null));
     if (!illegal(decl)) return [];
     const units = decl.units.filter((u) => !holders.includes(u));
-    const tca = units.length === 0 ? turretTurnFor(env, { sw: decl.sw, target: decl.target }) : undefined;
-    const { tca: _tca, ...base } = decl;
-    return illegal({ ...base, units, ...(tca !== undefined ? { tca } : {}) }) ? [] : holders;
+    return illegal({ ...unturned(decl), units, ...armTurn(decl.sw, decl.target, units) }) ? [] : holders;
   };
   /** The chosen group with its half-squads and crews firing the weapons they hold instead of their own FP (`holdersFiringSw`). */
   const withSwFirers = (decl: FireDeclaration): FireDeclaration => {
     const holders = holdersFiringSw(decl);
     if (!holders.length) return decl;
     const units = decl.units.filter((u) => !holders.includes(u));
-    const tca = units.length === 0 ? turretTurnFor(env, { sw: decl.sw, target: decl.target }) : undefined;
-    const { tca: _tca, ...base } = decl;
-    return { ...base, units, ...(tca !== undefined ? { tca } : {}) };
+    return { ...unturned(decl), units, ...armTurn(decl.sw, decl.target, units) };
   };
   /** The declaration the selected fire group makes against `at`: as chosen, its HS/crews firing their SW, less any SW left out (`swLeftOut`). */
   const buildDecl = (at: HexId): FireDeclaration => {
@@ -2043,9 +2065,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     if (out.length) {
       // What is left may need a different turn, or none (the BMG left out of a CMG's turn needs it still; a CMG left out, no turn).
       const sw = decl.sw.filter((id) => !out.some((l) => l.id === id));
-      const tca = decl.units.length === 0 ? turretTurnFor(env, { sw, target: at }) : undefined;
-      const { tca: _tca, ...base } = decl;
-      built = { ...base, sw, ...(tca !== undefined ? { tca } : {}) };
+      built = { ...unturned(decl), sw, ...armTurn(sw, at, decl.units) };
     }
     const marked = markedLeftOut(built);
     const kept = marked.ids.length ? { ...built, units: built.units.filter((u) => !marked.ids.includes(u)) } : built;
@@ -2092,14 +2112,11 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     const illegal = (d: FireDeclaration) => plain(env.query('fire.illegal', { decl: d, mode: fireModeFor(d), side: owner, ...moving }, null));
     if (!illegal(decl)) return [];
     const out = decl.sw.flatMap((id) => {
-      const tca = turretTurnFor(env, { sw: [id], target: decl.target });
-      const why = illegal({ units: [], sw: [id], target: decl.target, ...(tca !== undefined ? { tca } : {}) });
+      const why = illegal({ units: [], sw: [id], target: decl.target, ...armTurn([id], decl.target, []) });
       return why ? [{ id, why }] : [];
     });
     const restSw = decl.sw.filter((id) => !out.some((l) => l.id === id));
-    const restTca = decl.units.length === 0 ? turretTurnFor(env, { sw: restSw, target: decl.target }) : undefined;
-    const { tca: _tca, ...base } = decl;
-    const rest: FireDeclaration = { ...base, sw: restSw, ...(restTca !== undefined ? { tca: restTca } : {}) };
+    const rest: FireDeclaration = { ...unturned(decl), sw: restSw, ...armTurn(restSw, decl.target, decl.units) };
     // The rest may be legal only once its units beyond range step out too (`rangeLeftOut` takes them next): a moved
     // MMG and the squads beyond range that carried it leave their LMG to fire alone (SK1 3.2, 3.5, 4.0).
     const shoots = (d: FireDeclaration) => d.units.length + d.sw.length > 0 && !illegal(d);
@@ -2491,7 +2508,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     const err = session.check(step);
     if (!err || !session.check({ ...step, woods: true })) return end ? { text: end, barred: false } : null;
     const text = plain(err) ?? err;
-    const ends = [...(routShown.ends ?? [])].map((h) => h.replace(/^[a-z]/, '')).sort();
+    const ends = [...(routShown.ends ?? [])].map(hexLabel).sort();
     return { text: ends.length && /nearest legal/.test(text) ? `${text} (${ends.join(', ')})` : text, barred: true };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routShown, pbRoutMarks, hoverHex, state, lowCrawl, routing, session, env]);
@@ -2779,8 +2796,12 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           active: ring.current === spine,
           ...(nat ? { arc: nat } : {}),
           disabled: !!err,
-          hint: err ?? `${ring.what} ${spineLabel(env, ring.hex, spine)}${a ? ` · ${ring.note}` : ' (as now)'}`,
+          hint: err ?? `${ring.what} ${spineLabel(env, ring.hex, spine)}${a ? ` · ${ring.note}` : ' (as now)'}${ring.then ? ' · then the turret' : ''}`,
           onClick: () => {
+            if (ring.then) {
+              setRing(ring.then(spine));
+              return;
+            }
             if (a) runRef.current(a, true);
             setRing(null);
           },
@@ -2798,9 +2819,10 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       return p?.loc.kind === 'hex' ? p.loc.hex : null;
     };
     if (bz && phase === 'MPh' && owner === bz.side && decision?.kind === 'phase') {
+      // A hex is amber only once every Banzai unit in it has made its one step this Impulse.
       for (const u of bz.units) {
         const h = hexOfUnit(u);
-        if (h) highlights.set(h, bz.moved.includes(u) ? AMBER : BLUE);
+        if (h && highlights.get(h) !== BLUE) highlights.set(h, bz.moved.includes(u) ? AMBER : BLUE);
       }
       highlights.set(bz.target, RED);
       const stepper = banzaiUnit && bz.units.includes(banzaiUnit) && !bz.moved.includes(banzaiUnit) ? banzaiUnit : bz.units.find((u) => !bz.moved.includes(u) && banzaiSteps(env, u).length > 0);
@@ -3013,7 +3035,12 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     // A Banzai Charge being declared: the clicked enemy hex is its target.
     if (decision?.kind === 'phase' && phase === 'MPh' && banzaiDraft && owner) {
       if (unitsHereOf(hex).some((p) => p.side !== owner)) setBanzaiDraft({ ...banzaiDraft, target: hex });
-      else setError('The target of a Banzai Charge is an enemy unit: click a hex holding one');
+      else {
+        // One of our own hexes: tick (or untick) the units there that may charge.
+        const r = toggleBanzaiHex(env, owner, banzaiDraft, hex);
+        if (r && 'draft' in r) setBanzaiDraft(r.draft);
+        else setError(r?.error ?? 'Click an enemy hex for the target, or one of your hexes to tick its units');
+      }
       return;
     }
     // A charge under way: a green hex moves the unit to step; a Banzai hex picks which unit steps next.
@@ -3388,10 +3415,11 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   /**
    * A Fully Tracked vehicle moving into woods chooses its cost (SK4 1.1.1, ASLRB B13.42): half its MP
    * with a +3 Bog Check DRM, or all its MP without it. Both entries, with what each costs, when the
-   * vehicle has more than half its MP left (with fewer, "all" would cost the same and earn nothing).
+   * vehicle has more than half its MP left, also coming on from offboard (with half or fewer, the plain step is
+   * already the all-MP entry, ASLRB B13.41).
    */
   const woodsEntry = (hex: HexId): WheelItem[] | null => {
-    if (!ms?.vehicle || !ms.hex || !legal.some((a) => a.type === 'move.step' && a['to'] === hex)) return null;
+    if (!ms?.vehicle || !(ms.hex || ms.off) || !legal.some((a) => a.type === 'move.step' && a['to'] === hex)) return null;
     const v = state.pieces[ms.units[0]!];
     const vd = v && vehicleDef(env, v);
     if (!v || !vd || !vd.tracked || terrainOf(env, hex).id !== 'woods') return null;
@@ -4083,15 +4111,16 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
             const p = state.pieces[id]!;
             return defOf(env, p).kind === 'leader' && isJapanese(env, p) && p.tags['broken'] !== true && p.tags['pinned'] !== true && p.tags['moved'] === undefined && p.tags['banzai'] === undefined;
           });
+          const candidates = owner ? banzaiCandidates(env, owner) : [];
           for (const l of leaders) {
-            const mates = own.filter((id) => {
-              const p = state.pieces[id]!;
-              return isJapanese(env, p) && !isVehiclePiece(id) && !isWeaponDef(defOf(env, p)) && p.tags['broken'] !== true && p.tags['pinned'] !== true && p.tags['moved'] === undefined && p.tags['banzai'] === undefined;
-            });
+            // The leader's hex starts ticked: the units there that may charge. A leader who may not (over his IPC) is greyed with why.
+            const why = candidates.find((c) => c.id === l)?.why ?? null;
+            const mates = [l, ...candidates.filter((c) => c.id !== l && c.why === null && own.includes(c.id)).map((c) => c.id)];
             items.push(
               action(`Banzai Charge (${pieceLabel(env, state.pieces[l]).replace(/^\S+ /, '')})`, () => setBanzaiDraft({ leader: l, units: mates, target: null }), {
                 icon: '!',
-                hint: 'Lead a chain of adjacent Good Order units at an enemy within 8 hexes in LOS: 8 MF, +1 morale, no pins, one hex per Impulse, straight at the target (SK4 8.1.8.6)',
+                disabled: !!why,
+                hint: why ?? 'Lead a chain of adjacent Good Order units at an enemy within 8 hexes in LOS: 8 MF, +1 morale, no pins, one hex per Impulse, straight at the target (SK4 8.1.8.6)',
               }),
             );
           }
@@ -4575,6 +4604,10 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                 ? `The ${swName} has fired this phase (a SW cannot use Intensive Fire); ${ownFp}`
                 : `The unit holding the ${swName} is marked First Fire, and the ${swName} with it (SK4 3.3.3); a SW cannot use Intensive Fire`
               : null;
+          // IFE fires again like a MG, never as Intensive Fire (SK4 6.8; ASLRB C2.29): an entry of its own.
+          const ife = shotOptions(env, g.id, mode).find((t) => t.type === 'IFE');
+          const ifeAgain = (label: string, hint: string): WheelItem[] =>
+            ife ? [action(`${name}: ${ife.label} ${label}`, () => declareGun(g.id, 'IFE'), { icon: '✦', hint: ife.available ? hint : ife.hint, ...(ife.available ? {} : { disabled: true }) })] : [];
           if (cannot || swDone) items.push(action(`Fire ${name}`, () => {}, { icon: '✦', disabled: true, hint: (cannot ?? swDone)! }));
           else if (fired && !g.tags['intensive'] && decision.kind !== 'firstFire' && phase !== 'AFPh')
             items.push(
@@ -4583,10 +4616,16 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                 opts.filter((o) => !/IFE/.test(o.label)),
                 g.tags['fire'] ? 'One more shot after losing ROF: +2 To Hit, B# -2 (SK4 3.2.4)' : 'Its crew is marked First Fire: one shot as Intensive Fire at an adjacent hex, +2 To Hit, B# -2 (SK4 3.2.4, 3.3.3)',
               ),
+              ...(phase === 'DFPh' && finalFireMarker(env, g) === 'first' ? ifeAgain('at an adjacent unit', 'Marked First Fire: its IFE fires at an adjacent unit at half FP (doubled for PBF), B# -2 (SK4 3.3.3, 6.8)') : []),
             );
-          else if (fired && decision.kind === 'firstFire')
+          else if (fired && decision.kind === 'firstFire') {
             items.push(fireMenu(`${name} again (Intensive)`, opts.filter((o) => !/IFE/.test(o.label)), 'A Gun marked First Fire fires again only as Intensive Fire (SK4 3.3.3)'));
-          else if (!fired) items.push(fireMenu(`Fire ${name}`, opts, 'Choose how the Gun fires, then pick the target'));
+            items.push(
+              ...(gunFirstFireMode(env, { weapon: g.id, target: ms?.hex ?? '', targetType: 'IFE' }) === 'fpf'
+                ? ifeAgain('as FPF', 'Final Protective Fire like a MG: half FP (doubled for PBF), B# -2; then its crew takes a NMC on the original DR (SK4 3.3.1, 6.8)')
+                : ifeAgain('as Subsequent First Fire', 'Subsequent First Fire like a MG: half FP, B# -2; not Intensive Fire (SK4 6.8)')),
+            );
+          } else if (!fired) items.push(fireMenu(`Fire ${name}`, opts, 'Choose how the Gun fires, then pick the target'));
         }
       // Infantry sharing the moving vehicle's hex: CC Reaction Fire (SK4 3.3.4).
       if (decision.kind === 'firstFire' && ms?.vehicle && ms.hex === hex)
@@ -4625,8 +4664,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           const vca = Number(v.tags['vca'] ?? 0);
           const tca = Number(v.tags['ca'] ?? vca);
           const after = phase === 'PFPh' ? 'it fires no more this phase and does not move this Player Turn (ASLRB C3.22)' : 'it fires no more this phase';
+          const turretOn = vehicleDef(env, v)!.turret !== 'NT';
           const parts: { what: string; key: 'vca' | 'tca'; current: number; icon: string }[] = [{ what: 'Vehicle Covered Arc', key: 'vca', current: vca, icon: '◠' }];
-          if (vehicleDef(env, v)!.turret !== 'NT') parts.push({ what: 'Turret Covered Arc', key: 'tca', current: tca, icon: '◎' });
+          if (turretOn) parts.push({ what: 'Turret Covered Arc', key: 'tca', current: tca, icon: '◎' });
           for (const part of parts) {
             const act = (spine: number) => ({ type: 'vehicle.face', vehicle: v.id, [part.key]: spine });
             const open = [0, 1, 2, 3, 4, 5].some((s) => s !== part.current && !session.check(act(s)));
@@ -4636,6 +4676,39 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                 icon: part.icon,
                 disabled: !open,
                 hint: why ?? `Turn without MP at the end of the phase, instead of firing (SK4 3.3.2); ${after}. Pick a hexspine on the map.${turnAndFireHint(gunsFireable(hex).some((w) => w.id === v.id) ? fireEntryFor(v) : null)}`,
+              }),
+            );
+          }
+          // Hull and turret in the one end-of-phase change (SK4 3.3.2 "A TCA/VCA may also be changed"): the hull's spine,
+          // then the turret's, which otherwise rides round with the hull (SK4 7.8). Turning one alone ends the vehicle's
+          // turn for the phase, so the other could not follow.
+          if (turretOn) {
+            // The turret's spine is absolute; left where the hull carries it, it is not sent.
+            const both = (hullSpine: number, turretSpine: number) => {
+              const riding = (tca + hullSpine - vca + 6) % 6;
+              return { type: 'vehicle.face', vehicle: v.id, ...(hullSpine !== vca ? { vca: hullSpine } : {}), ...(turretSpine !== riding ? { tca: turretSpine } : {}) };
+            };
+            const hullOk = (s: number) => s === vca || !session.check({ type: 'vehicle.face', vehicle: v.id, vca: s });
+            const turretOk = [0, 1, 2, 3, 4, 5].some((s) => s !== tca && !session.check({ type: 'vehicle.face', vehicle: v.id, tca: s }));
+            const open = turretOk && [0, 1, 2, 3, 4, 5].some((s) => s !== vca && hullOk(s));
+            const why = open ? null : plain(session.check({ type: 'vehicle.face', vehicle: v.id, vca: (vca + 1) % 6 })) ?? plain(session.check({ type: 'vehicle.face', vehicle: v.id, tca: (tca + 1) % 6 }));
+            items.push(
+              action(vehicleEntry(v, pile, turnWithoutFiringLabel('turn hull and turret')), () =>
+                setRing({
+                  hex,
+                  piece: v.id,
+                  what: 'Vehicle Covered Arc',
+                  current: vca,
+                  note: 'pick the hull first',
+                  action: (spine) => (spine === vca ? null : { type: 'vehicle.face', vehicle: v.id, vca: spine }),
+                  then: (hullSpine) => {
+                    const riding = (tca + hullSpine - vca + 6) % 6;
+                    return { hex, piece: v.id, what: 'Turret Covered Arc', turret: true, current: riding, note: `no MP; ${after}`, action: (spine) => (hullSpine === vca && spine === tca ? null : both(hullSpine, spine)) };
+                  },
+                }), {
+                icon: '◎',
+                disabled: !open,
+                hint: why ?? `Turn the hull and the turret together without MP at the end of the phase, instead of firing (SK4 3.3.2); ${after}. Pick the hull's hexspine, then the turret's.`,
               }),
             );
           }
@@ -4653,7 +4726,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           // The vehicle's own hex stands in for a target here: only what stops the MGs at any target greys the entry out
           // (it read "Cannot fire into own hex", which disabled the entry for every vehicle).
           const arcErr = err && !/Covered Arc|Unknown target|own hex/.test(err) ? err : null;
-          items.push(action(vehicleEntry(v, pile, `fire MGs (${mgLabel(mgs)})`), () => declareFire(hex, mgs.map((w) => w.id), ''), { icon: '✦', disabled: !!arcErr, hint: arcErr ?? 'BMG through the hull arc, CMG through the turret arc, AAMG only CE; then pick the target' }));
+          items.push(action(vehicleEntry(v, pile, `fire MGs (${mgLabel(mgs)})`), () => declareFire(hex, mgs.map((w) => w.id), ''), { icon: '✦', disabled: !!arcErr, hint: arcErr ?? 'BMG through the hull arc, CMG through the turret arc, AAMG only CE; then pick the target. A target outside the arc turns the turret (or, for the BMG alone, the hull at the NT DRM) first (SK4 7.8)' }));
           // The MA's IFE adds to the MGs' FP in one attack; at one target they must fire together (SK4 7.8).
           const ife = vehicleIfe(env, v);
           if (ife && !v.tags['fire'] && !v.tags['malf'] && !v.tags['maDisabled']) {
@@ -4706,9 +4779,13 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       if (own.length && declared && !inGroup) {
         const add = () => setSelected((s) => new Set([...s, ...own]));
         const leaders = directors.length ? leadersHere(hex) : [];
+        // A stack not next to the group cannot join it (SK1 3.2); the engine would refuse the shot only once the
+        // target is clicked.
+        const blocked = addToGroupBlocked(env, selected, own);
         // A directed Fire Group needs a directing leader in every hex (SK1 3.2): adding a stack
         // means naming its leader too, or giving up the direction.
-        if (leaders.length)
+        if (blocked) items.push(action('Add to fire group', add, { icon: '＋', disabled: true, hint: blocked }));
+        else if (leaders.length)
           items.push(
             group(
               'Add to fire group',
@@ -5402,7 +5479,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         )}
         {hoverHex && (
           <div className="hex-readout">
-            <b>{hoverHex.replace(/^[a-z]/, '')}</b>
+            <b>{hexLabel(hoverHex)}</b>
             {statics.map.hex(hoverHex)?.terrain ?? (statics.map.offboardHex(hoverHex) ? 'offboard' : '')}
             {statics.map.hex(hoverHex)?.features.length ? ` · ${statics.map.hex(hoverHex)!.features.join(', ')}` : ''}
             {control[hoverHex] && <span className={`ctl side-${control[hoverHex]}`}> · {sideName(control[hoverHex])} control</span>}
@@ -5432,7 +5509,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
             }}
           />
         )}
-        {wheel && <ActionWheel at={wheel.at} title={wheel.title ?? wheel.hex.replace(/^[a-z]/, '')} items={wheel.items ?? wheelItems(wheel.hex)} onClose={() => setWheel(null)} emptyHint={wheelEmptyHint} />}
+        {wheel && <ActionWheel at={wheel.at} title={wheel.title ?? hexLabel(wheel.hex)} items={wheel.items ?? wheelItems(wheel.hex)} onClose={() => setWheel(null)} emptyHint={wheelEmptyHint} />}
         {bypassPick && (
           <div className="bypass-confirm" role="dialog" aria-label="Confirm Bypass">
             <span>{bypassPick.text}</span>
@@ -5719,22 +5796,21 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
               {banzaiDraft && decision.kind === 'phase' && phase === 'MPh' && (() => {
                 // Checked as it is drawn up without the LOS to the target, which is checked when the charge is declared (A6.11).
                 const err = banzaiDraft.target ? plain(banzaiIllegal(env, owner!, banzaiDraft.leader, banzaiDraft.target, banzaiDraft.units, undefined, { skipLos: true })) : 'Click the enemy hex the charge goes for';
-                const candidates = Object.values(state.pieces)
-                  .filter((p) => p.side === owner && p.loc.kind === 'hex' && isJapanese(env, p) && !isWeaponDef(defOf(env, p)) && !isVehiclePiece(p.id) && p.tags['broken'] !== true && p.tags['pinned'] !== true && p.tags['moved'] === undefined && p.tags['banzai'] === undefined)
-                  .sort((a, b) => (a.id < b.id ? -1 : 1));
+                const candidates = banzaiCandidates(env, owner!);
                 const toggle = (id: PieceId) => setBanzaiDraft({ ...banzaiDraft, units: banzaiDraft.units.includes(id) ? banzaiDraft.units.filter((u) => u !== id) : [...banzaiDraft.units, id] });
                 return (
                   <div className="composer">
                     <h3>Banzai Charge</h3>
                     <p className="hint">
-                      {pieceLabel(env, state.pieces[banzaiDraft.leader])} leads. Target: {banzaiDraft.target ? hexLabel(banzaiDraft.target) : 'click an enemy hex on the map'}. Tick the units that charge: a chain of adjacent, Good Order, unmoved Japanese Infantry (SK4 8.1.8.6).
+                      {pieceLabel(env, state.pieces[banzaiDraft.leader])} leads. Target: {banzaiDraft.target ? hexLabel(banzaiDraft.target) : 'click an enemy hex on the map'}. Tick the units that charge, or click their hexes on the map: a chain of adjacent, Good Order, unmoved Japanese Infantry. Only one of them needs to see the target within 8 hexes (SK4 8.1.8.6).
                     </p>
                     <ul className="pieces">
-                      {candidates.map((p) => (
-                        <li key={p.id} className="piece">
+                      {candidates.map((c) => (
+                        <li key={c.id} className="piece" title={c.why ?? undefined}>
                           <label>
-                            <input type="checkbox" checked={banzaiDraft.units.includes(p.id)} disabled={p.id === banzaiDraft.leader} onChange={() => toggle(p.id)} />
-                            {pieceLabel(env, p)} <span className="muted small">{p.loc.kind === 'hex' ? hexLabel(p.loc.hex) : ''}</span>
+                            <input type="checkbox" checked={banzaiDraft.units.includes(c.id)} disabled={c.id === banzaiDraft.leader || (c.why !== null && !banzaiDraft.units.includes(c.id))} onChange={() => toggle(c.id)} />
+                            {c.label} <span className="muted small">{hexLabel(c.hex)}</span>
+                            {c.why && <span className="muted small"> · {c.why}</span>}
                           </label>
                         </li>
                       ))}
@@ -5759,7 +5835,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                   <div className="composer">
                     <h3>Banzai Charge — Impulse {bz.impulse}</h3>
                     <p className="hint">
-                      Target {hexLabel(bz.target)}. Every unit moves one hex this Impulse (toward the target, into an enemy hex no farther from it, or next to it); then the enemy may fire at each Banzai hex. Click a green hex to move {stepper ? pieceLabel(env, state.pieces[stepper]) : 'the next unit'}, or a Banzai hex to pick another unit.
+                      Target {hexLabel(bz.target)}. Every unit moves one hex this Impulse (toward the target, into an enemy hex no farther from it, or next to it); a unit that has moved waits for the others, then the enemy may fire at each Banzai hex before the next Impulse. {bz.moved.length} of {bz.units.length} moved. Click a green hex to move {stepper ? pieceLabel(env, state.pieces[stepper]) : 'the next unit'}, or a Banzai hex to pick another unit.
                     </p>
                     <ul className="pieces">
                       {bz.units.map((u) => {
@@ -6559,7 +6635,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                             destinations.set(to, minimum);
                         }
                         return destinations.size > 0 && (
-                          <VehicleEntryMp key={`${ms.units[0]}:${ms.hex ?? ms.off}:${left}`} destinations={destinations} left={left} check={session.check} enter={(step) => run(step, true)} />
+                          <VehicleEntryMp key={`${ms.units[0]}:${ms.hex ?? ms.off}:${left}`} hexLabel={hexLabel} destinations={destinations} left={left} check={session.check} enter={(step) => run(step, true)} />
                         );
                       })()}
                       {ms.vehicle.stopped && owner && decision.owner === owner && !plain(session.check({ type: 'vmove.delay', mp: 1 })) && (() => {
@@ -6857,7 +6933,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                     {routs.map((r) => (
                       <li key={r.unit} className={`${r.done || r.cannot ? 'done' : r.must ? 'must' : ''} ${selected.has(r.unit) ? 'sel' : ''}`} title={r.cannot ? ROUT_BAR_TEXT[r.cannot] : (!r.done && routWaitHint(env, r.unit)) || undefined}>
                         <button className="link" onClick={() => { setSelected(new Set([r.unit])); setSelectedHex(hexOfId(state, r.unit) as HexId); }} disabled={r.done}>
-                          {pieceLabel(env, state.pieces[r.unit])} <span className="muted">({hexOfId(state, r.unit)?.replace(/^[a-z]/, '')})</span>
+                          {pieceLabel(env, state.pieces[r.unit])} <span className="muted">({hexLabel(hexOfId(state, r.unit) ?? '')})</span>
                         </button>
                         <span className="rout-status">
                           {r.done ? 'done' : routing?.unit === r.unit ? 'routing — not over yet' : r.must && r.reason ?`must rout — ${routReason(r.reason)}` : r.cannot ? `stays — ${r.cannot === 'noDm' ? 'no DM' : 'in Melee'}` : 'may rout'}
@@ -7177,9 +7253,10 @@ function Reinforcements({ env, sideName, viewer }: { env: QueryEnv; sideName(s?:
  * When the tray already shows each group's own rule, only the general stacking note remains.
  */
 function SetupRules({ env, todo, rulesShownInTray, anchors = [] }: { env: QueryEnv; todo: Piece[]; rulesShownInTray: boolean; anchors?: { anchor: HexId; range: number; counts: { label: string; need: number; have: number }[] }[] }) {
+  const hexLabel = hexNamer(env);
   const sc = (env.statics as Statics).scenario;
   const forces = [...new Set(todo.map((p) => p.tags['force'] as number))].map((i) => sc.forces[i]!);
-  const lines = rulesShownInTray ? [] : forces.map((f) => setupRule(f));
+  const lines = rulesShownInTray ? [] : forces.map((f) => setupRule(f, sc));
   return (
     <ul className="setup-rules small">
       {[...new Set(lines)].map((l) => (

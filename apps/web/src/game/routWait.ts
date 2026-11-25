@@ -1,5 +1,5 @@
 import type { PieceId, QueryEnv } from '@asl/engine';
-import { activeRout, activeRoutEnds, hexLabel, hexOfLoc, pieceLabel } from '@asl/rules';
+import { activeRout, activeRoutEnds, hexNamer, hexOfLoc, pieceLabel } from '@asl/rules';
 
 /**
  * Why a broken unit may not start its rout yet: another unit's rout is under way, and routs are walked one at a time, each
@@ -8,6 +8,7 @@ import { activeRout, activeRoutEnds, hexLabel, hexOfLoc, pieceLabel } from '@asl
  * way.
  */
 export function routWaitHint(env: QueryEnv, unit: PieceId): string | null {
+  const hexLabel = hexNamer(env);
   const act = activeRout(env);
   const router = env.state.pieces[act?.unit ?? ''];
   if (!act || act.unit === unit || !router) return null;

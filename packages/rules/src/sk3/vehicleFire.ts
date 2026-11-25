@@ -8,14 +8,15 @@ import { moveState } from '../sk1/movement';
 import { fireMarker, inMelee, pieceOf, setTags } from '../sk1/status';
 import { terrainOf } from '../sk1/terrain';
 import { woodsBuildingOrRubble, type OrdnanceShot, type ShotCtx } from '../sk2/ordnance';
-import { T3, crewCanAct, inMotion, isCe, isMovingTarget, isWreck, stunWord, vehicle } from './status';
+import { BOW_TURN, T3, crewCanAct, inMotion, isCe, isMovingTarget, isWreck, stunWord, vehicle } from './status';
 import { T } from '../sk1/status';
 import { applyVehicleEffect, crewTakesResult } from './vehicleStatus';
-import { closeTerrain, turnRiskingBog } from './vehicleMove';
+import { closeTerrain, hullTurnRefusal, turnRiskingBog } from './vehicleMove';
 import { T2, caTurnedIllegal } from '../sk2/status';
 import { hitLocation } from './facing';
 import { installVehicleFacing } from './vehicleFacing';
 import { confiningEnemies } from './vehicleCc';
+import { hexName } from '../labels';
 
 declare module '@asl/engine' {
   interface QueryCatalog {
@@ -77,6 +78,12 @@ export function maIllegal(env: QueryEnv, shot: OrdnanceShot, mode: FireMode): st
   // Turned without MP at the end of this phase (SK4 3.3.2): it fires no more in it.
   const turned = caTurnedIllegal(env, p);
   if (turned) return turned;
+  // An NT vehicle's MA turns its hull to fire outside the CA, so the hull must be free to turn: not Immobilized, Bogged or
+  // dug in (SK4 glossary "Immobilized: ... may not change hexes, turn its VCA, or start"; 7.6).
+  if (shot.ca !== undefined && d.turret === 'NT' && shot.ca !== (p.tags[T2.ca] as number | undefined)) {
+    const never = hullTurnRefusal(env, p);
+    if (never) return never;
+  }
   // With an enemy unit in its Location (or in Melee) the vehicle fires into that Location only (SK4 3.2.2.1, 3.8;
   // ASLRB A7.212).
   const at = locOf(env.state, p);
@@ -108,7 +115,7 @@ export function maBffRefusal(env: QueryEnv, vehicleId: PieceId): string | null {
   if (ms.vehicle.maBff && ms.vehicle.sinceBff === 0) return 'Spend another MP before firing again';
   // Its MGs fired first: the first MA shot is from their hex, as "all other Weapons must be fired from the same hex as
   // the first MA shot" (SK4 3.3.2.2). After it, an MA that kept ROF may fire again from another hex (ASLRB D3.3, C2.24).
-  if (!ms.vehicle.maBff && ms.vehicle.bffFrom && ms.hex !== ms.vehicle.bffFrom) return `Its MGs fired from ${ms.vehicle.bffFrom.replace(/^[a-z]/, '')}: in its MPh a vehicle fires every weapon from the hex of its first MA shot`;
+  if (!ms.vehicle.maBff && ms.vehicle.bffFrom && ms.hex !== ms.vehicle.bffFrom) return `Its MGs fired from ${hexName(env, ms.vehicle.bffFrom)}: in its MPh a vehicle fires every weapon from the hex of its first MA shot`;
   return null;
 }
 
@@ -454,21 +461,31 @@ export const vehicleFireModule: RuleModule = {
     // An NT vehicle firing outside its CA turns its hull: the VCA follows the weapon's CA (SK4 3.3.2.1 "A
     // TCA/VCA may also be changed ... as a result of firing outside the CA"), and turns back with it when
     // the ammo was never there. The CA change is paid for and the VCA turns with it.
-    r.on<{ gun: PieceId; to: number; reason: string }>({
+    // A turn to fire is kept with the VCA, in the same change, for the vehicle's other bow weapon (the BMG) firing in
+    // that VCA later this phase (SK4 7.8; `sk3.vehicleMg`); a turn undone (no ammo) takes the record with it.
+    r.on<{ gun: PieceId; to: number; reason: string; spines: number }>({
       id: 'sk3.vehicleFire.nt-vca',
       event: 'sk2.gun.ca',
       handler(ctx, ev) {
         const p = ctx.state.pieces[ev.payload.gun];
         if (!p || vehicle(ctx, p)?.turret !== 'NT' || p.tags[T3.vca] === ev.payload.to) return;
+        // Only a BMG still to fire this phase could owe it: no record otherwise.
+        const bmgToFire = swHeldBy(ctx.state, p.id).some((w) => (defOf(ctx, w) as { type?: string }).type === 'BMG' && !fireMarker(w) && w.tags['malf'] !== true);
+        const record: Record<string, string | number | null> =
+          ev.payload.reason === 'fire' && bmgToFire
+            ? { [BOW_TURN.phase]: `${ctx.state.turn}${ctx.state.attacker}${ctx.state.phase}`, [BOW_TURN.spines]: ev.payload.spines, [BOW_TURN.paid]: p.id }
+            : ev.payload.reason === 'noAmmo' && p.tags[BOW_TURN.phase] !== undefined
+              ? { [BOW_TURN.phase]: null, [BOW_TURN.spines]: null, [BOW_TURN.paid]: null }
+              : {};
         // Pivoting in woods or a building to fire takes a Bog Check per hexspine first (SK4 7.6; ASLRB C5.11, D8.2;
         // tester report 2026-11-06). Bogging stops the hull where it is, and its CA with it: the shot is not taken.
         const hex = hexOf(ctx.state, p);
         if (ev.payload.reason === 'fire' && closeTerrain(ctx, hex)) {
           const turn = turnRiskingBog(ctx, p, hex!, ev.payload.to);
-          setTags(ctx, p.id, { [T3.vca]: turn.vca, ...(turn.bogged ? { [T2.ca]: turn.vca } : {}) });
+          setTags(ctx, p.id, { [T3.vca]: turn.vca, ...(turn.bogged ? { [T2.ca]: turn.vca } : record) });
           return;
         }
-        setTags(ctx, p.id, { [T3.vca]: ev.payload.to });
+        setTags(ctx, p.id, { [T3.vca]: ev.payload.to, ...record });
       },
     });
 

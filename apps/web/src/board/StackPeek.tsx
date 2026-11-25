@@ -1,6 +1,6 @@
 import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
-import { bunkerTrenches, controlState, pillboxLoc, entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, lastMineAttacks, roadblockObstacles, stunLabel } from '@asl/rules';
+import { bunkerTrenches, controlState, hexName, laborLoc, pillboxLoc, entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, lastMineAttacks, roadblockObstacles, stunLabel } from '@asl/rules';
 import { AMMO_NAME, acquisitionsAt, ammoOut, defOf, fireAt, fireMarker, fireNumbers, fortCounters, fortKindName, gunIdent, isWeaponDef, locationsOf, moveState, parseLabor, rubbleAt, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, terrainOf, windOf, type Statics, type VehicleDef } from '@asl/rules';
 import { counterImage, cxMarker, markerImage } from '../game/assets';
 import { fortMarker } from '../panels/FortTray';
@@ -53,6 +53,9 @@ function vehicleMgStates(env: QueryEnv, p: Piece): { type: string; state: 'malfu
  * Status of a counter: the marker chit that sits on it on the board (if any) and a label.
  */
 type Status = { label: string; marker?: string };
+/** A Labor task's kind as the peek words it, before its Location (`flame:uK4` → "the Flame in K4"). */
+const LABOR_TASK: Record<string, string> = { flame: 'the Flame in ', entrench: 'entrenching in ', manhandle: 'pushing the Gun out of ' };
+
 function statusOf(env: QueryEnv, p: Piece): Status[] {
   const t = p.tags;
   const out: Status[] = [];
@@ -74,7 +77,7 @@ function statusOf(env: QueryEnv, p: Piece): Status[] {
   // Full ASL: Wall Advantage over the wall hexsides (a roadblock) of its hex (ASLRB B9.32, B9.31).
   if (typeof t['wa'] === 'string') out.push({ label: 'Wall Advantage: the wall TEM vs fire across its hexside, no in-hex TEM; denies it to the enemy across (ASLRB B9.31, B9.321)' });
   const labor = parseLabor(t['labor']);
-  if (labor) out.push({ label: `Labor ${labor.drm} on the next attempt at ${labor.task.replace(/^flame:/, 'the Flame in ').replace(/^entrench:/, 'entrenching in ').replace(/^manhandle:/, 'pushing the Gun out of ').replace(/^[a-z]/, '')} (ASLRB B24.8)`, marker: labor.drm <= -2 ? 'Labor2' : 'Labor1' });
+  if (labor) out.push({ label: `Labor ${labor.drm} on the next attempt at ${LABOR_TASK[labor.task.split(':')[0]!] ?? ''}${hexName(env, laborLoc(labor.task))} (ASLRB B24.8)`, marker: labor.drm <= -2 ? 'Labor2' : 'Labor1' });
   // Full ASL: a vehicle beneath a trench (ASLRB B27.52), or Hull Down behind a roadblock (B9.36, worked out per firer).
   if (p.loc.kind === 'hex' && defOf(env, p).kind === 'vehicle' && isEntrenched(p)) {
     const ent = entrenchmentAt(env, p.loc.hex);
@@ -94,7 +97,7 @@ function statusOf(env: QueryEnv, p: Piece): Status[] {
   if (t['advanced']) out.push({ label: 'advanced' });
   // SK2 Guns.
   if (t['intensive']) out.push({ label: 'Intensive Fire' });
-  if (t['acqHex']) out.push({ label: `has acquired ${String(t['acqHex']).replace(/^[a-z]/, '')} (-${t['acqLevel']})` });
+  if (t['acqHex']) out.push({ label: `has acquired ${hexName(env, String(t['acqHex']))} (-${t['acqLevel']})` });
   if (t['emplaced']) out.push({ label: 'emplaced' });
   // Limited ammo the Gun has run out of (SK4 6.2 depletion).
   if (ammoOut(p).length) out.push({ label: `out of ${ammoOut(p).map((k) => AMMO_NAME[k]).join(', ')}` });
@@ -258,7 +261,7 @@ function fortLines(env: QueryEnv, hex: HexId): { marker: string; label: string; 
   const wallOf = (id: string) => obstacles.find((o) => o.id === id);
   const wallText = (id: string) => {
     const o = wallOf(id);
-    return o ? ` · a stone wall across ${o.a.replace(/^[a-z]/, '')}–${o.b.replace(/^[a-z]/, '')}: Half-Level LOS obstacle, +2 TEM in either hex (Wall Advantage), Infantry +1 MF to cross, no vehicles${o.extension.length ? `; extends into ${o.extension.map((e) => e.hex.replace(/^[a-z]/, '')).join(', ')}` : ''} (ASLRB B29.2–B29.4)` : '';
+    return o ? ` · a stone wall across ${hexName(env, o.a)}–${hexName(env, o.b)}: Half-Level LOS obstacle, +2 TEM in either hex (Wall Advantage), Infantry +1 MF to cross, no vehicles${o.extension.length ? `; extends into ${o.extension.map((e) => hexName(env, e.hex)).join(', ')}` : ''} (ASLRB B29.2–B29.4)` : '';
   };
   const across = fortCounters(env)
     .filter((c) => c.kind === 'roadblock' && c.hex !== hex && (wallOf(c.id)?.b === hex || wallOf(c.id)?.extension.some((e) => e.hex === hex)))
@@ -379,7 +382,7 @@ export function StackPeek({ env, hex, at, bounds, placements, rotation, interact
     if (p.loc.kind === 'hex' && p.loc.pos?.ent) st.unshift({ label: `in the ${p.loc.pos.ent === 'ditch' ? 'A-T Ditch' : p.loc.pos.ent}` });
     if (p.loc.kind === 'hex' && p.loc.pos?.wire) st.unshift({ label: p.loc.pos.wire === 'on' ? 'on top of the Wire' : 'beneath the Wire' });
     // Full ASL: the minefield attacks this unit of the moving stack has just come through (ASLRB B28.41).
-    for (const m of lastMineAttacks(env).filter((x) => x.units.includes(p.id))) st.unshift({ label: `survived a minefield attack ${m.way === 'exit' ? 'leaving' : 'entering'} ${m.hex.replace(/^[a-z]/, '')}` });
+    for (const m of lastMineAttacks(env).filter((x) => x.units.includes(p.id))) st.unshift({ label: `survived a minefield attack ${m.way === 'exit' ? 'leaving' : 'entering'} ${hexName(env, m.hex)}` });
     const can = !!interactive && interactive.selectable(p);
     const sel = !!interactive && interactive.selected.has(p.id);
     const sheet = p.id === big && d.kind === 'vehicle' ? vehicleSheet(env, p, d) : null;
@@ -472,7 +475,7 @@ export function StackPeek({ env, hex, at, bounds, placements, rotation, interact
         {placements && <HexArt env={env} hex={hex} placements={placements} rotation={rotation ?? 0} />}
         <div className="peek-top-text">
           <div className="peek-head">
-            <b>{hex.replace(/^[a-z]/, '')}</b>
+            <b>{hexName(env, hex)}</b>
             <span className="peek-markers">
               {locationMarkers(env, hex).map((m, i) => (
                 <span key={`${m.marker}-${i}`} className="peek-marker" title={m.label} style={m.tint ? { backgroundColor: m.tint, WebkitMaskImage: `url(${markerImage(m.marker)!})`, maskImage: `url(${markerImage(m.marker)!})`, WebkitMaskSize: '100% 100%', maskSize: '100% 100%' } : undefined}>

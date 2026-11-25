@@ -206,7 +206,7 @@ describe('B27.52: a vehicle beneath a trench', () => {
     const ca = [1, 2, 3, 4, 5].find((c) => illegal(s, c) === null)!;
     expect(ca).toBeDefined();
     s = tele(g.engine, s, 'sg', 'uN5', 'trench');
-    expect(illegal(s, ca)).toMatch(/Beneath the trench: an NT vehicle may not pivot its hull to fire \(ASLRB B27.52\)/);
+    expect(illegal(s, ca)).toMatch(/Beneath the trench: no VCA change \(ASLRB B27.52\)/);
   });
 
   it('Infantry in its Location get no +1 from it (D9.3); a tank on top of the trench still gives it', () => {

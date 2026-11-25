@@ -281,6 +281,48 @@ describe('vehicle movement (SK4 3.3.2)', () => {
     expect(ms?.vehicle?.freeStop ?? false).toBe(false);
   });
 
+  it('a Fully Tracked vehicle with half its MP or less left enters woods with all of them: no +3, and the stop is free (ASLRB B13.41; SK4 1.1.1)', () => {
+    // 1 MP to start, 7 into yM6 (declaring more than the Open Ground cost), 1 into yM5: 7 of 16 left.
+    const { engine, state } = game([t34('yM7')], { terrain: { yM4: { terrain: 'woods' } }, dice: [4, 4] });
+    let s = play(engine, state, { type: 'vmove.start', vehicle: 't34' }, { type: 'move.step', to: 'yM6', declared: 7 }, { type: 'move.step', to: 'yM5' });
+    const ms = moveState(engine.env(s))!;
+    expect(ms.allowance['t34']! - ms.spent['t34']!).toBe(7);
+    // Half its allotment (8) is more than it has: the woods are offered at all 7, the plain step included.
+    expect(engine.legalActions(s, 'ru').some((a) => a.type === 'move.step' && a['to'] === 'yM4')).toBe(true);
+    // All 7 into the woods: DR 4+4 = 8 +1 ground pressure = 9, no Bog (with the +3 of a half-MP entry it would be 12).
+    const r = act(engine, s, { type: 'move.step', to: 'yM4' });
+    expect(moveState(engine.env(r.state))!.spent['t34']).toBe(16);
+    expect(r.events.find((e) => e.type === 'sk3.vehicle.bog')!.payload).toMatchObject({ drm: 1, bogged: false });
+    s = r.state;
+    expect(engine.legalActions(s, 'ru').some((a) => a.type === 'vmove.stop')).toBe(true);
+    s = play(engine, s, { type: 'vmove.stop' });
+    expect(moveState(engine.env(s))!.vehicle).toMatchObject({ stopped: true });
+  });
+
+  it('an Armored Car enters woods only with all its MP: never the +3 of a half-MP entry, however many it has left, and it may still stop (ASLRB B13.41, B13.42; SK4 1.1.1)', () => {
+    const ac: PieceSpec = { id: 'ac', def: 'ge.psw2341', side: 'ge', hex: 'yM7', tags: { vca: 0, ca: 0 } };
+    const g = makeEngine({ pieces: [ac], scenario: { ...RU_VS_GE, firstSide: 'ge' }, extra, startPhase: 'MPh', dice: [4, 4], terrain: { yM4: { terrain: 'woods' } } as never });
+    // 1 to start, 15 into yM6, 3 into yM5: 14 of its 33 MP left, under half.
+    let s = play(g.engine, g.state, { type: 'vmove.start', vehicle: 'ac' }, { type: 'move.step', to: 'yM6', declared: 15 }, { type: 'move.step', to: 'yM5' });
+    const ms = moveState(g.engine.env(s))!;
+    expect(ms.allowance['ac']! - ms.spent['ac']!).toBe(14);
+    // DR 4+4 = 8 +1 Normal Ground Pressure +1 not Fully Tracked = 10: no Bog.
+    const r = act(g.engine, s, { type: 'move.step', to: 'yM4' });
+    const bog = r.events.find((e) => e.type === 'sk3.vehicle.bog')!.payload as { drm: number; bogged: boolean; explain: { id: string }[] };
+    expect(bog).toMatchObject({ drm: 2, bogged: false });
+    expect(bog.explain.map((e) => e.id)).not.toContain('sk3.bog.half-mp');
+    s = r.state;
+    expect(moveState(g.engine.env(s))!.spent['ac']).toBe(33);
+    // With no MP left it still stops (the stop MP is not part of "all its MP"), and the next MPh it starts again.
+    expect(g.engine.legalActions(s, 'ge').some((a) => a.type === 'vmove.stop')).toBe(true);
+    s = play(g.engine, s, { type: 'vmove.stop' });
+    expect(s.pieces['ac']!.tags[T3.motion]).toBeFalsy();
+    while (moveState(g.engine.env(s))) {
+      const d = g.engine.currentDecision(s)!;
+      s = act(g.engine, s, g.engine.legalActions(s, d.owner).find((a) => a.type === 'vmove.end' || a.type === 'defPass')!).state;
+    }
+    expect(s.pieces['ac']!.loc).toEqual({ kind: 'hex', hex: 'yM4' });
+  });
   it('a red-MP T-34 M41 rolls Mechanical Reliability on its start MP: 12 Immobilizes it, 11 stalls it (Russian Vehicle Note M)', () => {
     const immob = game([{ id: 't34', def: 'ru.T34M41', side: 'ru', hex: 'yM5', tags: { vca: 0, ca: 0 } }], { dice: [6, 6] });
     let s = play(immob.engine, immob.state, { type: 'vmove.start', vehicle: 't34' });

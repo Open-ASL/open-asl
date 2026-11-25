@@ -12,6 +12,7 @@ import { AP, type AdvanceExitFn } from './advance';
 import type { CounterDef, GameMap, ScenarioDef, ScenarioForce, VictoryCondition, SetupConstraint } from '../common/statics';
 import { isBroken, isGoodOrder, mmc, pieceOf, setTags, smc, squadEquivalents } from './status';
 import { isRoadHex, terrainOf } from './terrain';
+import { hexNamer } from '../labels';
 
 declare module '@asl/engine' {
   interface QueryCatalog {
@@ -1746,7 +1747,7 @@ function describeExits(env: QueryEnv, side: SideId): string {
   for (const r of sc.exits ?? []) {
     if (r.side !== side) continue;
     if (r.edge) parts.push(`the ${r.edge} edge`);
-    if (r.hexes?.length) parts.push(r.hexes.map((h) => h.replace(/^[a-z]/, '')).join(', '));
+    if (r.hexes?.length) parts.push(r.hexes.map(hexNamer(env)).join(', '));
   }
   for (const v of sc.victory) {
     if (v.kind !== 'exitVp' || v.side !== side) continue;

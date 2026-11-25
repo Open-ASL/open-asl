@@ -6,7 +6,7 @@ import type { SfxName, SfxParams } from '../audio/sfx';
 import { mgSound, ordnanceSound, vehicleMoveSound } from '../audio/weapons';
 import { ccPlayOrder } from './ccOrder';
 import { counterImage } from '../game/assets';
-import { NATION, defLabel, entryRoll, hexLabel, humanize, pieceLabel, sideNameOf } from '../game/describe';
+import { NATION, defLabel, entryRoll, hexNamer, humanize, pieceLabel, sideNameOf } from '../game/describe';
 import type { FxLevel } from './settings';
 
 /* ----------------------------------------------------------------------------- types */
@@ -173,6 +173,7 @@ const away = () => typeof document !== 'undefined' && document.hidden;
  * wheel, callout, dice or board effect for what was jumped over, and whatever was still playing is dropped.
  */
 export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision | undefined, level: FxLevel, viewer: SideId | null, present: PresentationControl, seek = 0): GameFx {
+  const hexLabel = hexNamer(env);
   const enabled = level !== 'off';
   const state = env.state;
   const shownState = present.state;

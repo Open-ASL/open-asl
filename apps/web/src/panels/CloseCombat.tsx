@@ -80,7 +80,7 @@ interface UnitView extends UnitSnap {
   spent: boolean;
 }
 
-interface Card {
+export interface Card {
   key: string;
   side: SideId;
   attackers: PieceId[];
@@ -231,6 +231,8 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
 
   // Attacks: each CC roll of a side pairs with its i-th attack event; the declared groups not yet rolled follow.
   const cards: Card[] = [];
+  /** Leaders created by a Field Promotion in this hex's CC, and the side whose attack made them. */
+  const promoted = new Map<PieceId, SideId>();
   const order: SideId[] = here.ambusher ? [here.ambusher, otherSide(env.state, here.ambusher)] : [attacker, defender];
   for (const side of order) {
     const rolled: { dice: number[]; seq: number }[] = [];
@@ -247,9 +249,12 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
         const dr = (p['dr'] as number[] | undefined) ?? dice ?? [];
         events.push({ attack: { attackers: p['attackers'] as PieceId[], targets: [p['vehicle'] as PieceId] }, odds: `CCV ${p['ccv']}`, drm: p['drm'] as number, dr: dr.reduce((a, b) => a + b, 0), kill: (p['ccv'] as number) - 1, result: VS_VEHICLE_RESULT[p['result'] as string] ?? String(p['result']) });
       }
-      else if (e.type === 'sk1.leaderCreation' && rolled.length > events.length) {
+      // A Field Promotion goes on the card of the attack it was made for: the engine makes every one of a simultaneous
+      // CC before applying any result, so it is logged among the other side's rolls too (SK1 5.3).
+      else if (e.type === 'sk1.leaderCreation' && env.state.pieces[p['unit'] as PieceId]?.side === side && rolled.length > events.length) {
         const leader = p['leader'] as PieceId | null;
         notes.set(rolled.length - 1, leader ? `Field promotion: ${shortLabel(env, env.state.pieces[leader])}` : 'Field promotion fails');
+        if (leader) promoted.set(leader, side);
       }
     }
     const declared = here.declared[side] ?? [];
@@ -276,6 +281,11 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
     }
   }
 
+  // A leader created for an attack whose result has not been told yet waits for it: the board is revealed up to the
+  // latest event told, which in a simultaneous CC may lie past the other side's roll and its Field Promotion.
+  const untold = new Set(cards.filter((c) => c.dice && !c.result).map((c) => c.side));
+  for (const [leader, side] of promoted) if (untold.has(side)) roster[side] = (roster[side] ?? []).filter((u) => u.id !== leader);
+
   let step: Step = 'resolving';
   let acting: SideId | undefined;
   if (forHex?.kind === 'ccArrange') {
@@ -286,6 +296,29 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
     acting = forHex.owner;
   } else if (ambush && ambush.ambusher === undefined) step = 'ambush';
   return { hex, attacker, defender, step, ...(acting ? { acting } : {}), sequential, ambush, roster, cards, order, melee: env.state.hexMarkers[hex]?.['melee'] === true };
+}
+
+/**
+ * Keep each attack's card key from one render to the next. A declared attack is keyed by its attackers until it is
+ * rolled, then by its roll; a new key would make React mount a fresh card, which replays its entry animation, so the
+ * attacks would seem to vanish and come back with their dice. A unit attacks at most once in a hex's Close Combat, so a
+ * card sharing an attacker (on the same side) with one shown before is the same attack, even if a Field Promotion has
+ * since added a leader to it. A card whose dice are in but whose result is not yet told also keeps its odds.
+ */
+export function keepCardKeys(prev: Card[], next: Card[]): Card[] {
+  const used = new Set<string>();
+  const taken = new Set(next.map((c) => c.key));
+  return next.map((c, i) => {
+    const before = prev.find((p) => p.side === c.side && !used.has(p.key) && p.attackers.some((a) => c.attackers.includes(a)));
+    // Another card of this render may already own that key (its own, freshly built): keep this one's own then.
+    let key = before && (before.key === c.key || !taken.has(before.key)) ? before.key : c.key;
+    if (used.has(key)) key = `${c.key}#${i}`;
+    used.add(key);
+    // A roll waiting for its turn to be told keeps the odds it was declared at: they cannot be worked out again from
+    // the board, where the other side's result may already have been applied (simultaneous CC, SK1 3.8).
+    const preview = !c.result && !c.preview && before?.preview ? before.preview : c.preview;
+    return key === c.key && preview === c.preview ? c : { ...c, key, preview };
+  });
 }
 
 // ------------------------------------------------------------------ drag: a counter picked up with the pointer and dropped on a zone
@@ -362,7 +395,15 @@ export function CloseCombat(props: Props) {
   const lastHere = useRef<CcSlice | undefined>(undefined);
   if (session && here?.hex === session.hex) lastHere.current = here;
   const slice = lastHere.current;
-  const view = useMemo(() => (session && slice ? buildView(session, slice, env, log, decision) : null), [session, slice, env, log, decision]);
+  const built = useMemo(() => (session && slice ? buildView(session, slice, env, log, decision) : null), [session, slice, env, log, decision]);
+  const lastCards = useRef<{ session: CcSession | null; cards: Card[] }>({ session: null, cards: [] });
+  const view = useMemo(() => {
+    if (!built) return null;
+    const prev = lastCards.current.session?.hex === session?.hex && lastCards.current.session?.openedSeq === session?.openedSeq ? lastCards.current.cards : [];
+    const cards = keepCardKeys(prev, built.cards);
+    lastCards.current = { session, cards };
+    return { ...built, cards };
+  }, [built, session]);
   if (!session || !view) return null;
   return <Panel key={session.hex} {...props} session={session} view={view} dismiss={dismiss} />;
 }
@@ -579,8 +620,11 @@ function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, chec
           ) : c.dice && !closing ? (
             // Rolled, but its turn to be shown has not come: the dice of a simultaneous CC are told one side at a time
             // (ccPlayOrder), so the other side's roll is in the presented log before its dice land. Its dice and result
-            // appear together when they do.
-            <div className="cc-math">Rolling…</div>
+            // appear together when they do. Meanwhile the card keeps the odds it was declared at.
+            <>
+              {c.preview && <Odds pv={c.preview} ready plain={plain} />}
+              <div className="cc-math">Rolling…</div>
+            </>
           ) : c.dice ? (
             // The hex's CC is over and this roll had no result (its targets were already gone): its dice as rolled.
             <div className="cc-dice">

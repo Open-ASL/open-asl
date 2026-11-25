@@ -53,6 +53,37 @@ describe('the telling of a simultaneous Close Combat', () => {
     expect(ccPlayOrder(t.events).map((e) => e.seq).sort((a, b) => a - b)).toEqual(t.events.map((e) => e.seq));
   });
 
+  it('plays a Field Promotion after the roll it was made for, though the engine logs it before the first result (SK1 5.3)', () => {
+    const ev = (type: string, payload: object) => ({ type, payload });
+    // The German rolled the original 2: its Leader Creation dr is logged among the rolls, before the American result.
+    const logged = [
+      ev('dice.rolled', { label: 'CC am in yO5' }),
+      ev('dice.rolled', { label: 'CC ge in yO5' }),
+      ev('dice.rolled', { label: 'Leader Creation for g1' }),
+      ev('piece.created', { piece: { id: 'g1.L30' } }),
+      ev('sk1.leaderCreation', { unit: 'g1', leader: 'g1.L30' }),
+      ev('piece.eliminated', { id: 'g1' }),
+      ev('sk1.cc.attack', { side: 'am', attack: { attackers: ['a1'], targets: ['g1', 'g1.L30'] } }),
+      ev('piece.eliminated', { id: 'a1' }),
+      ev('sk1.cc.attack', { side: 'ge', attack: { attackers: ['g1', 'g1.L30'], targets: ['a1'] } }),
+    ];
+    const label = (e: { type: string; payload: object }) => { const p = e.payload as { label?: string; side?: string; id?: string; unit?: string }; return `${e.type} ${p.label ?? p.side ?? p.id ?? p.unit ?? ''}`; };
+    expect(ccPlayOrder(logged).map(label)).toEqual([
+      'dice.rolled CC am in yO5',
+      'piece.eliminated g1',
+      'sk1.cc.attack am',
+      'dice.rolled CC ge in yO5',
+      'dice.rolled Leader Creation for g1',
+      'piece.created ',
+      'sk1.leaderCreation g1',
+      'piece.eliminated a1',
+      'sk1.cc.attack ge',
+    ]);
+    // The American's own original 2 stays with the American roll.
+    const own = [logged[0]!, logged[1]!, ev('dice.rolled', { label: 'Leader Creation for a1' }), ev('sk1.leaderCreation', { unit: 'a1', leader: null }), ev('sk1.cc.attack', { side: 'am', attack: { attackers: ['a1'], targets: ['g1'] } }), ev('sk1.cc.attack', { side: 'ge', attack: { attackers: ['g1'], targets: ['a1'] } })];
+    expect(ccPlayOrder(own).map(label)).toEqual(['dice.rolled CC am in yO5', 'dice.rolled Leader Creation for a1', 'sk1.leaderCreation a1', 'sk1.cc.attack am', 'dice.rolled CC ge in yO5', 'sk1.cc.attack ge']);
+  });
+
   it('leaves a lone roll, and anything else, as logged', () => {
     const ev = (type: string, payload: object) => ({ type, payload });
     const lone = [ev('dice.rolled', { label: 'CC am in yO5' }), ev('sk1.cc.attack', { side: 'am' }), ev('dice.rolled', { label: 'MC g1' })];

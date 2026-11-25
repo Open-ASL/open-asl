@@ -378,10 +378,21 @@ await shot('cc-other-declares');
 expect((await count('.cc-cards .cc-group')) >= 1, 'the locked-in attack is not shown to the other side');
 expect((await clickButton('Everyone in')) === 'ok', 'no "Everyone in" button');
 await sleep(200);
+// Watch the attack cards from the lock-in to the results: each should stay in place and take its dice, not be taken
+// off and put back (a fresh card replays its entry animation, so the attacks seem to vanish and come back).
+await evaluate(`(() => {
+  window.__ccRemoved = [];
+  const cards = () => document.querySelector('.cc-cards');
+  window.__ccObs = new MutationObserver((ms) => { for (const m of ms) for (const n of m.removedNodes) if (n.classList?.contains('cc-group')) window.__ccRemoved.push(n.className); });
+  window.__ccObs.observe(document.querySelector('.cc-arena'), { childList: true, subtree: true });
+})()`);
 expect((await clickButton('Lock in attacks')) === 'ok', 'the second side could not lock in');
 await sleep(1200);
 await shot('cc-rolling');
 await waitFor(`document.querySelectorAll('.cc-cards .cc-group.done').length >= 2`, 'both attacks to show their results', 12000);
+const removed = JSON.parse(await evaluate(`(() => { window.__ccObs.disconnect(); return JSON.stringify(window.__ccRemoved.filter((c) => !c.includes('mine'))); })()`));
+expect(removed.length === 0, `attack cards were taken off and put back while the dice landed: ${removed.join(' | ')}`);
+console.log('cc: attack cards stayed in place while the dice landed ✓');
 await sleep(300);
 await shot('cc-results');
 const results = JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('.cc-cards .cc-group')].map((g) => ({ cls: g.className, result: g.querySelector('.cc-result')?.textContent ?? null, math: g.querySelector('.cc-math')?.textContent ?? null })))`));

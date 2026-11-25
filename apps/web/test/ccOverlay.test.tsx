@@ -209,6 +209,46 @@ describe('the Close Combat overlay while a simultaneous CC is told', () => {
     promotionChangesResult([2, 4], 'Casualty Reduction', 'No effect');
   });
 
+  it('after an ambush (SK1 3.8), the other side declares on the ambusher’s new leader knowingly: he does not “join the defence”', () => {
+    // Woods allow an ambush: the American dr 1 against the German 6 ambushes. The American attack rolls 1,1 and makes a
+    // leader (dr 1); the Germans, declaring after it is resolved, attack the squad and the leader together (6,6).
+    const { engine, state } = makeEngine({
+      startPhase: 'APh',
+      terrain: { yO5: { terrain: 'woods' } },
+      dice: [1, 6, 1, 1, 1, 6, 6, 6, 6, 6, 6],
+      tables: MAKES_LEADERS,
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yO5' },
+        { id: 'g2', def: 'ge.467', side: 'ge', hex: 'yO5' },
+      ],
+    });
+    const created = engine.createGame({ scenarioId: 'test', sides: state.sides, attacker: state.attacker, seed: 'test' }).events;
+    let s: GameState = act(engine, state, { type: 'advance', units: ['a1'], to: 'yO5' }).state;
+    s = act(engine, s, { type: 'endPhase' }).state;
+    for (let guard = 0; guard < 10 && engine.currentDecision(s)?.kind !== 'ccDeclare'; guard++) s = engine.submit(s, engine.legalActions(s, engine.currentDecision(s)!.owner)[0]!).state;
+    expect(engine.currentDecision(s)!.data?.['ambusher']).toBe('am');
+    const ambush = act(engine, s, { type: 'cc.declare', attacks: [{ attackers: ['a1'], targets: ['g1'] }] });
+    const leader = (ambush.events.find((e) => e.type === 'sk1.leaderCreation')!.payload as { leader: string }).leader;
+    expect(leader).toBeTruthy();
+    const reply = act(engine, ambush.state, { type: 'cc.declare', attacks: [{ attackers: ['g2'], targets: ['a1', leader] }] });
+    const show = (state: GameState, log: LoggedEvent[]) => reactAct(() => root!.render(createElement(Screen, { engine, state, log })));
+    show(s, created);
+    show(ambush.state, [...created, ...ambush.events]);
+    reactAct(() => vi.advanceTimersByTime(6000));
+    show(reply.state, [...created, ...ambush.events, ...reply.events]);
+    const samples: ReturnType<typeof cards>[] = [];
+    for (let ms = 0; ms < 20000 && host.querySelector('.cc-overlay'); ms += 100) {
+      samples.push(cards());
+      reactAct(() => vi.advanceTimersByTime(100));
+    }
+    const ge = samples.map((c) => c.find((x) => x.side === 'ge')).filter((c) => !!c);
+    expect(ge.some((c) => c.dice)).toBe(true);
+    expect(ge.some((c) => c.text.includes('joins the defence'))).toBe(false);
+    expect(ge[ge.length - 1]!.targets).toContain(leader);
+    expect(samples[samples.length - 1]!.find((c) => c.side === 'am')!.text).toContain('Field promotion');
+  });
+
   it('tells two original 12s (6,6) like any other rolls: simultaneous, one side at a time', () => {
     const { t, samples } = playOut([6, 6, 6, 6, 6, 6, 6, 6]);
     expect(t.events.filter((e) => e.type === 'dice.rolled' && /^CC /.test((e.payload as { label: string }).label))).toHaveLength(2);

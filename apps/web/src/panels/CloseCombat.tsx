@@ -240,6 +240,9 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
   const cards: Card[] = [];
   /** Leaders created by a Field Promotion in this hex's CC, and the side whose attack made them. */
   const promoted = new Map<PieceId, SideId>();
+  /** When each of them was created, and when each rolled card's dice were rolled. */
+  const createdAt = new Map<PieceId, number>();
+  const rolledAt = new Map<Card, number>();
   const order: SideId[] = here.ambusher ? [here.ambusher, otherSide(env.state, here.ambusher)] : [attacker, defender];
   for (const side of order) {
     const rolled: { dice: number[]; seq: number }[] = [];
@@ -262,6 +265,7 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
         const leader = p['leader'] as PieceId | null;
         notes.set(rolled.length - 1, leader ? `Field promotion: ${shortLabel(env, env.state.pieces[leader])}` : 'Field promotion fails');
         if (leader) promoted.set(leader, side);
+        if (leader) createdAt.set(leader, e.seq);
       }
     }
     const declared = here.declared[side] ?? [];
@@ -272,7 +276,7 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
       const ev = events[i];
       const group = ev?.attack ?? unresolved[pendingIdx++];
       if (!group) return;
-      cards.push({
+      const card: Card = {
         key: `${side}:${r.seq}`,
         side,
         attackers: group.attackers,
@@ -281,7 +285,9 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
         dice: r.dice,
         ...(ev ? { result: { odds: ev.odds, drm: ev.drm, dr: ev.dr, kill: ev.kill, result: ev.result } } : {}),
         ...(notes.has(i) ? { note: notes.get(i)! } : {}),
-      });
+      };
+      cards.push(card);
+      rolledAt.set(card, r.seq);
     });
     for (const g of unresolved.slice(pendingIdx)) {
       cards.push({ key: `${side}:${g.attackers.join('+')}`, side, attackers: g.attackers, targets: g.targets, preview: ccAttackPreview(env, hex, side, g) });
@@ -301,9 +307,12 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
   }
   // He also defends against the other side's attack on the MMC he is stacked with (ASLRB A18.12), which is resolved at
   // the odds with him. If that result is told before his promotion, it shows the declared odds and leaves him out of
-  // the targets; once the promotion is told, it switches to the odds he changed, saying why.
+  // the targets; once the promotion is told, it switches to the odds he changed, saying why. Only an attack already
+  // rolled when he was created (a simultaneous CC, SK1 3.8) has him join it: after an ambush the other side declares
+  // once he is there, and any attack on him is its own choice.
   for (const c of cards) {
-    const joined = c.result ? c.targets.filter((t) => promoted.has(t) && promoted.get(t) !== c.side) : [];
+    const joinedLate = (t: PieceId) => promoted.has(t) && promoted.get(t) !== c.side && (rolledAt.get(c) ?? Infinity) < createdAt.get(t)!;
+    const joined = c.result ? c.targets.filter(joinedLate) : [];
     if (!joined.length) continue;
     if (joined.some((l) => untold.has(promoted.get(l)!))) {
       c.asDeclared = true;

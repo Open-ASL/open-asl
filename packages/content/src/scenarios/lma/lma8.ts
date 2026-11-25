@@ -34,6 +34,7 @@ const AM_SW = ['am.MMG', 'am.FT', 'am.DC', 'am.MTR'];
 /** LMA8 Brassard 3: Porto Ferraio (Porto Ferraio, Elba, 18 June 1944). Boards Z over W, both turned. */
 export const LMA_8: ScenarioDef = {
   id: 'lma-8',
+  service: { theatre: 'mediterranean', campaign: 'rome-arno', armies: { br: 'free-french' } },
   product: 'lma',
   number: 'LMA8',
   title: 'LMA8 Brassard 3: Porto Ferraio',

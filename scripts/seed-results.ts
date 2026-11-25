@@ -1,6 +1,6 @@
 /**
  * Fill a player's service record with ranked results against the emulator, scored exactly as the
- * server scores a finished online match (Elo, record, experience, medals, scenario records):
+ * server scores a finished online match (Elo, record, experience, decorations, scenario records):
  *   pnpm tsx scripts/seed-results.ts alice@example.com 48 carol@example.com probe7502@example.com
  * The first email is the player, the number how many results, the rest the opponents (seeded
  * accounts with public profiles). Results are spread over the last ~100 days and tagged
@@ -9,8 +9,11 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
-import { COL, XP, countsForBeta, eloUpdate, evaluateMedals, type AwardedMedal, type MatchResult, type PublicProfileDoc, type UserDoc } from '../packages/platform/src/index.ts';
-import { SCENARIO_CATALOG, scenarioById } from '../packages/content/src/index.ts';
+import { COL, COMPUTER_OPPONENTS, XP, countsForBeta, eloUpdate, serviceAfter, type AwardedMedal, type MatchResult, type PublicProfileDoc, type UserDoc } from '../packages/platform/src/index.ts';
+import { SCENARIO_CATALOG, scenarioById, serviceCatalogue } from '../packages/content/src/index.ts';
+
+// The server's catalogue (functions/src/lib/service.ts).
+const SERVICE_CATALOGUE = serviceCatalogue(COMPUTER_OPPONENTS);
 
 process.env.FIRESTORE_EMULATOR_HOST ??= '127.0.0.1:8080';
 process.env.FIREBASE_AUTH_EMULATOR_HOST ??= '127.0.0.1:9099';
@@ -29,7 +32,7 @@ let seed = 20261102;
 const rand = () => { seed = (seed * 1103515245 + 12345) % 2 ** 31; return seed / 2 ** 31; };
 const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)]!;
 
-interface Player { uid: string; user: UserDoc; profile: PublicProfileDoc; medals: AwardedMedal[] }
+interface Player { uid: string; user: UserDoc; profile: PublicProfileDoc; medals: AwardedMedal[]; progress?: PublicProfileDoc['awardProgress'] }
 async function load(email: string): Promise<Player> {
   const { uid } = await auth.getUserByEmail(email);
   const user = (await db.collection(COL.users).doc(uid).get()).data() as UserDoc | undefined;
@@ -39,8 +42,6 @@ async function load(email: string): Promise<Player> {
 }
 const me = await load(playerEmail);
 const opponents = await Promise.all(opponentEmails.map(load));
-// Mirrors functions/src/lib/scenarios.ts: the campaign ribbon counts the SK1 scenarios.
-const CAMPAIGN_SCENARIO_IDS = SCENARIO_CATALOG.filter((s) => s.product === 'sk1').map((s) => s.id);
 const playable = SCENARIO_CATALOG.filter((s) => s.playable && s.rulesetId === 'starter-kit').map((s) => scenarioById(s.id)!).filter(Boolean);
 const REASONS: Array<[string, number]> = [['scenario end', 0.58], ['concession', 0.17], ['annihilation', 0.1], ['sudden death', 0.08], ['timeout', 0.07]];
 const reasonFor = () => { let r = rand(); for (const [reason, p] of REASONS) { if ((r -= p) <= 0) return reason; } return 'scenario end'; };
@@ -73,7 +74,7 @@ for (let i = 0; i < count; i++) {
   st.plays++; st.ranked++; if (winner === null) st.draws++; else st.sideWins[winner] = (st.sideWins[winner] ?? 0) + 1;
   statsPatch.set(scenario.id, st);
   const beta = countsForBeta({ mode: 'online', reason, turn: scenario.turns, attacker: scenario.firstSide, firstSide: scenario.firstSide, turns: scenario.turns, halfFinalTurn: scenario.halfFinalTurn }, at.toMillis());
-  for (const [p, elo, other] of [[me, rating.a, opp], [opp, rating.b, me]] as const) {
+  for (const [p, elo, side] of [[me, rating.a, mySide], [opp, rating.b, theirSide]] as const) {
     const won = winnerUid === p.uid; const lost = loserUid === p.uid;
     const before = p.user;
     const after: UserDoc = {
@@ -83,9 +84,10 @@ for (let i = 0; i < count; i++) {
       betaScenarios: beta ? Array.from(new Set([...(before.betaScenarios ?? []), scenario.id])) : (before.betaScenarios ?? []),
       medals: p.medals,
     };
-    const earned = evaluateMedals(after, { mode: 'online', won, lost, opponentElo: other.user.elo, ownEloBefore: before.elo, allScenarioIds: CAMPAIGN_SCENARIO_IDS });
-    p.medals.push(...earned.map((id) => ({ id, awardedAt: at })));
-    p.user = { ...after, medals: p.medals };
+    const service = serviceAfter(after, { pool: 'human', scenarioId: scenario.id, side, outcome: won ? 'win' : lost ? 'loss' : 'draw', reason, opponentBalance: false }, at, SERVICE_CATALOGUE);
+    p.medals = service.medals;
+    p.user = { ...after, medals: p.medals, service: service.service };
+    p.progress = service.awardProgress;
   }
 }
 for (const [scenarioId, st] of statsPatch) {
@@ -97,7 +99,7 @@ for (const [scenarioId, st] of statsPatch) {
 for (const p of [me, ...opponents]) {
   const { email: _e, gravatarHash: _g, displayName: _d, photoURL: _p, createdAt: _c, lastSeenAt: _l, ...stats } = p.user;
   batch.update(db.collection(COL.users).doc(p.uid), { ...stats, updatedAt: FieldValue.serverTimestamp() });
-  batch.set(db.collection(COL.publicProfiles).doc(p.uid), { xp: p.user.xp, elo: p.user.elo, wins: p.user.wins, losses: p.user.losses, draws: p.user.draws, medals: p.user.medals, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  batch.set(db.collection(COL.publicProfiles).doc(p.uid), { xp: p.user.xp, elo: p.user.elo, wins: p.user.wins, losses: p.user.losses, draws: p.user.draws, medals: p.user.medals, ...(p.progress ? { awardProgress: p.progress } : {}), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
 }
 await batch.commit();
 for (const p of [me, ...opponents]) console.log(`${p.profile.nickname}: ${p.user.wins}–${p.user.losses}–${p.user.draws}, Elo ${p.user.elo}, XP ${p.user.xp}, medals ${p.user.medals.map((m) => m.id).join(', ') || 'none'}`);

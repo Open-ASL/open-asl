@@ -196,9 +196,10 @@ export const gunsModule: RuleModule = {
     r.contribute({
       id: 'sk2.setup.hexIllegal.guns',
       query: 'setup.hexIllegal',
-      apply(v, { unit, hex }, env) {
+      apply(v, { unit, hex, sw }, env) {
         if (v) return v;
-        for (const g of gunsOf(env)) if (g.loc.kind === 'held' && g.loc.by === unit) return gunBuildingIllegal(env, g, hex);
+        // The Gun the setup hands the unit, which need not be the card's.
+        for (const g of gunsOf(env)) if ((sw?.[g.id] ?? (g.loc.kind === 'held' ? g.loc.by : null)) === unit) return gunBuildingIllegal(env, g, hex);
         return null;
       },
     });
@@ -322,14 +323,14 @@ export const gunsModule: RuleModule = {
       legal(env, d) {
         const out: ChangeCaAction[] = [];
         for (const g of gunsOf(env).sort(byId)) {
-          if (g.side !== d.owner || caChangeIllegal(env, g.id, d.owner)) continue;
+          if (g.side !== d.owner || caChangeIllegal(env, g.id, d.owner) || env.query('gun.canChangeCa', { gun: g.id }, null)) continue;
           const from = coveredArc(g);
           for (let ca = 0; ca < SPINES; ca++) if (ca !== from) out.push({ type: 'gun.changeCa', gun: g.id, ca });
         }
         return out;
       },
       validate(env, a) {
-        const why = caChangeIllegal(env, a.gun, a.side);
+        const why = caChangeIllegal(env, a.gun, a.side) ?? env.query('gun.canChangeCa', { gun: a.gun }, null);
         if (why) return why;
         if (!Number.isInteger(a.ca) || a.ca < 0 || a.ca >= SPINES) return 'Covered Arc is a hexspine 0-5';
         if (coveredArc(pieceOf(env, a.gun)) === a.ca) return 'The Gun already faces that way';

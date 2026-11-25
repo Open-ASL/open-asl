@@ -1,7 +1,7 @@
 import type { Ctx, HexId, Piece, PieceId, QueryEnv, RuleModule } from '@asl/engine';
 import { byId, hexOf, isVehicleDef, defOf, otherSide, statics, swHeldBy } from '../common/pieces';
 import type { IftResult } from '../common/statics';
-import { locOf } from '../common/location';
+import { hexOfLoc, locOf } from '../common/location';
 import { FP, attackFp, iftColumn, type ApplyResultFn, type FireAttackCtx, type FireMode } from '../sk1/fire';
 import { hasLos } from '../sk1/known';
 import { moveState } from '../sk1/movement';
@@ -24,6 +24,12 @@ declare module '@asl/engine' {
      * default all of them when every part fires from its hex, else none; full ASL takes the parts that do (A7.211).
      */
     'fire.otExposedParts': { ctx: { attack: FireAttackCtx; unit: PieceId }; value: PieceId[] };
+    /**
+     * Where an Area Target Type hit strikes a vehicle (the turret when the colored dr of the Original To Hit DR is less than
+     * the white dr, SK4 7.11), and why the hit does not count against it at all (full ASL: a hull hit on a Hull Down target,
+     * D4.2), or none.
+     */
+    'vehicle.areaHit': { ctx: { attack: FireAttackCtx; vehicle: PieceId }; value: { location: 'hull' | 'turret'; spared?: string } };
   }
 }
 
@@ -83,18 +89,26 @@ export function maIllegal(env: QueryEnv, shot: OrdnanceShot, mode: FireMode): st
   const mgClass = swHeldBy(env.state, p.id).map((w) => fireMarker(w)).filter(Boolean).map((m) => (m === 'prep' ? 'PFPh' : m === 'adv' ? 'AFPh' : 'DF'))[0];
   const myClass = mode === 'prep' ? 'PFPh' : mode === 'advancing' ? 'AFPh' : 'DF';
   if (mgClass && mgClass !== myClass) return 'The Main Armament fires in the same fire phase as the vehicle\'s MGs';
-  if (mode === 'bounding') {
-    const ms = moveState(env);
-    if (!ms?.vehicle || ms.units[0] !== p.id) return 'Bounding First Fire is for the vehicle that is moving';
-    if (!ms.vehicle.started && !ms.vehicle.stopped) return 'Start the vehicle first';
-    // With ROF kept the MA carries no fire marker yet: `maBff` says the MA has fired this MPh. The vehicle's BFF tag
-    // alone is not enough: its MGs firing first set it too, and the MA may still fire after them (SK4 3.3.2.2).
-    if (ms.vehicle.maBff && !p.tags[T3.bffRof]) return 'The MA fired Bounding First Fire and lost ROF';
-    if (ms.vehicle.maBff && ms.vehicle.sinceBff === 0) return 'Spend another MP before firing again';
-    // Its MGs fired first: the first MA shot is from their hex, as "all other Weapons must be fired from the same hex as
-    // the first MA shot" (SK4 3.3.2.2). After it, an MA that kept ROF may fire again from another hex (ASLRB D3.3, C2.24).
-    if (!ms.vehicle.maBff && ms.vehicle.bffFrom && ms.hex !== ms.vehicle.bffFrom) return `Its MGs fired from ${ms.vehicle.bffFrom.replace(/^[a-z]/, '')}: in its MPh a vehicle fires every weapon from the hex of its first MA shot`;
-  }
+  if (mode === 'bounding') return maBffRefusal(env, p.id);
+  return null;
+}
+
+/**
+ * Why the moving vehicle's MA may not fire Bounding First Fire now, whatever the target (SK4 3.3.2.2), or null: the
+ * checks that rest on its move so far. The wheel greys its MA entry with this.
+ */
+export function maBffRefusal(env: QueryEnv, vehicleId: PieceId): string | null {
+  const p = pieceOf(env, vehicleId);
+  const ms = moveState(env);
+  if (!ms?.vehicle || ms.units[0] !== p.id) return 'Bounding First Fire is for the vehicle that is moving';
+  if (!ms.vehicle.started && !ms.vehicle.stopped) return 'Start the vehicle first';
+  // With ROF kept the MA carries no fire marker yet: `maBff` says the MA has fired this MPh. The vehicle's BFF tag
+  // alone is not enough: its MGs firing first set it too, and the MA may still fire after them (SK4 3.3.2.2).
+  if (ms.vehicle.maBff && !p.tags[T3.bffRof]) return 'The MA fired Bounding First Fire and lost ROF';
+  if (ms.vehicle.maBff && ms.vehicle.sinceBff === 0) return 'Spend another MP before firing again';
+  // Its MGs fired first: the first MA shot is from their hex, as "all other Weapons must be fired from the same hex as
+  // the first MA shot" (SK4 3.3.2.2). After it, an MA that kept ROF may fire again from another hex (ASLRB D3.3, C2.24).
+  if (!ms.vehicle.maBff && ms.vehicle.bffFrom && ms.hex !== ms.vehicle.bffFrom) return `Its MGs fired from ${ms.vehicle.bffFrom.replace(/^[a-z]/, '')}: in its MPh a vehicle fires every weapon from the hex of its first MA shot`;
   return null;
 }
 
@@ -115,14 +129,40 @@ export function boundingDrm(sc: ShotCtx, env: QueryEnv): number {
 const targetVehicleOf = (sc: ShotCtx, env: QueryEnv): Piece | null => (sc.targetVehicle ? (env.state.pieces[sc.targetVehicle] ?? null) : null);
 const firerVehicleOf = (sc: ShotCtx, env: QueryEnv): Piece | null => (sc.firerVehicle ? (env.state.pieces[sc.firerVehicle] ?? null) : null);
 
-/** Case 24 vs a Motion or moving vehicle: +2 in Motion or more than 3 MP in the firer's LOS, +3 for ≤ 3, +4 for ≤ 1. */
+const DEFENSIVE_FIRST_FIRE: FireMode[] = ['first', 'subsequentFirst', 'fpf'];
+
+/**
+ * The MP a moving vehicle has just spent in the firer's continuous LOS, for Restricted (≤ 3) and Limited (≤ 1) Aim, or
+ * null when neither may apply: only Defensive First Fire takes them (ASLRB C6.11, C6.12), and only for MP spent since
+ * the vehicle's last hex out of that LOS; one that began its MPh in view and has not left it is spared (C6.15). The
+ * vehicle now moving reads its move; a pose (`mpTrail`, the computer opponent's estimates) its trail alone. A preview
+ * before the shot (`blind`) may not trace the LOS (ASLRB A6.11): it counts every MP spent on the map, as if the vehicle
+ * had come from out of view, and the shot itself settles the rest.
+ */
+function continuousMpInLos(env: QueryEnv, sc: ShotCtx, v: Piece): number | null {
+  if (!DEFENSIVE_FIRST_FIRE.includes(sc.mode)) return null;
+  const ms = moveState(env);
+  const moving = !!ms && ms.units[0] === v.id;
+  const trail: { hex: HexId; mp: number }[] = moving ? (ms.trail ?? []) : JSON.parse((v.tags[T3.mpTrail] as string | undefined) ?? '[]');
+  const seen = (hex: HexId) => !!statics(env).map.hex(hex) && (!!sc.losBlind || hasLos(env, sc.hex, hex));
+  const origin = moving && !sc.losBlind ? ms.vehicle?.origin : undefined;
+  let mp: number | null = origin && seen(origin) ? null : 0;
+  for (const t of trail) {
+    if (!seen(t.hex)) mp = 0;
+    else if (mp !== null) mp += t.mp;
+  }
+  return mp;
+}
+
+/**
+ * Case 24 vs a Motion or moving vehicle (ASLRB C6.1 Case J): +2, or in Defensive First Fire +3 at ≤ 3 MP spent in the
+ * firer's continuous LOS and +4 at ≤ 1 (C6.11 J1, C6.12 J2; a Motion vehicle on the move included).
+ */
 function movingTargetDrm(sc: ShotCtx, env: QueryEnv): number {
   const t = targetVehicleOf(sc, env);
-  if (!t || isWreck(t)) return 0;
-  if (inMotion(t)) return 2;
-  if (!isMovingTarget(t)) return 0;
-  const mp = mpInLosOf(env, t, sc.hex, !!sc.losBlind);
-  return mp <= 1 ? 4 : mp <= 3 ? 3 : 2;
+  if (!t || isWreck(t) || (!inMotion(t) && !isMovingTarget(t))) return 0;
+  const mp = continuousMpInLos(env, sc, t);
+  return mp === null ? 2 : mp <= 1 ? 4 : mp <= 3 ? 3 : 2;
 }
 /** Case 22 for a vehicle target: its printed size. */
 function vehicleSizeDrm(sc: ShotCtx, env: QueryEnv): number {
@@ -172,7 +212,7 @@ export const vehicleFireModule: RuleModule = {
   install(r) {
     // The end-of-phase turn without MP (SK4 3.3.2) lives here so the module list, and so the ruleset hash, stays as it was.
     installVehicleFacing(r);
-    r.event<{ vehicle: PieceId; column: number; dr: [number, number]; drm: number; location: 'hull' | 'turret'; result: IftResult; effect: 'kill' | 'shock' | 'immobilized' | 'none' }>({ type: 'sk3.areaHit', apply() {} });
+    r.event<{ vehicle: PieceId; column: number; dr: [number, number]; drm: number; location: 'hull' | 'turret'; result: IftResult; effect: 'kill' | 'shock' | 'immobilized' | 'none'; spared?: string }>({ type: 'sk3.areaHit', apply() {} });
     // IFT fire does nothing to a Buttoned Up AFV (SK4 3.2.3, 7.7) unless its Open-Topped crew is fired on from its own hex (7.13).
     r.contribute({
       id: 'sk3.fire.immune.bu',
@@ -182,6 +222,21 @@ export const vehicleFireModule: RuleModule = {
         const p = env.state.pieces[unit];
         const d = p && vehicle(env, p);
         return v || (!!d && !d.unarmored && !isCe(p) && otExposedParts(env, attack, unit).length === 0);
+      },
+    });
+
+    // An Infantry Target Type hit "cannot affect an AFV, only its CE crew" (SK4 7.12; 3.2.4 "All enemy targets except for BU
+    // AFV ... including any Crew Exposed (7.7) units"): the crew of a CE AFV, or of a BU Open-Topped one fired on from its own
+    // hex (7.13), is attacked with the other units hit, with its CE DRM (applyResult below; ASLRB C3.32, D.8B).
+    r.contribute({
+      id: 'sk3.ordnance.ittCrew',
+      query: 'ordnance.ittCrew',
+      ref: 'SK4 3.2.4, 7.12, 7.13',
+      apply: (v, { vehicle: id, target, from }, env) => {
+        const p = env.state.pieces[id];
+        const d = p && vehicle(env, p);
+        if (v || !p || !d || isWreck(p)) return v;
+        return isCe(p) || (!!d.openTopped && from !== undefined && hexOfLoc(from) === hexOfLoc(target));
       },
     });
 
@@ -244,7 +299,9 @@ export const vehicleFireModule: RuleModule = {
       'case 24',
       (sc, env) => {
         const t = targetVehicleOf(sc, env)!;
-        return inMotion(t) ? '+2 target in Motion' : sc.losBlind ? `+${movingTargetDrm(sc, env)} moving vehicle (${mpInLosOf(env, t, sc.hex, true)} MP spent; those in your LOS count when you fire)` : `+${movingTargetDrm(sc, env)} moving vehicle (${mpInLosOf(env, t, sc.hex)} MP in your LOS)`;
+        const mp = continuousMpInLos(env, sc, t);
+        if (mp === null) return inMotion(t) ? '+2 target in Motion' : '+2 moving vehicle';
+        return sc.losBlind ? `+${movingTargetDrm(sc, env)} moving vehicle (${mp} MP spent; those in your LOS count when you fire)` : `+${movingTargetDrm(sc, env)} moving vehicle (${mp} MP in your LOS)`;
       },
       (sc, env) => sc.shot.targetType === 'VTT' && movingTargetDrm(sc, env) > 0,
       movingTargetDrm,
@@ -298,7 +355,13 @@ export const vehicleFireModule: RuleModule = {
           const res = tables.ift(column, final);
           out[v.id] = res;
           const [white, colored] = attack.ordnance.thDice ?? [1, 1];
-          const location = hitLocation(white, colored);
+          const aim = ctx.query('vehicle.areaHit', { attack, vehicle: v.id }, { location: hitLocation(white, colored) });
+          const location = aim.location;
+          if (aim.spared) {
+            out[v.id] = { kind: 'none' };
+            ctx.emit('sk3.areaHit', { vehicle: v.id, column, dr: [white, colored], drm: extra.value, location, result: { kind: 'none' }, effect: 'none', spared: aim.spared });
+            continue;
+          }
           const kDr = kResultDr(tables, column);
           const effect = res.kind === 'KIA' ? 'kill' : kDr !== null && final <= kDr + 1 ? (location === 'turret' ? 'shock' : 'immobilized') : 'none';
           ctx.emit('sk3.areaHit', { vehicle: v.id, column, dr: [white, colored], drm: extra.value, location, result: res, effect });
@@ -410,7 +473,8 @@ export const vehicleFireModule: RuleModule = {
     });
 
     // ---------------------------------------------------------------- the moving-target trail
-    // When a vehicle's move ends, its trail stays on it for the Defensive Fire Phase's case 24.
+    // When a vehicle's move ends, its trail stays on it: the record of where it spent its MP, read by poses (`mpTrail`).
+    // The Defensive Fire Phase's case 24 is +2 whatever the trail (Restricted/Limited Aim are Defensive First Fire only).
     r.on<{ vehicle: PieceId; kind: string }>({
       id: 'sk3.vehicleFire.trail',
       event: 'sk3.vehicle.move',

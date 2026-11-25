@@ -97,7 +97,11 @@ export type FireSource = 'kindle' | 'ft' | 'he' | 'dc' | 'wp' | 'spread' | 'heav
 
 export const fireState = (env: QueryEnv): Record<LocId, FireLoc> => (env.state.ext[FIRE_EXT] as Record<LocId, FireLoc> | undefined) ?? {};
 export const fireAt = (env: QueryEnv, loc: LocId): FireLoc | undefined => fireState(env)[loc];
-export const blazeAt = (env: QueryEnv, loc: LocId): BlazeRecord | undefined => fireState(env)[loc]?.blaze;
+/**
+ * The Blaze a Location is in. A pillbox burns with its hex: its occupants are "fully affected" by a Blaze at the hex's ground
+ * level, and leaving into it kills them (Q&A [K33] to B25.4), so a pillbox Location counts as in its hex's Blaze.
+ */
+export const blazeAt = (env: QueryEnv, loc: LocId): BlazeRecord | undefined => fireState(env)[loc]?.blaze ?? (parseLoc(loc).sub === 'pb' ? fireState(env)[hexOfLoc(loc)]?.blaze : undefined);
 export const flamesAt = (env: QueryEnv, loc: LocId): FlameRecord[] => fireState(env)[loc]?.flames ?? [];
 /** Whether any Location of the hex holds a Blaze (an obstacle "Ablaze", A4.3; the hex's smoke, B25.2). */
 export const isAblaze = (env: QueryEnv, hex: HexId): boolean => Object.entries(fireState(env)).some(([loc, f]) => f.blaze && hexOfLoc(loc) === hex);
@@ -745,7 +749,8 @@ export const aslFireModule: RuleModule = {
           for (const [loc, f] of Object.entries(fireState(ctx)).sort()) for (const fl of f.flames) if (fl.hampered) ctx.emit('asl.fire.hampered', { loc, id: fl.id, hampered: false });
           for (const p of Object.values(ctx.state.pieces).sort(byId)) {
             const labor = parseLabor(p.tags['labor']);
-            if (!labor) continue;
+            // Only a Flame's Labor: other Tasks (Entrenching, Clearance, Manhandling) keep theirs until achieved (B24.8).
+            if (!labor || !labor.task.startsWith('flame:')) continue;
             const loc = labor.task.replace(/^flame:/, '');
             if (p.loc.kind !== 'hex' || locOf(ctx.state, p) !== loc || flamesAt(ctx, loc).length === 0) setTags(ctx, p.id, { labor: null });
           }

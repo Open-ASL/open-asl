@@ -120,7 +120,7 @@ export interface CapturedUseExemptParams {
   rule?: string;
 }
 
-/** Whether a captured weapon fired by `firer` is exempt from Captured Use penalties (S27 SSR 3). */
+/** Whether a captured weapon used by `firer` (fired, or repaired) is exempt from Captured Use penalties by SSR. */
 export function capturedUseExempt(env: QueryEnv, weapon: PieceId, firer: PieceId | undefined): boolean {
   const g = env.state.pieces[weapon];
   const f = firer ? env.state.pieces[firer] : undefined;
@@ -130,10 +130,23 @@ export function capturedUseExempt(env: QueryEnv, weapon: PieceId, firer: PieceId
   );
 }
 
-/** S27 SSR 3: "New Zealand crews do not pay Captured Use penalties when firing the Italian 75/27 ART." */
+/**
+ * An SSR waiving Captured Use penalties (ASLRB A21.11-.12) for listed weapons of a side, optionally only when its crews
+ * use them: no lowered B#/ROF, no red TH#s or +2 To Hit DRM, and the weapon may be repaired (Perry Sez A25.75).
+ */
 export const capturedUseExemptModule: RuleModule = {
   id: 'ssr.captured-use-exempt',
-  summary: 'Listed captured weapons fired without Captured Use penalties (SSR).',
+  summary: 'Listed captured weapons used without Captured Use penalties (SSR): printed B# and ROF, repairable.',
   requires: ['sk1.fire'],
-  install() {},
+  install(r) {
+    // The To Hit penalties (red TH#s, +2) and the ordnance ROF are waived where the shot is built (sk2/ordnance.ts), the
+    // repair ban in the RPh (sk1/rally.ts); the lowered B# and IFT ROF here.
+    for (const target of ['sk1.sw.breakdown.captured', 'sk1.sw.rof.captured'])
+      r.suppress({
+        id: `ssr.captured-use-exempt.${target.split('.')[2]}`,
+        target,
+        label: 'no Captured Use penalty (SSR)',
+        when: ({ sw, user }: { sw: PieceId; user?: PieceId }, env: QueryEnv) => capturedUseExempt(env, sw, user),
+      });
+  },
 };

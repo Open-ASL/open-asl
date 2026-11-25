@@ -82,7 +82,7 @@ export function nonStopped(env: QueryEnv, v: Piece): boolean {
   return !!ms?.vehicle && ms.units[0] === v.id && !ms.vehicle.stopped;
 }
 
-/** MG/IFE FP a vehicle may use in Close Combat (SK4 3.8): CMG (not a hull-mounted one), AAMG when CE, RMG, turreted IFE ≤ 15mm; halved in Motion; nothing when Shocked/Stunned. */
+/** MG/IFE FP a vehicle may use in Close Combat (SK4 3.8): CMG (not one the counter restricts to the VCA), AAMG when CE, RMG, turreted IFE ≤ 15mm; halved in Motion; nothing when Shocked/Stunned. */
 export function vehicleCcFp(env: QueryEnv, v: Piece): { fp: number; parts: string[] } {
   const d = vehicle(env, v)!;
   if (!crewCanAct(v)) return { fp: 0, parts: [] };
@@ -92,7 +92,9 @@ export function vehicleCcFp(env: QueryEnv, v: Piece): { fp: number; parts: strin
   for (const kind of ['cmg', 'aamg', 'rmg'] as const) {
     const mg = mgs[kind];
     if (!mg || mg.tags[T.malf] || mg.tags[T3.mgDisabled]) continue;
-    if (kind === 'cmg' && d.turret === 'NT') continue;
+    // Only a CMG the counter restricts to the VCA stays out (SK4 3.8 "unless that CMG may fire through the VCA only";
+    // ASLRB A11.62, D1.82 "CMG: VCA Only" on the counter back), not every CMG of a vehicle without a turret frame.
+    if (kind === 'cmg' && d.cmgVcaOnly) continue;
     if (kind === 'aamg' && !isCe(v)) continue;
     const def = sw(env, mg);
     if (!def) continue;

@@ -50,4 +50,18 @@ describe('entering by the hexes the card names', () => {
     const far = allowed.find((h) => !map.offboardNeighbors(off).onboard.includes(h))!;
     expect(() => act(engine, s, { type: 'move.step', to: far })).toThrow(/move along the edge first/);
   });
+
+  it('entering by Advance in the APh (SK1 3.3) is held to the same entry hexes, and only they are offered', () => {
+    const { map, off, barred, allowed } = build();
+    const inAt = map.offboardNeighbors(off).onboard.find((h) => allowed.includes(h))!;
+    const squad: PieceSpec = { id: 'a', def: 'ru.447', side: 'ru', tags: { force: 0, entryTurn: 1, entryEdge: 'N', entryHexes: allowed.join(',') } };
+    const scenario = { ...RU_VS_GE, forces: [{ side: 'ru', units: [{ def: 'ru.447', count: 1 }], setup: { kind: 'enter' as const, turn: 1, edge: 'N', hexes: allowed, description: 'Enter on Turn 1 along the north edge on or west of J10' } }] };
+    const { engine, state } = makeEngine({ pieces: [squad], scenario, startPhase: 'APh' });
+    const s = { ...state, pieces: { a: { ...state.pieces['a']!, loc: { kind: 'offboard' as const, edge: 'N', hex: off } } } };
+    const advances = engine.legalActions(s, 'ru').filter((x) => x.type === 'advance').map((x) => x['to']);
+    expect(advances).toContain(inAt);
+    expect(advances).not.toContain(barred);
+    expect(() => act(engine, s, { type: 'advance', units: ['a'], to: barred })).toThrow(`${barred} is not one of this group's entry hexes: enter on Turn 1 along the north edge on or west of J10`);
+    expect(act(engine, s, { type: 'advance', units: ['a'], to: inAt }).state.pieces['a']!.loc).toEqual({ kind: 'hex', hex: inAt });
+  });
 });

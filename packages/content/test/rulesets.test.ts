@@ -59,7 +59,7 @@ describe('rulesets', () => {
   });
 
   it('lists the test beds only under the Full ASL ruleset', () => {
-    expect(scenariosOfRuleset('full-asl').map((s) => s.id)).toEqual(['asl-testbed', 'asl-testbed-fire']);
+    expect(scenariosOfRuleset('full-asl').map((s) => s.id)).toEqual(['asl-testbed', 'asl-testbed-fire', 'asl-testbed-mines', 'asl-testbed-pillbox', 'asl-testbed-vehicles', 'asl-testbed-deploy']);
     expect(scenariosOfRuleset('starter-kit').map((s) => s.id)).not.toContain('asl-testbed');
     // It has the full counter set, like an SK3 game.
     expect(staticsFor(ASL_TESTBED_SCENARIO).counters['ru.447']).toBeDefined();

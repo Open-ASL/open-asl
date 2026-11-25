@@ -22,16 +22,23 @@ import { aslWallAdvantageModule } from './wallAdvantage';
 import { aslRoadblocksModule } from './roadblocks';
 import { aslClearanceModule } from './clearance';
 import { aslVoluntaryRoutModule } from './voluntaryRout';
+import { aslMinesModule } from './mines';
+import { aslPillboxesModule } from './pillboxes';
+import { aslHullDownModule } from './hullDown';
+import { aslHullDownChoiceModule } from './hullDownChoice';
+import { aslManhandleModule } from './manhandle';
+import { aslDeployModule } from './deploy';
+import { setupDeployModule } from '../sk1/setupDeploy';
 
 export { aslBypassModule, bypassable, bypassCorners, plan as bypassPlan } from './bypass';
 export { aslFieldPromotionModule } from './fieldPromotion';
-export { aslEntrenchmentsModule, ENTRENCH_EXT, ENTRENCH_KINDS, beneathIllegal, connectedTrenches, entrenchDirectorIllegal, entrenchDrm, entrenchHexIllegal, entrenchLabor, entrenchIllegal, entrenchUnitIllegal, entrenchedAt, entrenchers, entrenchmentKnownTo, entrenchmentMf, entrenchmentMoveIllegal, entrenchmentName, entrenchmentRoom, isEntrenched, stackEntrenchment, type EntKind, type EntrenchAction, type EntrenchAttempt, type EntrenchmentMoveAction } from './entrenchments';
+export { aslEntrenchmentsModule, ENTRENCH_EXT, entrenchedVehiclesAt, isEntrenchedVehicle, ENTRENCH_KINDS, beneathIllegal, connectedTrenches, entrenchDirectorIllegal, entrenchDrm, entrenchHexIllegal, entrenchLabor, entrenchIllegal, entrenchUnitIllegal, entrenchedAt, entrenchers, entrenchmentKnownTo, entrenchmentMf, entrenchmentMoveIllegal, entrenchmentName, entrenchmentRoom, isEntrenched, stackEntrenchment, type EntKind, type EntrenchAction, type EntrenchAttempt, type EntrenchmentMoveAction } from './entrenchments';
 export { aslLaborModule, isTi, laborLoc, tiIllegal, tiUnits } from './labor';
 export { aslFireModule, BLAZE_ESCAPE_DECISION, FIRE_EXT, FIRE_PROC, blazeAt, blazeLocations, blazeSmokeLevels, inBlazeSmoke, burnable, clearanceDrm, clearers, directlyAttached, escapeDestinations, extinguishIllegal, fireAt, fireLocations, fireNumbers, fireState, fireView, flamesAt, forfeitControl, isAblaze, kindleIllegal, kindlers, kindlingDrm, laborTag, parseLabor, placeBlaze, placeFlame, removeFlames, spreadDrm, spreadTargets, type BlazeRecord, type FireLoc, type FireSource, type FlameRecord, type KindleAction, type KindleAttempt, type TryFlameFn, type TryFlameOpts } from './fire';
 export { aslRubbleModule, RUBBLE_EXT, fallingRubble, isBuildingLoc, isRubbled, rubbleAt, rubbleLocation, rubbleState, rubbleView, rubbledHeights, rubbleClearable, tbThrough, trailBreaks, trailBreaksAt, TB_EXT, type RubbleRecord } from './rubble';
 export { aslWindModule, EC_DRM, EC_EXT, EC_NAME, WIND_EXT, WIND_NAME, applyChange, downwind, ecDrm, ecForDr, ecMonthDrm, ecState, gustDir, gustSmoke, hexsideForDr, windAt, windDirectionDrm, windOf, windOffset, type EcState, type WindState, type WindForce as AslWindForce } from './wind';
 export { aslFortifiedModule, BREACH_SIDE_DECISION, breachIllegal, breachedToward, breaches, breachesKnownTo, fortifiedPossibleTo, shownUnfortified, fortifiedEntryBarred, fortifiedView, heldBySquad, lofSides, type Breach } from './fortified';
-export { FORTIFICATIONS_MODULE, FORT_EXT, concealmentTerrainAt, counterTerrainIllegal, defaultFortPlacement, entrenchmentAt, fortArea, fortCounters, fortHiddenAt, fortKindName, fortLocationsKnownTo, fortPlaceIllegal, fortPools, fortSetupIllegal, fortState, fortificationView, fortificationsAt, aslFortificationsModule, fortificationsModule, fortificationsParams, hipIllegal, isPillboxLoc, minefieldAt, pillboxAt, pillboxCaHexsides, pillboxKnownTo, pillboxLoc, removeFortification, revealFortification, roadblockExtension, roadblockExtensionAt, roadblocks, seenByEnemy, shownCounter, wireAt, type FortKind, type FortPlaceAction, type FortPlacement, type FortRecord, type FortState, type FortificationsParams, type MineFactors, type PillboxFactors } from './fortifications';
+export { FORTIFICATIONS_MODULE, FORT_EXT, concealmentTerrainAt, counterTerrainIllegal, defaultFortPlacement, entrenchmentAt, fortArea, beltHexes, beltsIllegal, fortCounters, fortHiddenAt, fortKindName, fortLocationsKnownTo, fortPlaceIllegal, fortPools, fortSetupIllegal, fortState, fortificationView, fortificationsAt, aslFortificationsModule, fortificationsModule, fortificationsParams, hipIllegal, isPillboxLoc, minefieldAt, pillboxAt, pillboxCaHexsides, pillboxGray, pillboxKnownTo, pillboxLoc, removeFortification, revealFortification, roadblockExtension, roadblockExtensionAt, roadblocks, seenByEnemy, shownCounter, wireAt, type FortKind, type FortPlaceAction, type FortPlacement, type FortRecord, type FortState, type FortificationsParams, type MineBelt, type MineFactors, type PillboxFactors } from './fortifications';
 export { aslLeaderCreationModule } from './leaderCreation';
 export { aslLevelsModule, interiorBuildingHex } from './levels';
 export { aslLocationsModule } from './locations';
@@ -43,8 +50,17 @@ export { aslTerrainModule } from './terrain';
 export { aslTpbfModule } from './tpbf';
 export { aslWallAdvantageModule, WA_TAG, WA_RPH_DECISION, acrossObstacle, hasWa, hasWaOver, mandatoryWa, waClaimIllegal, waDeniers, waForfeitIllegal, waIneligible, waUnits, wallSidesOf, type WaAction } from './wallAdvantage';
 export { aslClearanceModule, CLEARANCE_EXT, CLEARANCE_RULE, clearanceSideFor, defaultTbHexsides, clearanceCandidates, clearanceIllegal, clearanceLaborKey, clearanceSide, clearanceTargets, clearanceTasks, clearanceUnitIllegal, pendingTasksAt, taskDrm, type ClearanceDeclare, type ClearanceKind, type ClearanceTask } from './clearance';
-export { aslRoadblocksModule, roadblockBetween, roadblockBlocksEnemyLos, roadblockObstacles, wallTemDelta, entrenchedWallBlock, heRoadblocks, roadblockLineCrosses, roadblockThDrm } from './roadblocks';
+export { aslRoadblocksModule, roadblockBetween, roadblockBlocksEnemyLos, roadblockObstacles, wallTemDelta, entrenchedWallBlock, heRoadblocks, roadblockLineCrosses, roadblockThDrm, vehicleWallTem } from './roadblocks';
 export { aslVoluntaryRoutModule } from './voluntaryRout';
+export { BOOBY_TRAPS_MODULE, boobyTrapCheck, boobyTrapParams, boobyTrapTriggered, boobyTrapsAt, boobyTrapsModule, type BoobyTrapParams } from './boobyTraps';
+export { aslMinesModule, AERIAL_AF, MINES_LAST_EXT, MINES_ROUT_EXT, lastMineAttacks, type MineLast, REMOVAL_EXT, aerialAf, buildingHexside, knownMinefieldThreat, mineAttack, mineExitExempt, mineStepChoices, mineStepIllegal, mineVehicle, minefieldKnownTo, onBoard as mineOnBoard, openAtMines, removeMinesIllegal, revealMines, type MineAttackEvent, type MineBy, type MineVehicleEvent, type MineWay, type RemoveMinesAction, type RoutEndHereAction } from './mines';
+export { PARTIAL_EXT, TRAIL_BREAKS_MODULE, trailBreaksSsrModule, type TrailBreaksParams, mineClearable, mineTbThrough, partialTbs, partialTbsAt, type PartialTb } from './mineTb';
+export { PB_DC_FROM, arcSpine, aslPillboxesModule, bunkerMove, bunkerTrenches, contentsKnownTo, dcDm, eliminatePillbox, enemyInside, enemyOutside, firedThroughCa, inPillbox, inPillboxCa, naThroughNca, pillboxAdjacentFor, pillboxCaVertices, pillboxCapacity, pillboxCcUnits, pillboxEntryIllegal, pillboxExitIllegal, pillboxHidden, pillboxKnownToSide, pillboxMf, pillboxOf, pillboxOrdnanceDm, pillboxUnitIllegal, possiblePillbox } from './pillboxes';
+export { PILLBOX_TERRAIN } from './pillboxTerrain';
+export { HD_CHOICE_EXT, aslHullDownModule, bmgHullDownIllegal, hdHitLocation, hullDownLabel, hullDownTo, hullDownToFirer, hullDownToLoc, shotHullDown, type HdChoiceState, type HullDown } from './hullDown';
+export { aslManhandleModule, manhandleLabor } from './manhandle';
+export { ASL_DEPLOY_MODULE, DEPLOYED_AT, actedIllegal, aslDeployModule, defaultDeploySplit, deployIncapable, deployLeaders, recombineIllegal as aslRecombineIllegal, rphDeployIllegal as aslRphDeployIllegal, squadDefIncapable, squadOf, type AslDeployAction, type AslDeployEvent, type AslRecombineAction, type AslRecombinedEvent } from './deploy';
+export { HD_CHOICE_DECISION, aslHullDownChoiceModule, hdQuestion, type HdChooseAction, type HdQuestion } from './hullDownChoice';
 export { aslWireModule, WIRE_DROP_DECISION, WIRE_EXT, WIRE_LAST_EXT, lastWireExit, onWire, ownHiddenWire, removeWire, setWirePos, stackWire, wireExitIllegal, wireKnownTo, type RoutWireAction, type WireDropAction, type WireExitAction, type WireExitResult, type WireRoll } from './wire';
 
 /**
@@ -63,4 +79,4 @@ export { aslWireModule, WIRE_DROP_DECISION, WIRE_EXT, WIRE_LAST_EXT, lastWireExi
  *
  * One module per topic; `packages/rules/docs/asl-chapter-a.md` tracks which rule is where.
  */
-export const aslCoreModules: RuleModule[] = [aslLocationsModule, aslLevelsModule, aslLosModule, aslRandomSelectionModule, aslFieldPromotionModule, aslLeaderCreationModule, aslSwRepairModule, aslTerrainModule, aslBypassModule, aslSnapShotModule, aslTpbfModule, aslFortifiedModule, aslWindModule, aslLaborModule, aslFireModule, aslRubbleModule, aslFortificationsModule, aslEntrenchmentsModule, aslWireModule, aslWallAdvantageModule, aslRoadblocksModule, aslClearanceModule, aslVoluntaryRoutModule];
+export const aslCoreModules: RuleModule[] = [aslLocationsModule, aslLevelsModule, aslLosModule, aslRandomSelectionModule, aslFieldPromotionModule, aslLeaderCreationModule, aslSwRepairModule, aslTerrainModule, aslBypassModule, aslSnapShotModule, aslTpbfModule, aslFortifiedModule, aslWindModule, aslLaborModule, aslFireModule, aslRubbleModule, aslFortificationsModule, aslEntrenchmentsModule, aslWireModule, aslWallAdvantageModule, aslRoadblocksModule, aslClearanceModule, aslVoluntaryRoutModule, aslMinesModule, aslPillboxesModule, aslHullDownModule, aslHullDownChoiceModule, aslManhandleModule, setupDeployModule, aslDeployModule];

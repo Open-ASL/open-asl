@@ -29,17 +29,39 @@ describe('hit location and facing (SK4 3.2.4)', () => {
     expect(hitLocation(1, 2)).toBe('hull');
     expect(hitLocation(3, 3)).toBe('hull');
   });
-  it('front within the arc, rear within the opposite arc, side between; a bounding hexspine goes to the higher Armor Factor', () => {
+  it('by the target hexside the LOS crosses: front the two beside the facing hexspine, rear the two opposite, side one each', () => {
     const at = { q: 0, r: 0, s: 0 };
-    const af = { front: 11, side: 6, rear: 6 };
-    // Spine 0 lies between the N (0,-1,1) and NE (1,-1,0) neighbours: a hex two steps along the N row is strictly in front.
-    expect(facingOf(at, 0, { q: 0, r: -2, s: 2 }, af)).toBe('front');
-    expect(facingOf(at, 0, { q: 0, r: 2, s: -2 }, af)).toBe('rear');
-    // Due west is neither: side.
-    expect(facingOf(at, 0, { q: -2, r: 1, s: 1 }, af)).toBe('side');
-    // The N neighbour row bounds the front arc of spine 0 and the arc of spine 5: a tie → the higher AF (front 11 over side 6).
+    const af = { front: 11, side: 6, rear: 3 };
+    // Spine 0 lies between the N (0,-1,1) and NE (1,-1,0) neighbours. Both those hexsides are front, whatever the range.
     expect(facingOf(at, 0, { q: 0, r: -1, s: 1 }, af)).toBe('front');
-    expect(facingOf(at, 0, { q: 0, r: -1, s: 1 }, { front: 4, side: 6, rear: 6 })).toBe('side');
+    expect(facingOf(at, 0, { q: 1, r: -1, s: 0 }, af)).toBe('front');
+    expect(facingOf(at, 0, { q: 1, r: -2, s: 1 }, af)).toBe('front');
+    // Outside the Covered Arc of spine 0 but still through its N hexside: front (a LOS at 56° from the hexspine).
+    expect(facingOf(at, 0, { q: -4, r: -5, s: 9 }, af)).toBe('front');
+    expect(facingOf(at, 0, { q: -1, r: -2, s: 3 }, af)).toBe('front');
+    // The SE and NW hexsides are the sides; the S and SW hexsides the rear.
+    expect(facingOf(at, 0, { q: 1, r: 0, s: -1 }, af)).toBe('side');
+    expect(facingOf(at, 0, { q: -1, r: 0, s: 1 }, af)).toBe('side');
+    expect(facingOf(at, 0, { q: 0, r: 2, s: -2 }, af)).toBe('rear');
+    expect(facingOf(at, 0, { q: -1, r: 1, s: 0 }, af)).toBe('rear');
+    expect(facingOf(at, 0, { q: 1, r: 3, s: -4 }, af)).toBe('rear');
+  });
+  it('a LOS exactly along a hexspine bounding two facings uses the one least favourable to the attacker', () => {
+    const at = { q: 0, r: 0, s: 0 };
+    // (2,-1,-1) lies along the hexspine between the NE (front) and SE (side) hexsides: the higher AF.
+    expect(facingOf(at, 0, { q: 2, r: -1, s: -1 }, { front: 11, side: 6, rear: 3 })).toBe('front');
+    expect(facingOf(at, 0, { q: 2, r: -1, s: -1 }, { front: 4, side: 6, rear: 3 })).toBe('side');
+    // (-2,1,1), due west, lies between the NW (side) and SW (rear) hexsides. A rear hit raises the TK# by 1 (SK4 7.1), so
+    // the rear is the less favourable only when its AF is more than 1 above the side's.
+    expect(facingOf(at, 0, { q: -2, r: 1, s: 1 }, { front: 11, side: 6, rear: 6 })).toBe('side');
+    expect(facingOf(at, 0, { q: -2, r: 1, s: 1 }, { front: 11, side: 3, rear: 5 })).toBe('rear');
+  });
+  it('the hull facing follows the VCA and the turret facing the TCA', () => {
+    const at = { q: 0, r: 0, s: 0 };
+    const af = { front: 11, side: 6, rear: 3 };
+    // From due south: the rear of a hull pointing at spine 0, the front of a turret pointing at spine 3.
+    expect(facingOf(at, 0, { q: 0, r: 3, s: -3 }, af)).toBe('rear');
+    expect(facingOf(at, 3, { q: 0, r: 3, s: -3 }, af)).toBe('front');
   });
 });
 

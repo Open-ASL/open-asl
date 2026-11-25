@@ -4,7 +4,7 @@ import { COL, RANDOM_SIDE, inviteId, type Competition, type InviteDoc, type Matc
 import { db, now } from './lib/app';
 import { requireMember, requireString } from './lib/auth';
 import { drawSide, otherSide, prepareScenario, requireRuleset, requireSideChoice } from './lib/scenarios';
-import { readUser, requireFree } from './lib/users';
+import { readUser, requireAvailable, requireFree } from './lib/users';
 import { baseMatch, forViews, matchRef } from './matches';
 import { seedNewOnlineMatch } from './lib/viewStore';
 import { firstDeadline, requirePace } from './lib/clock';
@@ -30,6 +30,7 @@ export const sendInvite = onCall(async (req) => {
     const existing = (await tx.get(inviteRef(id))).data();
     requireFree(me.data, 'you');
     requireFree(them.data, 'they');
+    requireAvailable(them.data);
     if (existing?.status === 'pending') throw new HttpsError('already-exists', 'You already have an invite out to that player.');
     const doc: InviteDoc = {
       fromUid: uid,

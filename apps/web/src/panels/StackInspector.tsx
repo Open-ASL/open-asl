@@ -1,8 +1,9 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
 import { entrenchmentAt, entrenchmentName, entrenchmentRoom, isEntrenched } from '@asl/rules';
 import { AMMO_NAME, haltedUnits, hexOfLoc, isCaveLoc, ppOf, terrainOf, acquisitionsAt, ammoOut, coveredArc, defOf, fireMarker, gunIdent, isWeaponDef, levelOfLoc, locOf, locationsOf, moveState, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, unitsInHex, unpossessedWeaponsAt, unpossessedWeaponsInHex, type Statics } from '@asl/rules';
-import { counterImage, markerImage } from '../game/assets';
+import { counterImage, hasBack, markerImage } from '../game/assets';
+import { counterNotes, latwToHit } from '../game/counterNotes';
 import { defLabel, nationName, pieceLabel } from '../game/describe';
 import { smoke58Chits } from '../game/smoke';
 
@@ -41,6 +42,8 @@ const STATUS: [string, string][] = [
   ['ti', 'TI'],
   ['wa', 'Wall Advantage'],
   ['manhandled', 'Manhandled'],
+  // Full ASL: what a unit or leader did this RPh, so his other RPh actions are closed (ASLRB A1.31, A1.32, A3.1, A10.7).
+  ['rphAction', 'Acted this RPh'],
   // SK3 vehicles.
   ['ce', 'CE'],
   ['motion', 'In Motion'],
@@ -62,10 +65,28 @@ const SPINE_NAME = ['NE', 'E', 'SE', 'SW', 'W', 'NW'];
 /** The chit colour of each nationality's own markers (CE, the hidden "?"), as the board draws them (art/markers). */
 const CHIT: Record<string, string> = { ge: '#97d0f5', ru: '#d78f1e', am: '#cad842', br: '#e5d0a5', it: '#aab0b5', al: '#8aefc2' };
 /** Where the board's marker for a status says something more particular (Mired, not Bogged; Unconfirmed Kill, not Shocked). */
-const VALUE_LABEL: Record<string, string> = { 'bog-mired': 'Mired', 'shock-uk': 'Unconfirmed Kill', 'stun-plus1': 'Stunned (+1)' };
+const VALUE_LABEL: Record<string, string> = {
+  'rphAction-rally': 'Rallied units this RPh',
+  'rphAction-transfer': 'Transferred a SW this RPh',
+  'rphAction-deploy': 'Deploy attempted this RPh',
+  'rphAction-recombine': 'Recombination this RPh',
+  'bog-mired': 'Mired', 'shock-uk': 'Unconfirmed Kill', 'stun-plus1': 'Stunned (+1)' };
 const FIRE_LABEL = { prep: 'Prep Fire', adv: 'Advancing Fire', first: 'First Fire', final: 'Final Fire' } as const;
 
+const NONE: ReadonlySet<PieceId> = new Set();
+
 export function StackInspector({ env, hex, selected, onToggle, actingSide, swWithHolder = false, fortified = [] }: Props) {
+  // Counters turned over to look at their other side: a view only, never the piece's state, and forgotten with the hex.
+  const [turned, setTurned] = useState<{ hex: HexId | null; ids: ReadonlySet<PieceId> }>({ hex, ids: NONE });
+  // A new hex starts every counter face up again, and coming back to this one does not turn them over again.
+  if (turned.hex !== hex) setTurned({ hex, ids: NONE });
+  const turnedHere = turned.hex === hex ? turned.ids : NONE;
+  const turnOver = (id: PieceId) =>
+    setTurned((t) => {
+      const ids = new Set(t.hex === hex ? t.ids : NONE);
+      if (!ids.delete(id)) ids.add(id);
+      return { hex, ids };
+    });
   if (!hex) {
     return (
       <section className="panel inspector">
@@ -131,7 +152,10 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
   const row = (p: Piece, nested = false) => {
     const d = defOf(env, p);
     const flipped = p.tags['broken'] === true || (p.tags['malf'] === true && d.kind !== 'vehicle') || p.tags['wreck'] === true;
-    const img = counterImage(p.defId, flipped);
+    // Turned over, the counter shows its other face: the back of one showing its front, the front of one already flipped.
+    const turn = hasBack(p.defId);
+    const showsBack = flipped !== (turn && turnedHere.has(p.id));
+    const img = counterImage(p.defId, showsBack);
     const fire = shownFireMarker(p);
     const mine = p.side === actingSide;
     const holder = swWithHolder && nested && p.loc.kind === 'held' ? p.loc.by : undefined;
@@ -140,10 +164,28 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
       <li key={p.id} className={`piece ${nested ? 'nested' : ''} ${ticked ? 'sel' : ''} ${p.tags['broken'] === true ? 'broken' : ''}`} title={holder ? 'Carried: goes with the unit holding it' : undefined}>
         <label>
           <input type="checkbox" disabled={!mine || !!holder} checked={ticked} onChange={() => onToggle(p.id)} />
-          {img ? <img src={img} alt="" width={36} height={36} /> : <span className="noimg" />}
-          <span className="pname">
+          {img && turn ? (
+            <button
+              type="button"
+              className={`turn-over ${turnedHere.has(p.id) ? 'on' : ''}`}
+              aria-pressed={turnedHere.has(p.id)}
+              title={showsBack ? 'Show the front of the counter' : 'Show the back of the counter'}
+              onClick={(e) => {
+                // Inside the row's label: turning the counter over must not tick the unit too.
+                e.preventDefault();
+                turnOver(p.id);
+              }}
+            >
+              <img src={img} alt="" width={36} height={36} />
+            </button>
+          ) : img ? (
+            <img src={img} alt="" width={36} height={36} />
+          ) : (
+            <span className="noimg" />
+          )}
+          <span className="pname" title={d.kind === 'unknown' ? undefined : counterNotes(d).join(' · ')}>
             <span className={`nat nat-${d.nationality}`}>{nationName(env, d.nationality)}</span> {defLabel(d)}
-            {d.kind === 'sw' && <span className="muted small"> {d.fp}-{d.range}{swUse(p, d.rof)} {ppOf(env, p)}PP{p.tags['disassembled'] ? ' · disassembled' : ''}</span>}
+            {d.kind === 'sw' && <span className="muted small"> {d.fp}-{d.range}{swUse(p, d.rof)} {ppOf(env, p)}PP{p.tags['disassembled'] ? ' · disassembled' : ''}{d.latw ? ` · ${latwToHit(d.latw.th)}` : ''}</span>}
             {d.kind === 'vehicle' && (
               <span className="muted small">
                 {' '}
@@ -174,7 +216,7 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
           </span>
         </label>
         <span className="tags">
-          {STATUS.filter(([k]) => p.tags[k] && !(k === 'motion' && p.id === moving)).map(([k, label]) => (
+          {STATUS.filter(([k]) => p.tags[k] && !(k === 'motion' && p.id === moving) && !(k === 'rphAction' && typeof p.tags[k] !== 'string')).map(([k, label]) => (
             <span
               key={k}
               className={`tag tag-${k}${typeof p.tags[k] === 'string' ? ` tag-${k}-${p.tags[k]}` : ''}${d.kind === 'vehicle' ? ` vehicle-${k}` : ''}`}

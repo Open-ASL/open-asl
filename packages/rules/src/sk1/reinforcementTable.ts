@@ -1,5 +1,6 @@
 import type { Ctx, PieceId, QueryEnv, RuleModule, SideId } from '@asl/engine';
 import { statics } from '../common/pieces';
+import { entrySpentOf } from './scenario';
 
 /*
  * Reinforcements whose composition a die decides (S36 SSR 2: "At the start of the German Turn 2 Rally Phase, the German
@@ -87,7 +88,8 @@ export const reinforcementTableModule: RuleModule = {
         for (const x of pieces) {
           const tags: Record<string, string | number> = { force: fi, entryTurn: force.setup.turn, entryEdge: force.setup.edge };
           if (force.setup.hexes) tags['entryHexes'] = force.setup.hexes.join(',');
-          if (force.setup.mpSpent) tags['entryMfSpent'] = force.setup.mpSpent;
+          const spent = entrySpentOf(statics(ctx).counters[x.def], force.setup);
+          if (spent) tags['entryMfSpent'] = spent;
           ctx.emit('piece.created', { piece: { id: x.id, defId: x.def, side: p.side, loc: { kind: 'offboard', edge: force.setup.edge }, tags } });
         }
       },

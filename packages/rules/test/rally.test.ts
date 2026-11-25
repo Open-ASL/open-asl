@@ -211,6 +211,21 @@ describe('Rally Phase (SK1 3.1)', () => {
     const passed = act(engine, t.state, { type: 'rally.transfer', sw: 'aMMG', to: 'a2' });
     expect(() => act(engine, passed.state, { type: 'rally.repair', unit: 'a2', sw: 'aMMG' })).toThrow(/already attempted/);
   });
+
+  it('a broken squad keeps its SW: no transfer to a Good Order squad beside it (SK1 3.1d), and no MMC may Recover it (ASLRB A4.44)', () => {
+    const { engine, state } = makeEngine({
+      startPhase: 'RPh',
+      pieces: [
+        { id: 'a1', def: 'am.666', side: 'am', hex: 'yN5', tags: { broken: true } },
+        { id: 'a2', def: 'am.666', side: 'am', hex: 'yN5' },
+        { id: 'aMMG', def: 'am.MMG', side: 'am', heldBy: 'a1' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yP9' },
+      ],
+    });
+    expect(engine.legalActions(state, 'am').some((a) => a.type === 'rally.transfer' || a.type === 'rally.recover')).toBe(false);
+    expect(() => act(engine, state, { type: 'rally.transfer', sw: 'aMMG', to: 'a2' })).toThrow(/Both units must be Good Order/);
+    expect(() => act(engine, state, { type: 'rally.recover', unit: 'a2', sw: 'aMMG' })).toThrow(/unpossessed/);
+  });
 });
 
 describe('a leader rallied by another leader (ASLRB A10.71)', () => {

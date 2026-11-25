@@ -8,7 +8,7 @@ export { requestPasswordReset, requestEmailVerification } from './accountEmails'
 export { createMatch, joinOpenMatch, leaveMatch, completeHotseatMatch } from './matches';
 export { sendInvite, respondToInvite } from './invites';
 export { submitAction, claimTimeout, requestUndo, cancelUndo, answerUndo } from './online';
-export { ensurePublicProfile, updatePublicProfile, mirrorPublicProfileStats } from './lobbyProfiles';
+export { ensurePublicProfile, updatePublicProfile, setAvailability, mirrorPublicProfileStats } from './lobbyProfiles';
 export { createGameListing, scheduleGameListing, withdrawGameListing, startScheduledGame, recordScheduledNoShows, expireOpenListings } from './lobbyListings';
 export { sendScheduledGameEmails } from './notifications';
 export { sendChatMessage, reportChatMessage, expireChatMessages } from './chat';

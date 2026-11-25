@@ -9,6 +9,7 @@ import { Avatar } from '../profile/Avatar';
 import { useMutes } from '../chat/mutes';
 import { RECHECK_MS, presentUids, type PresenceTree } from './presenceRules';
 import { useLobbyRuleset } from './ruleset';
+import { NOT_AVAILABLE } from './Availability';
 
 const PRESENCE_GRACE_MS = 8000;
 /** Why the roster cannot be shown, for the empty state; `reason` is the database error code or what timed out. */
@@ -71,11 +72,12 @@ export function LobbyUsers() {
       {players.map((profile) => {
         const own = profile.uid === user.uid;
         const muted = mutes.isMuted(profile.uid);
+        const unavailable = !!profile.notAvailable;
         return <article key={profile.uid} className={muted ? 'muted' : ''}>
-          <span className="presence-dot" aria-label="Online" />
+          <span className={`presence-dot ${unavailable ? 'not-available' : ''}`} aria-label={unavailable ? 'Online, not available' : 'Online'} title={unavailable ? NOT_AVAILABLE : undefined} />
           <Avatar profile={{ ...profile, displayName: profile.nickname, gravatarHash: '' }} size={42} xp={profile.xp} />
           <div><Link to={`/profile/${profile.nicknameNormalized}`}>{profile.nickname}</Link><small title={`${rankFor(profile.xp).title} · ${profile.elo} Elo`}>{rankFor(profile.xp).title} · {profile.elo}{muted ? ' · muted' : ''}</small></div>
-          {own ? <span className="lobby-user-you">You</span> : <span className="lobby-user-actions"><button type="button" className="text-button" onClick={() => mutes.toggle(profile.uid)} title={muted ? 'Show their chat messages again' : 'Hide their chat messages'}>{muted ? 'Unmute' : 'Mute'}</button><Link className="btn" to={`/app/${ruleset}/games?challenge=${profile.uid}`}>Challenge</Link></span>}
+          {own ? <span className="lobby-user-you">You</span> : <span className="lobby-user-actions"><button type="button" className="text-button" onClick={() => mutes.toggle(profile.uid)} title={muted ? 'Show their chat messages again' : 'Hide their chat messages'}>{muted ? 'Unmute' : 'Mute'}</button>{unavailable ? <span className="lobby-user-unavailable" title={NOT_AVAILABLE}>Not available</span> : <Link className="btn" to={`/app/${ruleset}/games?challenge=${profile.uid}`}>Challenge</Link>}</span>}
         </article>;
       })}
       {!players.length && <p className="empty-state">{unavailable ? presenceUnavailable(unavailable) : ready ? 'The Lobby is quiet.' : 'Checking who is here…'}</p>}

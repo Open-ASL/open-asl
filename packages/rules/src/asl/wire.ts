@@ -418,11 +418,22 @@ export const aslWireModule: RuleModule = {
       },
     });
     r.contribute({
+      id: 'asl.wire.transfer',
+      query: 'transfer.illegal',
+      ref: 'ASLRB B26.4',
+      // B26.4: a unit on top may not Transfer a SW/Gun beneath that Wire counter.
+      apply: (v, { from, to }, env) => v ?? (onWire(pieceOf(env, from)) && !onWire(pieceOf(env, to)) ? `${from} is on top of the Wire: no Transfer to a unit beneath it (ASLRB B26.4)` : null),
+    });
+    r.contribute({
       id: 'asl.wire.advance',
       query: 'advance.illegal',
       ref: 'ASLRB B26.4',
       apply(v, { units, to, side, beneath }, env) {
-        if (v || !beneath || !isGroundLoc(to)) return v;
+        if (v) return v;
+        // A unit on top stays there until it gets beneath, which it may not do in the APh: no advance out of the hex.
+        const leaving = units.map((u) => pieceOf(env, u)).filter((p) => onWire(p) && p.loc.kind === 'hex' && p.loc.hex !== hexOfLoc(to));
+        if (leaving.length) return `${leaving.map((p) => p.id).join(', ')} ${leaving.length > 1 ? 'are' : 'is'} on top of the Wire: no advance out of the Wire Location, as no unit gets beneath the Wire in the APh (ASLRB B26.4)`;
+        if (!beneath || !isGroundLoc(to)) return v;
         // Its own hidden Wire too: no unit gets beneath Wire in the APh (B26.4; Q&A [K33] to A12.33).
         const c = wireKnownTo(env, hexOfLoc(to), side);
         if (!c) return null;

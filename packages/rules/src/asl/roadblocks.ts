@@ -45,7 +45,8 @@ import { acrossObstacle, hasWa, hasWaOver } from './wallAdvantage';
  *   across a same-level wall hexside of its hex: such a unit is not attacked by that Direct Fire nor fires there.
  * - C8.31 (Q&A [VFTT #13] to B29.3 & C8.31): a roadblock is a wall for shaped-charge weapons, so a Panzerfaust may aim at
  *   Infantry receiving its TEM (an extension Location when the LOF crosses the extension).
- * Not here: B9.36 HD vehicles, VBM (B29.4 "inclusive of vertices"), a SCW (LATW) against a roadblock (its HEAT is no HE
+ * - B9.36, D4.21: a vehicle subject to the wall TEM is HD to Direct Fire ordnance instead (`vehicleWallTem`, `asl/hullDown.ts`).
+ * Not here: VBM (B29.4 "inclusive of vertices"), a SCW (LATW) against a roadblock (its HEAT is no HE
  * attack, B29.5), the elevation reduction (B9.33) of the Indirect Fire TEM.
  */
 
@@ -136,6 +137,40 @@ function wallTems(env: QueryEnv, attack: FireAttackCtx, unit: Piece): WallTem[] 
   return out;
 }
 
+/**
+ * The wall TEM a vehicle in its hex would be subject to against Direct Fire from Location `from` (B9.36, D4.21), as for any
+ * unit (B9.3, B9.31, B9.33, B9.42): the best over the wall hexsides (and extensions) of its hex the firer's LOS crosses
+ * there, after the firer's elevation advantage; with WA over the hexside the vehicle has it, without WA only against a
+ * firer without WA over it (`firerWaOver`). Null when no wall TEM is left (B9.33: "reduced to 0 ... any HD status is negated").
+ */
+export function vehicleWallTem(env: QueryEnv, vehicleId: PieceId, from: LocId, firerWaOver: (o: HexsideObstacle) => boolean): { tem: number; o: HexsideObstacle } | null {
+  const v = pieceOf(env, vehicleId);
+  if (v.loc.kind !== 'hex') return null;
+  const hex = v.loc.hex;
+  const obs = env.query('los.hexsides', {}, []).filter((o) => ((o.a === hex || o.b === hex) && levelOf(env, hex) === o.level) || o.extension.some((e) => e.hex === hex));
+  if (!obs.length) return null;
+  const map = statics(env).map;
+  const base = heightOf(env, hex);
+  const fromPt: LosEnd = { hex: hexOfLoc(from), height: heightOf(env, from) };
+  if (fromPt.hex === hex) return null;
+  const los = firerLos(env, from, { target: hex });
+  let best: { tem: number; o: HexsideObstacle } | null = null;
+  for (const o of obs) {
+    const inWallHex = (o.a === hex || o.b === hex) && levelOf(env, hex) === o.level;
+    const c = los.hexsides?.find((x) => x.id === o.id) ?? hexsideCrossing(map, fromPt, { hex, height: base }, o);
+    const wall = inWallHex && crossingApplies(c, hex, o);
+    const ext = !wall && !!c.extension?.includes(hex);
+    if (!wall && !ext) continue;
+    // B9.31: only a firer without WA over the hexside leaves the wall TEM to a target without it; the target holding WA
+    // denies it to the firer (B9.321), so the firer's WA counts only where the vehicle has none.
+    if (wall && !hasWaOver(env, v, o) && firerWaOver(o)) continue;
+    const red = Math.max(0, Math.floor(fromPt.height - base) - map.distance(fromPt.hex, hex));
+    const tem = Math.max(0, o.tem - red);
+    if (tem > 0 && (!best || tem > best.tem)) best = { tem, o };
+  }
+  return best;
+}
+
 /** The DRM the wall (or extension) changes for `unit` against this attack, relative to the hex TEM already applied (B9.31). */
 const temMemo = new WeakMap<FireAttackCtx, Map<string, { delta: number; tem: number; o: HexsideObstacle | null; wa: boolean }>>();
 export function wallTemDelta(env: QueryEnv, attack: FireAttackCtx, unitId: PieceId): { delta: number; tem: number; o: HexsideObstacle | null; wa: boolean } {
@@ -156,7 +191,9 @@ function wallTemDeltaNow(env: QueryEnv, attack: FireAttackCtx, unitId: PieceId):
 }
 function wallTemCore(env: QueryEnv, attack: FireAttackCtx, unitId: PieceId): { delta: number; tem: number; o: HexsideObstacle | null; wa: boolean } {
   const p = pieceOf(env, unitId);
-  // Beneath an entrenchment its +2 stands in for the hex TEM already (B27.3); vehicles wait for Chapter D (B9.36).
+  // Beneath an entrenchment its +2 stands in for the hex TEM already (B27.3). A vehicle is HD to Direct Fire ordnance
+  // through the wall instead (B9.36, `asl/hullDown.ts`); its wall TEM against non-ordnance waits for MG fire at vehicles
+  // (A9.6), and its PRC never get one (B9.3).
   if (isEntrenched(p) || isVehicleDef(defOf(env, p))) return { delta: 0, tem: 0, o: null, wa: false };
   const walls = wallTems(env, attack, p);
   const hexTem = attack.snap ? 0 : Math.max(0, env.query('hex.tem', { hex: attack.target }, 0));

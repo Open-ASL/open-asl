@@ -16,7 +16,7 @@ import { isRoadHex, isWoodsRoad, smoke58Counters, smoke58Markers, smokeIn, terra
 import { SPINES, arcNeighbours, inCoveredArc, spineChange } from '../sk2/arc';
 import { levelOf } from '../sk2/elevation';
 import { T2 } from '../sk2/status';
-import { OP, simpleShots, type OrdnanceFireFn, type OrdnanceShot } from '../sk2/ordnance';
+import { OP, simpleShots, type OrdnanceFireFn, type OrdnancePauseFn, type OrdnanceResumeFn, type OrdnanceShot } from '../sk2/ordnance';
 import { T3, crewCanAct, inMotion, isBogged, isCe, isImmobile, isMobile, isWreck, tcaOf, vcaOf, vehicle } from './status';
 import { applyVehicleEffect } from './vehicleStatus';
 import { installRecall } from './recall';
@@ -34,6 +34,10 @@ declare module '@asl/engine' {
   interface QueryCatalog {
     /** Why a vehicle may not start (or restart) moving now, or null. */
     'vehicle.cannotStart': { ctx: { vehicle: PieceId }; value: string | null };
+    /** Why a vehicle may never change its VCA, whatever the phase (a dug-in AFV by SSR), or null. Immobilization is checked apart. */
+    'vehicle.cannotTurn': { ctx: { vehicle: PieceId }; value: string | null };
+    /** Why a vehicle may never attempt Motion Status (a dug-in AFV by SSR), or null. Mobility is checked apart. */
+    'vehicle.cannotAttemptMotion': { ctx: { vehicle: PieceId }; value: string | null };
     /** Bog Check DRM for a vehicle entering `hex` (SK4 7.6; `halfMp`: it spent half its MP to enter woods/a building). */
     'vehicle.bogDrm': { ctx: { vehicle: PieceId; hex: HexId; halfMp: boolean }; value: number };
     /** The dr a Motion Status attempt by `vehicle` must make now: MF/MP the mover has spent in its LOS this MPh (SK4 3.3.2.1). */
@@ -310,6 +314,9 @@ export const vehicleMoveModule: RuleModule = {
     r.event<{ vehicle: PieceId; ce: boolean; phase: string }>({ type: 'sk3.vehicle.ce', apply() {} });
 
     r.contribute({ id: 'sk3.vehicle.cannotStart.base', query: 'vehicle.cannotStart', layer: 0, apply: (v, { vehicle: id }, env) => v ?? vehicleCannotStart(env, id) });
+    // A dug-in AFV (S28/S35 SSR) never changes its VCA nor attempts Motion.
+    r.contribute({ id: 'sk3.vehicle.cannotTurn.dugIn', query: 'vehicle.cannotTurn', layer: 0, apply: (v, { vehicle: id }, env) => v ?? (env.state.pieces[id]?.tags[T3.dugIn] ? 'A dug-in vehicle never changes its VCA' : null) });
+    r.contribute({ id: 'sk3.vehicle.cannotAttemptMotion.dugIn', query: 'vehicle.cannotAttemptMotion', layer: 0, apply: (v, { vehicle: id }, env) => v ?? (env.state.pieces[id]?.tags[T3.dugIn] ? 'Only a mobile vehicle may attempt Motion' : null) });
     // A Recalled AFV drives for its friendly board edge (SK4 7.10).
     installRecall(r);
 
@@ -419,9 +426,9 @@ export const vehicleMoveModule: RuleModule = {
       legal(env) {
         if (env.state.phase !== 'MPh') return [];
         const ms = moveState(env);
-        if (ms) return ms.vehicle && !vehicleCannotStart(env, ms.units[0]!) ? [{ type: 'vmove.start', vehicle: ms.units[0]! }] : [];
+        if (ms) return ms.vehicle && !env.query('vehicle.cannotStart', { vehicle: ms.units[0]! }, null) ? [{ type: 'vmove.start', vehicle: ms.units[0]! }] : [];
         return Object.values(env.state.pieces)
-          .filter((p) => p.side === env.state.attacker && vehicle(env, p) && !vehicleCannotStart(env, p.id))
+          .filter((p) => p.side === env.state.attacker && vehicle(env, p) && !env.query('vehicle.cannotStart', { vehicle: p.id }, null))
           .sort(byId)
           .map((p) => ({ type: 'vmove.start', vehicle: p.id }));
       },
@@ -451,7 +458,7 @@ export const vehicleMoveModule: RuleModule = {
             leaderBonus: [],
             from: null,
             trail: [],
-            vehicle: { started: motion, stopped: !motion, sinceTurret: 0 },
+            vehicle: { started: motion, stopped: !motion, sinceTurret: 0, origin: p.loc.kind === 'hex' ? p.loc.hex : null },
           };
           ctx.emit('sk1.move.state', { state: ms });
           if (motion) {
@@ -675,11 +682,15 @@ export const vehicleMoveModule: RuleModule = {
         if (a.shot.targetType === 'ATT') return 'The Area Target Type cannot be used as Bounding First Fire';
         return env.query('ordnance.illegal', { shot: a.shot, mode: 'bounding', side: m.p.side }, null);
       },
-      resolve(ctx, a) {
-        ctx.proc<OrdnanceFireFn>(OP.fire)(ctx, a.shot, 'bounding');
-        if (!ctx.state.result) moveInternals.reAskMover(ctx);
+      resolve(ctx, a, d) {
+        if (!ctx.proc<OrdnancePauseFn>(OP.pause)(ctx, a, d)) resolveBff(ctx, a);
       },
     });
+    const resolveBff = (ctx: Ctx, a: { shot: OrdnanceShot }) => {
+      ctx.proc<OrdnanceFireFn>(OP.fire)(ctx, a.shot, 'bounding');
+      if (!ctx.state.result) moveInternals.reAskMover(ctx);
+    };
+    r.procedure<OrdnanceResumeFn>(OP.resume, (next) => (ctx, a, d) => (a.type === 'vmove.bff' ? resolveBff(ctx, a as Action & { shot: OrdnanceShot }) : next?.(ctx, a, d)));
 
     // ---------------------------------------------------------------- vehicular smoke dispensers (SK4 7.5)
     r.event<{ vehicle: PieceId; kind: 'sD' | 'sM' | 'sP' | 'sN'; dr: [number, number]; drm: number; n: number; placed: boolean; hex: HexId }>({ type: 'sk3.vehicle.smoke', apply() {} });
@@ -814,7 +825,9 @@ export const vehicleMoveModule: RuleModule = {
       const p = env.state.pieces[id];
       if (!p || !vehicle(env, p)) return 'Not a vehicle';
       if (p.side !== side) return 'Not your vehicle';
-      if (!isMobile(p) || p.tags[T3.dugIn]) return 'Only a mobile vehicle may attempt Motion';
+      if (!isMobile(p)) return 'Only a mobile vehicle may attempt Motion';
+      const never = env.query('vehicle.cannotAttemptMotion', { vehicle: id }, null);
+      if (never) return never;
       if (fireMarker(p) || p.tags[T2.intensive] || swHeldBy(env.state, id).some((w) => fireMarker(w))) return 'A vehicle marked First/Final/Intensive Fire may not attempt Motion';
       if (p.tags[MOTION_TRIED]) return 'One Motion attempt per enemy MPh';
       const ms = moveState(env);

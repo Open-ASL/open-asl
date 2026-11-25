@@ -91,7 +91,8 @@ export const DICE_LOG_LIMIT = 200;
 
 /** Effects the board draws on the map. */
 export type BoardFx =
-  | { id: number; kind: 'tracer'; from: HexId[]; to: HexId; color: number }
+  /** `side`: the firing side, when known (the board may follow its shots). */
+  | { id: number; kind: 'tracer'; from: HexId[]; to: HexId; color: number; side?: SideId }
   | { id: number; kind: 'text'; hex?: HexId; piece?: PieceId; text: string; color: number; delay: number; big?: boolean }
   | { id: number; kind: 'burst'; hex: HexId; color: number; delay: number }
   /** A player pointing a spot out: rings close in on it in their colour. `at` is the exact map point, else the hex centre. */
@@ -142,6 +143,12 @@ const hexOfPiece = (state: GameState, id: PieceId): HexId | undefined => {
   if (p.loc.kind === 'hex' || p.loc.kind === 'offboard') return p.loc.hex;
   if (p.loc.kind === 'held') return hexOfPiece(state, p.loc.by);
   return undefined;
+};
+
+/** The side of the first of these pieces, as a tracer's `side`. */
+const sideOfIn = (state: GameState, ids: PieceId[]): { side?: SideId } => {
+  const side = ids.map((id) => state.pieces[id]?.side).find((x) => !!x);
+  return side ? { side } : {};
 };
 
 /* ----------------------------------------------------------------------------- hook */
@@ -375,6 +382,7 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
       beat = { toast: null, fx: [], sounds: [], endSeq: 0 };
     };
     const fx = { push: (f: BoardFx) => beat.fx.push(f) };
+    const sideOf = (ids: PieceId[]) => sideOfIn(state, ids);
     let delay = 0;
     let lastToast: DiceToast | null = null;
     const ccToasts: Record<string, DiceToast> = {};
@@ -553,7 +561,7 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
         case 'sk1.fire.attack': {
           const attack = p['attack'] as { target: HexId; parts: PieceId[] };
           const from = [...new Set(attack.parts.map((id) => hexOfPiece(state, id)).filter((h): h is HexId => !!h))];
-          fx.push({ id: nextId.current++, kind: 'tracer', from, to: attack.target, color: 0xffc85a });
+          fx.push({ id: nextId.current++, kind: 'tracer', from, to: attack.target, color: 0xffc85a, ...sideOf(attack.parts) });
           fx.push({ id: nextId.current++, kind: 'burst', hex: attack.target, color: 0xffa040, delay: 180 });
           const ordnanceHit = attack.parts.length === 1 && ordnanceFired.has(attack.parts[0]!);
           if (!ordnanceHit) for (const w of weaponSounds(attack.parts)) snd(w.name, 0, w.params);
@@ -595,7 +603,7 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
         case 'sk1.fire.noLos': {
           const target = (p['attack'] as { target: HexId }).target;
           const from = p['from'] as HexId[];
-          fx.push({ id: nextId.current++, kind: 'tracer', from, to: target, color: 0xff4040 });
+          fx.push({ id: nextId.current++, kind: 'tracer', from, to: target, color: 0xff4040, ...sideOf((p['attack'] as { parts: PieceId[] }).parts) });
           for (const h of from) fx.push({ id: nextId.current++, kind: 'text', hex: h, text: 'NO LOS', color: 0xff6a6a, delay: 350, big: true });
           for (const w of weaponSounds((p['attack'] as { parts: PieceId[] }).parts)) snd(w.name, 0, w.params);
           snd('hit.none', 400);
@@ -953,7 +961,7 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
           const hit = outcome !== 'miss';
           ordnanceFired.add(weapon);
           const from = hexOfPiece(state, weapon);
-          if (from) fx.push({ id: nextId.current++, kind: 'tracer', from: [from], to: target, color: hit ? 0xffc85a : 0xb0b0b0 });
+          if (from) fx.push({ id: nextId.current++, kind: 'tracer', from: [from], to: target, color: hit ? 0xffc85a : 0xb0b0b0, ...sideOf([weapon]) });
           fx.push({ id: nextId.current++, kind: 'text', hex: target, text: hit && (ammo === 'SMOKE' || ammo === 'WP') ? (ammo === 'WP' ? 'WP' : 'SMOKE') : outcome === 'ch' ? 'CRITICAL HIT!' : hit ? 'HIT' : 'MISS', color: outcome === 'ch' ? 0xff5f55 : hit ? 0xffb347 : 0xa8b098, delay: 250, big: hit });
           // The weapon fires; a moment later the round arrives: Smoke or WP bursts, AP rings off the
           // armor it hit, HE explodes, and a miss tears past to land beyond.
@@ -984,7 +992,7 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
           const target = p['target'] as HexId;
           const from = hexOfPiece(state, weapon);
           if (from) {
-            fx.push({ id: nextId.current++, kind: 'tracer', from: [from], to: target, color: 0xff4040 });
+            fx.push({ id: nextId.current++, kind: 'tracer', from: [from], to: target, color: 0xff4040, ...sideOf([weapon]) });
             fx.push({ id: nextId.current++, kind: 'text', hex: from, text: 'NO LOS', color: 0xff6a6a, delay: 350, big: true });
           }
           snd('hit.none', 400);
@@ -1130,7 +1138,12 @@ export function useGameFx(env: QueryEnv, log: LoggedEvent[], decision: Decision 
         }
         case 'sk3.areaHit': {
           const eff = p['effect'] as string;
-          if (lastToast) lastToast.results.push(`AFV ${p['location']} hit: ${eff === 'kill' ? 'DESTROYED' : eff === 'shock' ? 'SHOCK' : eff === 'immobilized' ? 'IMMOBILIZED' : 'no effect on the AFV'}`);
+          if (lastToast) lastToast.results.push(`AFV ${p['location']} hit: ${p['spared'] ? 'no effect (Hull Down)' : eff === 'kill' ? 'DESTROYED' : eff === 'shock' ? 'SHOCK' : eff === 'immobilized' ? 'IMMOBILIZED' : 'no effect on the AFV'}`);
+          break;
+        }
+        // Full ASL: a hull hit on a Hull Down vehicle is no hit at all (ASLRB D4.2, B27.52, B9.36).
+        case 'asl.hd.hullHit': {
+          if (lastToast) lastToast.results.push('hull hit: no effect (Hull Down)');
           break;
         }
         case 'sk3.vehicle.recuperation': {

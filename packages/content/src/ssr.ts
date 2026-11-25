@@ -34,6 +34,10 @@ import {
   FORTIFIED_MODULE,
   FORTIFICATIONS_MODULE,
   fortificationsModule,
+  BOOBY_TRAPS_MODULE,
+  boobyTrapsModule,
+  TRAIL_BREAKS_MODULE,
+  trailBreaksSsrModule,
   SCATTER_MODULE,
   AMBUSH_DRM_MODULE,
   COMMISSAR_MODULE,
@@ -98,10 +102,12 @@ import {
   leaderDirectsGunModule,
   isBroken,
   mmc,
+  smc,
   noCowerModule,
   noHipModule,
   otherSide,
   pieceOf,
+  setTags,
   ambushDrmModule,
   capturedUseExemptModule,
   noAfvBuildingsModule,
@@ -401,6 +407,37 @@ export interface BrokenMoraleParams {
   defs?: string[];
 }
 
+export interface SetUpBrokenParams {
+  side: string;
+  /** The side's MMC and SMC set up in these hexes begin play broken, with a DM counter. */
+  hexes: string[];
+}
+
+/** SSR "Units set up in ... begin play broken" (a test bed's start for rout practice): broken and DM as play begins. */
+const setUpBrokenModule: RuleModule = {
+  id: 'ssr.set-up-broken',
+  summary: 'A side’s units set up in given hexes begin play broken, with DM (SSR).',
+  requires: ['sk1.status'],
+  install(r) {
+    r.on<{ turn: number }>({
+      id: 'ssr.set-up-broken.apply',
+      event: 'turn.playerTurn',
+      handler(ctx) {
+        if (ctx.state.turn !== 1 || ctx.state.attacker !== ctx.state.sides.find((x) => x === statics(ctx).scenario.firstSide)) return;
+        if (ctx.state.ext['ssr.setUpBroken']) return;
+        ctx.emit('ssr.setUpBroken', {});
+        for (const s of statics(ctx).scenario.ssr) {
+          if (s.module !== 'set-up-broken') continue;
+          const q = s.params as unknown as SetUpBrokenParams;
+          for (const p of Object.values(ctx.state.pieces).sort((a, b) => (a.id < b.id ? -1 : 1)))
+            if (p.side === q.side && p.loc.kind === 'hex' && q.hexes.includes(p.loc.hex) && (mmc(ctx, p) || smc(ctx, p))) setTags(ctx, p.id, { broken: true, dm: true });
+        }
+      },
+    });
+    r.event({ type: 'ssr.setUpBroken', apply: (d) => void (d.ext['ssr.setUpBroken'] = true) });
+  },
+};
+
 /** SSR "Increase the broken side morale of all German MMC by one" (S6 SSR 3). */
 const brokenMoraleModule: RuleModule = {
   id: 'ssr.broken-morale',
@@ -684,6 +721,12 @@ export const SSR_MODULES: Record<string, RuleModule> = {
   [FORTIFIED_MODULE]: fortifiedModule,
   /** Fortification counters a side places at setup, openly or hidden (full ASL A12.33, B26–B30); params `FortificationsParams`. */
   [FORTIFICATIONS_MODULE]: fortificationsModule,
+  /** Booby Trap capability of a side on given boards (full ASL B28.9); params `BoobyTrapParams`. */
+  [BOOBY_TRAPS_MODULE]: boobyTrapsModule,
+  /** Trail Breaks across given hexsides at the start (full ASL B24.74, B28.61); params `TrailBreaksParams`. */
+  [TRAIL_BREAKS_MODULE]: trailBreaksSsrModule,
+  /** A side's units set up in given hexes begin play broken, with DM; params `SetUpBrokenParams`. */
+  'set-up-broken': setUpBrokenModule,
   /** A sky condition that begins and ends on the attacker's RPh DR, see `weatherDrModule`; params `WeatherDrParams`. */
   [WEATHER_DR_MODULE]: weatherDrModule,
   /** Reinforcements whose number a dr decides, see `variableReinforcementsModule`; params `VariableReinforcementsParams`. */

@@ -3,11 +3,28 @@ import { hexOf, statics } from '../common/pieces';
 import type { AmmoKind, IftResult } from '../common/statics';
 import { iftColumn } from '../sk1/fire';
 import { pieceOf } from '../sk1/status';
+import type { LocId } from '../common/location';
 import { ammoColumn } from '../sk2/ammo';
 import { OP, type HitInfo, type ResolveHitFn, type ShotCtx } from '../sk2/ordnance';
 import { facingBySameHexDie, facingOf, hitLocation, type Facing } from './facing';
 import { T3, isCe, tcaOf, vcaOf, vehicle } from './status';
 import { applyVehicleEffect, crewTakesResult, possibleShock } from './vehicleStatus';
+
+declare module '@asl/engine' {
+  interface QueryCatalog {
+    /**
+     * The aspect an ordnance hit on a vehicle strikes: the turret/upper superstructure when the colored dr of the
+     * Original To Hit DR is less than the white dr, else the hull (ASLRB C3.9), unless a rule says otherwise (a CH vs a
+     * Hull Down target is always a turret hit, C3.9).
+     */
+    'vehicle.hitLocation': { ctx: { vehicle: PieceId; dice: [number, number]; ch: boolean; from?: LocId }; value: 'hull' | 'turret' };
+  }
+}
+
+/** The aspect a hit with these To Hit dice (white, colored) strikes on `target` (`vehicle.hitLocation`). */
+export function hitLocationOf(env: QueryEnv, target: PieceId, dice: [number, number], ch: boolean, from?: LocId): 'hull' | 'turret' {
+  return env.query('vehicle.hitLocation', { vehicle: target, dice, ch, ...(from ? { from } : {}) }, hitLocation(dice[0], dice[1]));
+}
 
 /*
  * The To Kill process (SK4 3.2.4, 7.9, 7.10, 7.12): a Vehicle Target Type hit strikes the hull or the
@@ -38,13 +55,13 @@ export interface ToKillOutcome {
 export type TkAmmo = 'AP' | 'APCR' | 'APDS' | 'HEAT' | 'HE';
 export type TkWeaponAmmo = TkAmmo | 'FT' | 'DC';
 
-/** Which aspect and facing a shot at `target` from `firerHex` strikes, and the Armor Factor there. */
-export function aspectHit(env: QueryEnv, target: PieceId, firerHex: string, dice: [number, number]): { location: 'hull' | 'turret'; facing: Facing; af: number } {
+/** Which aspect and facing a shot at `target` from `firerHex` (the firing Location `from`, when known) strikes, and the Armor Factor there. */
+export function aspectHit(env: QueryEnv, target: PieceId, firerHex: string, dice: [number, number], ch = false, from?: LocId): { location: 'hull' | 'turret'; facing: Facing; af: number } {
   const map = statics(env).map;
   const p = pieceOf(env, target);
   const d = vehicle(env, p)!;
-  const [white, colored] = dice;
-  const location = hitLocation(white, colored);
+  const colored = dice[1];
+  const location = hitLocationOf(env, target, dice, ch, from);
   const at = hexOf(env.state, p)!;
   const spine = location === 'turret' ? tcaOf(env, p) : vcaOf(p);
   const afs = location === 'turret' ? d.af.turret : d.af.hull;
@@ -65,7 +82,7 @@ function resolveToKill(ctx: Ctx, sc: ShotCtx, h: HitInfo, results: Record<PieceI
   const p = pieceOf(ctx, target);
   const d = vehicle(ctx, p)!;
   const ammo = sc.ammo as TkAmmo;
-  const { location, facing, af } = aspectHit(ctx, target, sc.hex, h.dice);
+  const { location, facing, af } = aspectHit(ctx, target, sc.hex, h.dice, h.ch, sc.loc ?? sc.hex);
   const tk = statics(ctx).tables.toKill(sc.def, ammo, sc.range);
   if (tk === null) {
     ctx.emit('sk3.toKill', { weapon: sc.weapon, target, ammo, location, facing, af, tk: null, modifiedTk: null, finalTk: null, dr: null, result: 'none', ch: h.ch });

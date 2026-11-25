@@ -54,6 +54,8 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   entryRoll: 'lasting',
   entryHexes: 'lasting',
   entryMfSpent: 'lasting',
+  /** The map hexes a reinforcement appears on (its card): set at creation, cleared when it is set up on one (ASLRB A2.51). */
+  appearHexes: 'lasting',
   // SK2 (sk2/status T2)
   ca: 'lasting',
   emplaced: 'lasting',
@@ -107,6 +109,8 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   dcVsConcealed: 'playerTurn',
   // Full ASL (asl/fortified): a Placed DC declared as a Breach attempt, gone with the DC in the AFPh.
   dcBreach: 'playerTurn',
+  // Full ASL (asl/pillboxes): where the placer of a DC Placed against a pillbox stood (ASLRB B30.31), gone with the DC in the AFPh.
+  pbDcFrom: 'playerTurn',
   // Full ASL (asl/fire): Task Indicator for the Player Turn (ASLRB B24.7: Flame clearance; no fire, movement or advance).
   ti: 'playerTurn',
   // Full ASL (asl/fire): the Location and the Flames a unit has fought there this Player Turn (ASLRB B24.72); off at the CCPh end.
@@ -117,6 +121,8 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   banzai: 'playerTurn',
   recombined: 'lasting',
   deployedFrom: 'lasting',
+  /** Full ASL (asl/deploy): the setup group a squad deployed at setup counts against (ASLRB A2.9's 10%); setup data. */
+  deployedAt: 'lasting',
 };
 
 /** A tag's lifecycle; per-weapon variants such as `repairTried_ma` take their stem's. Undefined when unlisted. */

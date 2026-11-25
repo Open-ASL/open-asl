@@ -10,8 +10,13 @@ import {
   isMgOrdnance,
   ordnanceOf,
   coveredArc,
+  defOf,
   gun,
   hexOf,
+  humanize,
+  ordnanceDirectorIllegal,
+  personnelAt,
+  pieceLabel,
   inCoveredArc,
   latwBackblast,
   nearestSpine,
@@ -26,6 +31,14 @@ import {
   type ShotOutlook,
   type TargetType,
 } from '@asl/rules';
+import { latwToHit } from './counterNotes';
+
+/** What an original To Hit DR can cost a LATW: a BAZ/PSK is removed on its X# (SK4 4.4.1), a PIAT malfunctions on its B10 (4.4.5), a PF fires once (4.4.2). */
+function latwRemoval(d: { type: string; b?: number; latw?: { x?: number } }): string {
+  if (d.latw?.x !== undefined) return `X${d.latw.x}: removed on an original TH DR ≥ ${d.latw.x}`;
+  if (d.type === 'PF') return 'one shot';
+  return `B${d.b ?? 12}: malfunctions on an original TH DR ≥ ${d.b ?? 12}`;
+}
 
 /** The hex a Gun stands in (its manning unit's when held). */
 export function gunHexOf(env: QueryEnv, gunId: PieceId): HexId | null {
@@ -81,6 +94,38 @@ export interface ShotOption {
   label: string;
   hint: string;
   available: boolean;
+  /** The leader whose leadership DRM modifies this shot's To Hit DR (`directedShotOptions`). */
+  director?: PieceId;
+}
+
+/**
+ * The shots again, each directed by every leader in the weapon's hex: ordnance SW only (a Light Mortar, SK4 4.5 "with normal
+ * leadership To Hit modification"; a LATW, SK4 4.4; ASLRB A7.531), or a Gun a special rule lets a leader direct. A leader who
+ * may not direct now is listed greyed with the reason; a Gun's leaders and IFE (never leader-modified) add nothing.
+ */
+export function directedShotOptions(env: QueryEnv, gunId: PieceId, options: ShotOption[]): ShotOption[] {
+  const g = env.state.pieces[gunId];
+  const at = gunHexOf(env, gunId);
+  if (!g || !at) return options;
+  const leaders = personnelAt(env, at, g.side).filter((p) => defOf(env, p).kind === 'leader');
+  const out: ShotOption[] = [];
+  for (const o of options) {
+    out.push(o);
+    if (o.type === 'IFE') continue;
+    for (const l of leaders) {
+      const why = ordnanceDirectorIllegal(env, gunId, l.id, g.side, o.type);
+      if (why && /never a Gun/.test(why)) continue;
+      const name = pieceLabel(env, l).replace(/^\S+ /, '');
+      out.push({
+        ...o,
+        director: l.id,
+        label: `${o.label} · directed by ${name}`,
+        hint: !o.available ? o.hint : why ? humanize(env, why) : `${o.hint}; the ${name}'s leadership DRM modifies the To Hit DR, and he directs no other fire this phase`,
+        available: o.available && !why,
+      });
+    }
+  }
+  return out;
 }
 
 const TYPE_NAME: Record<TargetType, string> = { ITT: 'Infantry', ATT: 'Area', IFE: 'IFE', VTT: 'Vehicle' };
@@ -111,7 +156,7 @@ export function shotOptions(env: QueryEnv, gunId: PieceId, mode: FireMode): Shot
     // takes the Backblast or the +2 To Hit DRM; a PIAT has no Backblast, nor does a PTO hut (SK4 4.4.3, 8.2.1).
     const inBuilding = latwBackblast(env, gunId);
     const why = ammoUseIllegal(env, g, d, 'HEAT', 'ITT', mode);
-    const effect = `a hit on Infantry in a building attacks on the ${d.latw.fp} column (${d.latw.fp * 2} on a Critical Hit, an original 2); X${d.latw.x ?? 12}: removed on an original TH DR ≥ ${d.latw.x ?? 12}`;
+    const effect = `${latwToHit(d.latw.th)}; a hit on Infantry in a building attacks on the ${d.latw.fp} column (${d.latw.fp * 2} on a Critical Hit, an original 2); ${latwRemoval(d)}`;
     if (!inBuilding) out.push({ type: 'ITT', label: `HEAT · ${d.type} To Hit Table`, hint: why ?? effect, available: !why });
     else {
       out.push({ type: 'ITT', backblast: false, label: `HEAT · +2 To Hit (no Backblast)`, hint: why ?? `Firing from a building: +2 To Hit DRM; ${effect}`, available: !why });
@@ -119,7 +164,7 @@ export function shotOptions(env: QueryEnv, gunId: PieceId, mode: FireMode): Shot
     }
     // At a vehicle: the same To Hit Table, then HEAT To Kill against the Armor Factor struck (SK4 4.4).
     const vWhy = ammoUseIllegal(env, g, d, 'HEAT', 'VTT', mode) ?? noVehicle;
-    const vEffect = `aim at one enemy vehicle: a hit rolls To Kill (HEAT TK ${t.toKill(d, 'HEAT', 1) ?? '—'}) less the Armor Factor struck; Critical Hit on an original 2`;
+    const vEffect = `${latwToHit(d.latw.th)}; aim at one enemy vehicle: a hit rolls To Kill (HEAT TK ${t.toKill(d, 'HEAT', 1) ?? '—'}) less the Armor Factor struck; Critical Hit on an original 2`;
     if (!inBuilding) out.push({ type: 'VTT', label: `Vehicle · HEAT`, hint: vWhy ?? vEffect, available: !vWhy });
     else {
       out.push({ type: 'VTT', backblast: false, label: `Vehicle · HEAT · +2 To Hit (no Backblast)`, hint: vWhy ?? `Firing from a building: +2 To Hit DRM; ${vEffect}`, available: !vWhy });

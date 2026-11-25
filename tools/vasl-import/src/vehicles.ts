@@ -219,6 +219,8 @@ export function parseVehicleSvg(front: string, info: string): ParsedVehicle | nu
       ...(aamg !== undefined ? { aamg } : {}),
       ...(rmg ? { rmg: Number(rmg) } : {}),
     },
+    // "CMG: VCA only" (or "MG:VCA only" on an AFV whose only CMG it can be) on the counter back (ASLRB D1.82).
+    ...(cmg !== undefined && /(?:^|,)\s*(?:\(r\))?C?MG\s*:\s*(?:\(R\))?VCA only/i.test(info) ? { cmgVcaOnly: true as const } : {}),
     ...(maMg ? { maMg: { mg: maMg, ...(rof ? { rof: Number(rof) } : {}) } } : {}),
     ...(openTopped ? { openTopped: true } : {}),
     ...(notes.smoke.length ? { smoke: notes.smoke } : {}),

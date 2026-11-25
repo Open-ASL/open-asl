@@ -116,6 +116,7 @@ export function PhaseWheel({ cue, phases, sideName, level, onDone }: Props) {
   };
 
   const phaseName = (PHASE_NAME[cue.phase] ?? cue.phase).replace(/ Phase$/, '');
+  const defensive = cue.kind === 'phase' && cue.phase === 'DFPh';
   const total = n;
   const scenarioSetup = cue.kind === 'setup' && !cue.reinforcements;
   const chitLabel = scenarioSetup ? 'SET UP' : 'TURN';
@@ -200,11 +201,12 @@ export function PhaseWheel({ cue, phases, sideName, level, onDone }: Props) {
           <div className="kicker">
             {cue.kind === 'setup' ? (cue.reinforcements ? `Turn ${cue.turn} · Reinforcements` : 'Deployment') : cue.kind === 'playerTurn' ? `Turn ${cue.turn}` : `Turn ${cue.turn} · phase ${idx + 1} of ${total}`}
           </div>
-          <div className="who">{sideName(cue.side)}</div>
+          {/* The Defensive Fire Phase is the DEFENDER's (SK1 3.4), within the ATTACKER's player turn. */}
+          <div className={defensive ? `who side-${cue.defender}` : 'who'}>{sideName(defensive ? cue.defender : cue.side)}</div>
           <div className="what">{cue.kind === 'setup' ? (cue.reinforcements ? 'Set up your reinforcements' : 'Set up your forces') : cue.kind === 'playerTurn' ? 'Player turn' : phaseName}</div>
-          <div className="rule" />
+          <div className={defensive ? `rule side-${cue.defender}` : 'rule'} />
           {cue.kind === 'playerTurn' && <div className="sub">Begins with the {phaseName}</div>}
-          {cue.kind === 'phase' && cue.phase === 'DFPh' && <div className="sub">{sideName(cue.defender)} fire</div>}
+          {defensive && <div className="sub">{sideName(cue.side)} player turn</div>}
         </div>
       </div>
       <div className="pw-skip">click to continue</div>

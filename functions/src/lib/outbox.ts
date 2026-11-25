@@ -17,13 +17,17 @@ const OUTBOX = 'emailOutbox';
 export interface OutboxDoc {
   to: string;
   nickname: string;
-  kind: 'confirmation' | 'reminder-24h' | 'reminder-30m' | 'cancelled' | 'rescheduled' | 'expired';
+  kind: 'confirmation' | 'reminder-24h' | 'reminder-30m' | 'cancelled' | 'rescheduled' | 'expired' | 'withdrawn';
   listingId: string;
   /** The game's ruleset (`RulesetId` in @asl/platform): the email links to that lobby's games desk. Older entries are Starter Kit. */
   rulesetId?: 'starter-kit' | 'full-asl';
   scenarioTitle: string;
   /** The post's scenario, for an `expired` notice's link to post it again. */
   scenarioId?: string;
+  /** On a `withdrawn` notice: the nickname of the player who withdrew from the scheduled game. */
+  withdrawnBy?: string;
+  /** On a `withdrawn` notice to the host: the opponent backed out and the post is back on the board. */
+  reopened?: boolean;
   /** The session's start; null on an `expired` notice (the post was never scheduled). */
   scheduledAt: Timestamp | null;
   sendAt: Timestamp;
@@ -55,13 +59,15 @@ export function emailLead(kind: OutboxDoc['kind']): string {
     case 'reminder-24h': return 'Your match starts in 24 hours';
     case 'reminder-30m': return 'Your table opens in 30 minutes';
     case 'expired': return 'Your game post expired';
+    case 'withdrawn': return 'Your opponent withdrew from your match';
     default: return 'Your match schedule changed';
   }
 }
 
 /** Branded HTML/plain-text content for one outbox document. */
-export function matchEmail(doc: Pick<OutboxDoc, 'kind' | 'nickname' | 'scenarioTitle' | 'scheduledAt' | 'rulesetId' | 'scenarioId'>, appOrigin = DEFAULT_ORIGIN): BrandedEmail {
+export function matchEmail(doc: Pick<OutboxDoc, 'kind' | 'nickname' | 'scenarioTitle' | 'scheduledAt' | 'rulesetId' | 'scenarioId' | 'withdrawnBy' | 'reopened'>, appOrigin = DEFAULT_ORIGIN): BrandedEmail {
   if (doc.kind === 'expired' || !doc.scheduledAt) return expiredEmail(doc, appOrigin);
+  if (doc.kind === 'withdrawn') return withdrawnEmail({ ...doc, scheduledAt: doc.scheduledAt }, appOrigin);
   const when = doc.scheduledAt.toDate().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: 'UTC' });
   const lead = emailLead(doc.kind);
   const href = `${emailOrigin(appOrigin)}/app/${doc.rulesetId ?? 'starter-kit'}/games`;
@@ -72,6 +78,27 @@ export function matchEmail(doc: Pick<OutboxDoc, 'kind' | 'nickname' | 'scenarioT
     body: `<p style="margin:0 0 16px;">Hello ${escapeHtml(doc.nickname)},</p><p style="margin:0 0 18px;">Your scheduled engagement is approaching.</p><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 18px;background:#11150f;border-left:3px solid #c9a24a;"><tr><td style="padding:16px 18px;"><strong style="display:block;color:#f5f1e6;font-size:18px;line-height:1.35;">${escapeHtml(doc.scenarioTitle)}</strong><span style="display:block;margin-top:7px;color:#b8b9b2;font-size:14px;">${escapeHtml(when)} UTC</span></td></tr></table><p style="margin:0;color:#a9ada5;font-size:14px;">The Games desk displays the start in your local time. The table opens 15 minutes before the scheduled start.</p>`,
     action: { label: 'Open the Games desk', href },
     text: `Hello ${doc.nickname},\n\n${doc.scenarioTitle} is scheduled for ${when} UTC.\n\nThe Games desk displays the start in your local time. The table opens 15 minutes before the scheduled start.`,
+  };
+}
+
+/**
+ * The other player withdrew from a scheduled game. To the host, the post is back on the board for someone else to book;
+ * to the opponent, the host's withdrawal took the game off the schedule.
+ */
+function withdrawnEmail(doc: Pick<OutboxDoc, 'nickname' | 'scenarioTitle' | 'rulesetId' | 'withdrawnBy' | 'reopened'> & { scheduledAt: Timestamp }, appOrigin: string): BrandedEmail {
+  const when = doc.scheduledAt.toDate().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: 'UTC' });
+  const href = `${emailOrigin(appOrigin)}/app/${doc.rulesetId ?? 'starter-kit'}/games`;
+  const who = doc.withdrawnBy ?? 'Your opponent';
+  const next = doc.reopened
+    ? 'Your post is back on the Games board, so someone else can book a time to play it.'
+    : 'The game is cancelled and your booked time is free again.';
+  return {
+    preheader: `${who} withdrew from ${doc.scenarioTitle} (${when} UTC).`,
+    eyebrow: 'Match cancelled',
+    title: 'Your opponent withdrew',
+    body: `<p style="margin:0 0 16px;">Hello ${escapeHtml(doc.nickname)},</p><p style="margin:0 0 18px;">${escapeHtml(who)} withdrew from your scheduled match.</p><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 18px;background:#11150f;border-left:3px solid #c9a24a;"><tr><td style="padding:16px 18px;"><strong style="display:block;color:#f5f1e6;font-size:18px;line-height:1.35;">${escapeHtml(doc.scenarioTitle)}</strong><span style="display:block;margin-top:7px;color:#b8b9b2;font-size:14px;text-decoration:line-through;">${escapeHtml(when)} UTC</span></td></tr></table><p style="margin:0;color:#a9ada5;font-size:14px;">${escapeHtml(next)}</p>`,
+    action: { label: 'Open the Games desk', href },
+    text: `Hello ${doc.nickname},\n\n${who} withdrew from your scheduled match: ${doc.scenarioTitle}, ${when} UTC.\n\n${next}\n\n${href}`,
   };
 }
 
@@ -90,7 +117,7 @@ function expiredEmail(doc: Pick<OutboxDoc, 'nickname' | 'scenarioTitle' | 'rules
 }
 
 /** Backward-compatible renderer used by lightweight template tests and previews. */
-export function emailHtml(doc: Pick<OutboxDoc, 'kind' | 'nickname' | 'scenarioTitle' | 'scheduledAt' | 'rulesetId' | 'scenarioId'>, appOrigin = DEFAULT_ORIGIN): string {
+export function emailHtml(doc: Pick<OutboxDoc, 'kind' | 'nickname' | 'scenarioTitle' | 'scheduledAt' | 'rulesetId' | 'scenarioId' | 'withdrawnBy' | 'reopened'>, appOrigin = DEFAULT_ORIGIN): string {
   return renderEmailHtml(matchEmail(doc, appOrigin), appOrigin);
 }
 

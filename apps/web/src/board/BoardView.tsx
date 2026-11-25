@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture, UPDATE_PRIORITY } from 'pixi.js';
 import { cubeDistance, cubeNeighbors, type GameState, type HexId, type Piece, type QueryEnv, type SideId } from '@asl/engine';
 import { GEO, coveredArc, defOf, gun as gunDef, gunHex, hexOf as hexOfPiece, inCoveredArc, isCaptured, isWeaponDef, isWreck, spineDirections, swHeldBy, tcaOf, vcaOf, vehicle as vehicleDef, type MapHex, type ObjectiveArea, type Statics, acquisitionOf, gunIdents, ordnanceOf, SMOKE58, stackOrder, hexOfLoc, levelOfLoc, locKey } from '@asl/rules';
 import { CAVE_GONE, UNKNOWN_DEF_ID, cavesParams, caveLoc, cornerOffset, hexPixel, isCaveLoc, isPillboxLoc, moveState, pillboxCaHexsides, pillboxLoc, shownFireMarker, sideToward, smokeGrenades } from '@asl/rules';
@@ -12,6 +12,12 @@ import type { WeatherFxKind } from '../game/weatherView';
 import { smoke58Chits } from '../game/smoke';
 import { releaseCaptureSource, setCaptureSource } from './capture';
 import { personnelStack } from './stacking';
+import { drawInk, drawStroke, type InkStroke } from './ink';
+
+const NO_INK: InkStroke[] = [];
+/** A LOS being checked: clear, and blocked from where it is blocked. */
+const CHECK_LOS_CLEAR = 0x7cfc00;
+const CHECK_LOS_BLOCKED = 0xff4040;
 
 /** dataTransfer type for counters dragged from the setup tray. */
 export const DRAG_TYPE = 'application/x-asl-piece';
@@ -41,12 +47,31 @@ const MARGIN = 72;
  * the pane on each axis, so it can be pushed well aside but never lost.
  */
 function clampView(w: Container, mapW: number, mapH: number, screenW: number, screenH: number) {
+  const at = clampedPos(w.x, w.y, w.scale.x, mapW, mapH, screenW, screenH);
+  w.position.set(at.x, at.y);
+}
+
+function clampedPos(x: number, y: number, scale: number, mapW: number, mapH: number, screenW: number, screenH: number) {
   const axis = (pos: number, size: number, screen: number) => {
     const keep = Math.min(size, screen * 0.4);
     return Math.min(screen - keep, Math.max(keep - size, pos));
   };
-  w.position.set(axis(w.x, mapW * w.scale.x, screenW), axis(w.y, mapH * w.scale.y, screenH));
+  return { x: axis(x, mapW * scale, screenW), y: axis(y, mapH * scale, screenH) };
 }
+
+/**
+ * Following the action: the map pans to the other side's moves and fire when they happen outside the middle of the
+ * pane (`FOLLOW_INSET` of it, at least `FOLLOW_INSET_MIN` px, on each side), easing there over a time that grows with
+ * the distance. A new pan waits `FOLLOW_DWELL` ms after the last one began, so a quick run of actions (the computer
+ * opponent's) reads as a few calm moves rather than a jitter; only the latest waiting one is taken. Any pan or zoom of
+ * the player's own stops it and keeps it off for `FOLLOW_HOLD` ms.
+ */
+const FOLLOW_INSET = 0.15;
+const FOLLOW_INSET_MIN = 60;
+const FOLLOW_DWELL = 1500;
+const FOLLOW_HOLD = 4000;
+const followMs = (dist: number) => Math.min(1400, Math.max(600, 450 + dist * 0.7));
+const easeInOut = (t: number) => (1 - Math.cos(Math.PI * t)) / 2;
 
 function viewTransform(placements: Placement[], rotation: number): ViewTransform {
   const bounds = playableBounds(placements);
@@ -188,6 +213,8 @@ interface Props {
   fx?: BoardFx[];
   /** Play movement/effect animations (false = everything snaps). */
   animate?: boolean;
+  /** Whether the map follows (pans to show) a move or shot by this side; absent, it never does. */
+  follow?(side: SideId): boolean;
   /**
    * A counter whose face is about to be animated by a `face` effect keeps its old face (or stays
    * on the board, if eliminated) until that effect plays, so the change lands with its dice.
@@ -216,6 +243,19 @@ interface Props {
    * degrees clockwise from up), or a fog/mist wash. Null draws nothing.
    */
   weather?: { kind: WeatherFxKind; windAngle: number } | null;
+  /** Ink drawn on the map (a commentator's), over the counters. */
+  ink?: InkStroke[];
+  /** While set, a press on the map draws a stroke in this colour and width (screen pixels) instead of panning. */
+  pen?: { color: number; width: number } | null;
+  /** A stroke finished with the pen: its points in map pixels and its width in map pixels. */
+  onInk?(stroke: { color: number; width: number; points: number[] }): void;
+  /**
+   * A LOS thread being checked (a commentator's), drawn growing from the firer over a moment: green while clear, red from
+   * where it is blocked, with a ring pulsing there. A new `key` plays it again.
+   */
+  checkLos?: { key: number; from: HexId; to: HexId; clear: boolean; blockedAt?: { x: number; y: number } } | null;
+  /** A danger map (a commentator's): each hex washed in its colour, over the counters, under any ink. */
+  heat?: { hex: HexId; color: number }[] | null;
 }
 
 /* ----------------------------------------------------------------------------- weather */
@@ -301,16 +341,30 @@ const STAR = 0xffd23f;
 const COUNTER = 48;
 /** Touch: how long (ms) a finger rests on a hex to open the action wheel, and how far (px) it may drift meanwhile. */
 const LONG_PRESS_MS = 450;
+/** A mouse held still this long on a hex opens the wheel too: the way in for a trackpad without a secondary click. */
+const LONG_PRESS_MOUSE_MS = 600;
 const LONG_PRESS_SLOP = 10;
 /** A Gun is a 5/8" counter: 60 px at this scale (SW and personnel are 1/2", 48 px). */
 const GUN = 60;
 /** How long a redraw waits for new counter art before drawing without it (it draws again when the art lands). */
 const PRELOAD_WAIT_MS = 1500;
+/** How long (ms) the render loop keeps running after the last change to the picture before it sleeps. */
+const WAKE_MS = 300;
+/** Frames per second while only the highlight pulse moves on the board. */
+const PULSE_FPS = 15;
+/** Input on the board pane that can change the picture (a pan, a zoom, a hover drawing arcs or a handle). */
+const WAKE_EVENTS = ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'pointerleave', 'wheel', 'dragover', 'drop'] as const;
 const sizeOf = (d: { kind: string }) => (d.kind === 'gun' || d.kind === 'vehicle' ? GUN : COUNTER);
 /** Tint for counters that are done for the phase: clearly darker, still readable. */
 const SPENT_TINT = 0x6e6e6e;
 /** A broken unit's frame, so even the edge of it showing under the rest of a stack reads as broken. */
 const BROKEN_RED = 0xe0504a;
+/**
+ * A malfunctioned weapon's frame and chip: it may still be repaired (SK1 4.1, SK3; ASLRB A9.72). Amber on a dark
+ * ground, since the counters' own colours (the Russian tan, the American olive) would swallow amber alone.
+ */
+const MALF_AMBER = 0xffb732;
+const MALF_DARK = 0x16120a;
 /** Status markers (pin, DM, CX, fire…) sit on their unit like real counters, big enough to read. */
 const MARKER = 40;
 /** Stacks stay compact: each counter a small step up and right, and never further than this. */
@@ -405,6 +459,12 @@ function spineAngle(cube: { q: number; r: number; s: number }, spine: number): n
  */
 const ART_FRONT = (150 * Math.PI) / 180;
 
+/** How far a Pillbox counter turns so its printed arrow (lower right, as `ART_FRONT`) points at hex corner `ca` (ASLRB B30.1). */
+export function pillboxArtTurn(ca: number): number {
+  const o = cornerOffset(ca);
+  return Math.atan2(o.x, -o.y) - ART_FRONT;
+}
+
 /** A counter sprite centred in its box, so it can flip and bob about its own middle. */
 /**
  * Shows or hides everything drawn for the units, so hiding them leaves the bare terrain: the counters, Control
@@ -445,7 +505,6 @@ function hipFaint(s: GameState, p: Piece): boolean {
   return p.loc.kind === 'held' && s.pieces[p.loc.by]?.tags['hip'] === true;
 }
 
-/** How many broken units a stack hides under other counters: a red chip at its lower left corner. */
 /** The Collapsed Hut marker (SK4 8.2.1): a brown chit, since VASL has no counter for it. */
 function collapsedHutChit(): Container {
   const c = new Container();
@@ -459,12 +518,16 @@ function collapsedHutChit(): Container {
   return c;
 }
 
-function brokenChip(n: number): Container {
+/**
+ * How many broken units a stack hides under other counters: a red chip at its lower left corner; beside it, an amber
+ * one for the malfunctioned weapons it does not show, so the Repair attempt is not forgotten.
+ */
+function brokenChip(n: number, color = BROKEN_RED, ring = 0xffd0c8, ink = 0xffffff): Container {
   const c = new Container();
   const r = 8;
   c.addChild(new Graphics().circle(1, 2, r).fill({ color: 0x000000, alpha: 0.5 }));
-  c.addChild(new Graphics().circle(0, 0, r).fill({ color: BROKEN_RED }).stroke({ color: 0xffd0c8, width: 1.5 }));
-  const tx = new Text({ text: String(n), style: { fontSize: 11, fill: 0xffffff, fontWeight: 'bold' } });
+  c.addChild(new Graphics().circle(0, 0, r).fill({ color }).stroke({ color: ring, width: color === BROKEN_RED ? 1.5 : 2 }));
+  const tx = new Text({ text: String(n), style: { fontSize: 11, fill: ink, fontWeight: 'bold' } });
   tx.anchor.set(0.5);
   tx.position.set(0, 0.5);
   c.addChild(tx);
@@ -472,13 +535,26 @@ function brokenChip(n: number): Container {
 }
 
 /** A small "HIP" tag on a counter hidden from the enemy, as its owner sees it (full ASL A12.33). */
-function hipChip(): Container {
+function hipChip(label = 'HIP'): Container {
   const c = new Container();
-  const tx = new Text({ text: 'HIP', style: { fontFamily: 'Oswald, Impact, sans-serif', fontWeight: '700', fontSize: 9, letterSpacing: 0.5, fill: 0xffd27f } });
+  const tx = new Text({ text: label, style: { fontFamily: 'Oswald, Impact, sans-serif', fontWeight: '700', fontSize: 9, letterSpacing: 0.5, fill: 0xffd27f } });
   const w = tx.width + 6;
   const h = tx.height + 2;
   c.addChild(new Graphics().roundRect(COUNTER - w + 2, -4, w, h, 2).fill({ color: 0x14171a, alpha: 0.9 }).stroke({ color: 0xc9a24a, width: 1 }));
   tx.position.set(COUNTER - w + 5, -3);
+  c.addChild(tx);
+  return c;
+}
+
+/** A pillbox's rout tag along the foot of its counter: green for a way in, red when the rout may not go in (ASLRB B30.5). */
+export function routChip(label: string, barred: boolean): Container {
+  const c = new Container();
+  c.label = `rout-chip:${label}`;
+  const tx = new Text({ text: label, style: { fontFamily: 'Oswald, Impact, sans-serif', fontWeight: '700', fontSize: 9, letterSpacing: 0.5, fill: 0xffffff } });
+  const w = tx.width + 6;
+  const h = tx.height + 2;
+  c.addChild(new Graphics().roundRect((COUNTER - w) / 2, COUNTER - h + 4, w, h, 2).fill({ color: barred ? 0xc0392b : 0x2e8b57, alpha: 0.95 }).stroke({ color: barred ? 0xf3a59c : 0xa8e6c1, width: 1 }));
+  tx.position.set((COUNTER - w) / 2 + 3, COUNTER - h + 5);
   c.addChild(tx);
   return c;
 }
@@ -729,25 +805,60 @@ function drawObjectives(g: Graphics, objectives: ObjectiveArea[], placements: Pl
 const NATION_COLOR: Record<string, number> = { ge: 0x5f87a1, am: 0x727b23, ru: 0x7c510d, br: 0xb8975a, al: 0x6f9c5a, it: 0x6c7a82, ja: 0xe9c22a };
 /** Stock colours for counters without art. */
 const STOCK_COLOR: Record<string, number> = { ge: 0x9ac8e8, ru: 0xc8a050, am: 0x9fbf5f, br: 0xe5cea0, al: 0xbfe3c4, it: 0xd2d6d8 };
-/** Control chit: a quarter of a counter's width, as VASL players place them. */
-const CONTROL_CHIT = COUNTER / 4;
+/** Control chit: about a third of a counter's width, as VASL players place them. */
+const CONTROL_CHIT = COUNTER / 3;
 
 /**
- * Control chits: a small square in the nationality's counter colour in the centre of each
- * Controlled hex, drawn under the counters so an occupied hex still shows who holds it.
+ * A nationality's emblem, `size` across, centred on (x, y): the marks of the turn chit and briefing (`fx/TurnChit`'s
+ * Emblem), drawn on the board. A nationality without one gets a disc in its counter colour.
+ */
+function drawEmblem(g: Graphics, nat: string, x: number, y: number, size: number) {
+  const s = size / 40;
+  switch (nat) {
+    case 'ge': {
+      const cross = [-6, -20, 6, -20, 6, -6, 20, -6, 20, 6, 6, 6, 6, 20, -6, 20, -6, 6, -20, 6, -20, -6, -6, -6].map((v, i) => (i % 2 ? y : x) + v * s);
+      g.poly(cross).fill(0xffffff).stroke({ color: 0xffffff, width: 5 * s, join: 'miter' });
+      g.poly(cross).fill(0x111111);
+      return;
+    }
+    case 'am':
+      g.poly(starPoints(x, y, 21 * s)).fill(0xffffff).stroke({ color: 0x111111, width: 2 * s, join: 'round' });
+      return;
+    case 'ru':
+      g.poly(starPoints(x, y, 21 * s)).fill(0xd22d26).stroke({ color: 0x111111, width: 1.5 * s, join: 'round' });
+      return;
+    case 'br':
+      g.circle(x, y, 21 * s).fill(0x2a4b9b).stroke({ color: 0x111111, width: 1.5 * s });
+      g.circle(x, y, 14 * s).fill(0xffffff);
+      g.circle(x, y, 7 * s).fill(0xd22d26);
+      return;
+    case 'it':
+      for (const dx of [-12, 0, 12]) {
+        g.rect(x + (dx - 2.5) * s, y - 20 * s, 5 * s, 40 * s).fill(0x4a3a48).stroke({ color: 0x111111, width: s });
+        g.poly([2.5, 4, 8.5, 0, 7.5, 9, 2.5, 10].map((v, i) => (i % 2 ? y + v * s : x + (dx + v) * s))).fill(0x4a3a48).stroke({ color: 0x111111, width: s });
+      }
+      return;
+    case 'ja':
+      g.circle(x, y, 19 * s).fill(0xc8102e).stroke({ color: 0x111111, width: 1.5 * s });
+      return;
+    default:
+      g.circle(x, y, 18 * s).fill(NATION_COLOR[nat] ?? 0x888888).stroke({ color: 0xf2e8c8, width: 1.5 * s, alpha: 0.9 });
+  }
+}
+
+/**
+ * Control chits: the controlling nationality's emblem in the centre of each Controlled hex, drawn under the counters
+ * so an occupied hex still shows who holds it.
  */
 function drawControl(g: Graphics, control: Record<HexId, SideId>, statics: Statics, hexOf: (id: HexId) => MapHex | undefined, center: (h: MapHex) => { x: number; y: number }) {
   g.clear();
-  const half = CONTROL_CHIT / 2;
   for (const [hex, side] of Object.entries(control)) {
     const h = hexOf(hex as HexId);
     if (!h) continue;
     const nat = statics.scenario.sides.find((x) => x.side === side)?.nationality ?? side;
     const c = center(h);
-    g.roundRect(c.x - half + 1, c.y - half + 1, CONTROL_CHIT, CONTROL_CHIT, 1.5).fill({ color: 0x000000, alpha: 0.4 });
-    g.roundRect(c.x - half, c.y - half, CONTROL_CHIT, CONTROL_CHIT, 1.5)
-      .fill({ color: NATION_COLOR[nat] ?? 0x888888 })
-      .stroke({ color: 0xf2e8c8, width: 1, alpha: 0.9 });
+    g.circle(c.x + 1, c.y + 1.5, CONTROL_CHIT * 0.45).fill({ color: 0x000000, alpha: 0.28 });
+    drawEmblem(g, nat, c.x, c.y, CONTROL_CHIT);
   }
 }
 
@@ -804,6 +915,15 @@ export interface FortHex {
   hexside?: number;
   extension?: HexId[];
   ca?: number;
+  /** A pillbox holding units the viewer may not inspect (ASLRB B30.7): its counter shows "occupied". */
+  occupied?: boolean;
+  /** A pillbox a broken unit may make for in the RtPh (ASLRB B30.5): its tag (a ROUT END with its MF, or barred). */
+  rout?: { chip: string; barred: boolean };
+  /** A minefield's Trail Breaks (ASLRB B28.61, B24.74): each across two hexsides; partial ones across one (to the centre dot). */
+  tbs?: [number, number][];
+  partial?: number[];
+  /** The hexside a Known minefield belt's arrowed end counter points along (ASLRB B28.46), toward the other end. */
+  beltArrow?: number;
   label: string;
   /** The card shown when the pointer is on the counter's own mark (a roadblock's bar). */
   tip?: string;
@@ -846,6 +966,29 @@ function drawFortifications(g: Graphics, forts: FortHex[], hexOf: (id: HexId) =>
         const a = t.toView(near.x, near.y);
         const b = t.toView(m.x, m.y);
         g.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ color: ROADBLOCK_COLOR, width: 4, alpha: f.hidden ? 0.4 : 0.8 });
+      }
+    }
+    if (f.kind === 'mines') {
+      // Trail Breaks through the minefield: full ones hexside to hexside through the centre dot, partial ones to the dot.
+      const mid = (k: number) => t.toView(c.x + (cornerOffset(k).x + cornerOffset(k + 1).x) / 2, c.y + (cornerOffset(k).y + cornerOffset(k + 1).y) / 2);
+      const o = t.toView(c.x, c.y);
+      for (const [k1, k2] of f.tbs ?? []) {
+        const a = mid(k1);
+        const b = mid(k2);
+        g.moveTo(a.x, a.y).lineTo(o.x, o.y).lineTo(b.x, b.y).stroke({ color: 0x000000, width: 7, alpha: 0.45 });
+        g.moveTo(a.x, a.y).lineTo(o.x, o.y).lineTo(b.x, b.y).stroke({ color: TB_COLOR, width: 4, alpha: 0.95 });
+      }
+      for (const k of f.partial ?? []) {
+        const a = mid(k);
+        g.moveTo(a.x, a.y).lineTo(o.x, o.y).stroke({ color: 0x000000, width: 7, alpha: 0.4 });
+        g.moveTo(a.x, a.y).lineTo(o.x, o.y).stroke({ color: TB_COLOR, width: 4, alpha: 0.6 });
+        g.circle(o.x, o.y, 4).fill({ color: TB_COLOR, alpha: 0.9 });
+      }
+      if (f.beltArrow !== undefined) {
+        // The arrow of a belt's end counter, from the centre toward the next hex of the belt (B28.46).
+        const tip = mid(f.beltArrow);
+        g.moveTo(o.x, o.y).lineTo(tip.x, tip.y).stroke({ color: 0xc23b2e, width: 3, alpha: 0.95 });
+        g.circle(tip.x, tip.y, 4).fill({ color: 0xc23b2e, alpha: 0.95 });
       }
     }
     if (f.kind === 'pillbox' && f.ca !== undefined) {
@@ -1014,6 +1157,7 @@ export function BoardView({
   rotation = 0,
   fx = [],
   animate = true,
+  follow,
   objectives = [],
   control = {},
   fortified = [],
@@ -1025,6 +1169,11 @@ export function BoardView({
   hideMarkers = false,
   weather = null,
   holdFace,
+  ink = NO_INK,
+  pen = null,
+  onInk,
+  checkLos = null,
+  heat = null,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   /** Arrow shown at the pane's edge, pointing at the map, whenever the map is (nearly) out of view. */
@@ -1036,6 +1185,13 @@ export function BoardView({
   const controlHits = useRef<{ c: HexControl; hit(vx: number, vy: number): boolean; dist?(vx: number, vy: number): number }[]>([]);
   const hoverControl = useRef<string | null>(null);
   const anims = useRef<Anim[]>([]);
+  /** Restarts the render loop (it stops when nothing on the board moves) and keeps it up for at least `ms`. */
+  const wakeRef = useRef<(ms?: number) => void>(() => {});
+  /** Starts an animation, waking the render loop if it was asleep (a push from a timer or a late texture). */
+  const pushAnim = (a: Anim) => {
+    anims.current.push(a);
+    wakeRef.current();
+  };
   /** Counter slides in flight, by piece, so a redraw can hand them over instead of orphaning them. */
   const slides = useRef(new Map<string, { box: Container; anim: Anim }>());
   /** Last drawn view position of each piece's counter (for movement tweens and elimination ghosts). */
@@ -1044,11 +1200,18 @@ export function BoardView({
   const playedFx = useRef(new Set<number>());
   const animateRef = useRef(animate);
   animateRef.current = animate;
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  /** The camera's pan under way, the action waiting out the dwell, when the last pan began, and until when the player's own pan holds it off. */
+  const cam = useRef<{ from: { x: number; y: number }; to: { x: number; y: number }; start: number; dur: number } | null>(null);
+  const camPending = useRef<{ x: number; y: number }[] | null>(null);
+  const camLast = useRef(0);
+  const camHold = useRef(0);
   const weatherRef = useRef(weather);
   weatherRef.current = weather;
   const weatherSim = useRef<WeatherSim>({ kind: null, drops: [], t: 0 });
   /** Dev/test counters: how often the canvas was (re)built and how many effects of each kind have played. */
-  const stats = useRef({ builds: 0, fxPlayed: 0, fx: {} as Record<string, number> });
+  const stats = useRef({ builds: 0, frames: 0, fxPlayed: 0, fx: {} as Record<string, number>, follows: [] as number[] });
   const centers = useRef<{ id: HexId; x: number; y: number }[]>([]);
   const xf = useRef<ViewTransform>(viewTransform(placements, rotation));
   /** Hex centre in view coordinates. */
@@ -1056,8 +1219,36 @@ export function BoardView({
     const c = hexCenter(h, placements);
     return xf.current.toView(c.x, c.y);
   };
-  const cb = useRef({ onHexClick, onHexHover, onHexContextMenu, onDropPiece, draggablePiece, onReturnPiece, holdFace });
-  cb.current = { onHexClick, onHexHover, onHexContextMenu, onDropPiece, draggablePiece, onReturnPiece, holdFace };
+  const cb = useRef({ onHexClick, onHexHover, onHexContextMenu, onDropPiece, draggablePiece, onReturnPiece, holdFace, onInk });
+  cb.current = { onHexClick, onHexHover, onHexContextMenu, onDropPiece, draggablePiece, onReturnPiece, holdFace, onInk };
+  const penRef = useRef(pen);
+  penRef.current = pen;
+  const inkRef = useRef(ink);
+  inkRef.current = ink;
+  /** The ink layer and, above it, the stroke being drawn and a LOS being checked. */
+  const inkLayers = useRef<{ ink: Graphics; pen: Graphics; los: Graphics; heat: Graphics } | null>(null);
+  const heatRef = useRef(heat);
+  heatRef.current = heat;
+  const redrawHeat = () => {
+    const l = inkLayers.current;
+    if (!l) return;
+    l.heat.clear();
+    for (const { hex, color } of heatRef.current ?? []) {
+      const h = anyHex(hex);
+      if (!h) continue;
+      const c = hexCenter(h, placements);
+      l.heat.poly(hexPolygon(c.x, c.y, xf.current)).fill({ color, alpha: 0.42 });
+    }
+  };
+  /** The LOS being checked and when its drawing started. */
+  const checkLosRef = useRef<{ los: NonNullable<Props['checkLos']>; start: number } | null>(null);
+  // A new check (key) grows again from the firer; the same one redrawn keeps its place.
+  if ((checkLos?.key ?? null) !== (checkLosRef.current?.los.key ?? null)) checkLosRef.current = checkLos ? { los: checkLos, start: performance.now() } : null;
+  else if (checkLos && checkLosRef.current) checkLosRef.current.los = checkLos;
+  const redrawInk = () => {
+    const l = inkLayers.current;
+    if (l) drawInk(l.ink, inkRef.current, xf.current.toView);
+  };
   /** The drawn counter of each piece (rebuilt by every redraw), for face flips and burn-aways. */
   const faces = useRef(new Map<string, { box: Container; sprite: Sprite | null; size: number }>());
   /** Map or offboard hex by id. */
@@ -1315,6 +1506,7 @@ export function BoardView({
     // or closing beside it; closing it would leave the canvas at the narrower width with a black strip beside it), so the canvas follows the pane itself.
     let observer: ResizeObserver | null = null;
     let uninstall: (() => void) | null = null;
+    let unwake: (() => void) | null = null;
     (async () => {
       await app.init({ resizeTo: host.current!, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: window.devicePixelRatio });
       if (destroyed) {
@@ -1324,7 +1516,10 @@ export function BoardView({
       host.current!.appendChild(app.canvas);
       appRef.current = app;
       if (typeof ResizeObserver !== 'undefined') {
-        observer = new ResizeObserver(() => app.queueResize());
+        observer = new ResizeObserver(() => {
+          wakeRef.current();
+          app.queueResize();
+        });
         observer.observe(host.current!);
       }
       const w = new Container();
@@ -1396,8 +1591,28 @@ export function BoardView({
       const barLayer = new Container();
       barLayer.eventMode = 'none';
       barTip.current = { key: null, layer: barLayer };
-      w.addChild(fort, fortLabels, highlights, control, ca, pieces, fxLayer, top, controls, barLayer);
+      // Ink over everything on the map; never hidden with the counters, and it takes no pointer events.
+      const inkLayer = new Graphics();
+      const penLayer = new Graphics();
+      const losLayer = new Graphics();
+      const heatLayer = new Graphics();
+      inkLayer.eventMode = penLayer.eventMode = losLayer.eventMode = heatLayer.eventMode = 'none';
+      w.addChild(fort, fortLabels, highlights, control, ca, pieces, fxLayer, top, controls, barLayer, heatLayer, inkLayer, losLayer, penLayer);
       layers.current = { highlights, fort, fortLabels, control, ca, pieces, fx: fxLayer, top, controls };
+      inkLayers.current = { ink: inkLayer, pen: penLayer, los: losLayer, heat: heatLayer };
+      // The danger map stays on the boards' printed area: a half hex at a cropped edge is not washed past the art.
+      const heatMask = new Graphics();
+      for (const p of placements) {
+        const r = playableRect(p);
+        const a = xf.current.toView(p.x * GEO.px.width + r.x0, p.y * GEO.px.height + r.y0);
+        const b = xf.current.toView(p.x * GEO.px.width + r.x1, p.y * GEO.px.height + r.y1);
+        heatMask.rect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y)).fill({ color: 0xffffff });
+      }
+      w.addChild(heatMask);
+      heatLayer.mask = heatMask;
+      redrawHeat();
+      app.ticker.add(() => drawCheckLos(losLayer));
+      redrawInk();
       showUnitLayers(layers.current, !hideRef.current);
       // Weather over the whole pane, in screen space above the map; it takes no pointer events.
       const weatherLayer = new Graphics();
@@ -1413,6 +1628,14 @@ export function BoardView({
           console.warn('[board] weather dropped after error', err);
           weatherRef.current = null;
         }
+        const c = cam.current;
+        if (c) {
+          const t = Math.min(1, (now - c.start) / c.dur);
+          const e = easeInOut(t);
+          w.position.set(c.from.x + (c.to.x - c.from.x) * e, c.from.y + (c.to.y - c.from.y) * e);
+          if (t >= 1) cam.current = null;
+        }
+        if (camPending.current && now - camLast.current >= FOLLOW_DWELL) followAction(camPending.current);
         const list = anims.current;
         for (let i = list.length - 1; i >= 0; i--) {
           const a = list[i]!;
@@ -1436,6 +1659,43 @@ export function BoardView({
       // The pane can shrink or grow under the map (window resized, panels opened): pull it back in.
       app.renderer.on('resize', () => clampView(w, t.width, t.height, app.screen.width, app.screen.height));
       app.ticker.add(updateFinder);
+      // Render on demand: an idle board must cost next to nothing. Pixi renders on its ticker, every frame; the ticker
+      // stops once nothing moves (no animation, weather, pulsing highlight or LOS check) and nothing has changed the
+      // picture for WAKE_MS, drops to PULSE_FPS while only the highlights pulse, and anything that can change the
+      // picture (a redraw, an animation, input, a resize, a font) starts it again at full rate.
+      let awakeUntil = performance.now() + WAKE_MS;
+      const wake = (ms = WAKE_MS) => {
+        awakeUntil = Math.max(awakeUntil, performance.now() + ms);
+        app.ticker.maxFPS = 0;
+        if (!destroyed) app.ticker.start();
+      };
+      wakeRef.current = wake;
+      app.ticker.add(
+        () => {
+          stats.current.frames++;
+          const moving = anims.current.length > 0 || !!weatherRef.current?.kind || checkLosRef.current !== null || performance.now() <= awakeUntil;
+          const pulsing = highlights.visible && highlights.context.instructions.length > 0;
+          // The highlight pulse alone is a slow breath (0.2 of alpha over 2 s): a few frames a second draw it as smoothly.
+          app.ticker.maxFPS = moving ? 0 : PULSE_FPS;
+          if (!moving && !pulsing) app.ticker.stop();
+        },
+        undefined,
+        UPDATE_PRIORITY.UTILITY,
+      );
+      app.renderer.on('resize', () => wake());
+      const pane = host.current!;
+      const onInput = () => wake();
+      for (const type of WAKE_EVENTS) pane.addEventListener(type, onInput, { capture: true, passive: true });
+      window.addEventListener('keydown', onInput, true);
+      window.addEventListener('resize', onInput);
+      document.fonts?.addEventListener('loadingdone', onInput);
+      unwake = () => {
+        for (const type of WAKE_EVENTS) pane.removeEventListener(type, onInput, { capture: true });
+        window.removeEventListener('keydown', onInput, true);
+        window.removeEventListener('resize', onInput);
+        document.fonts?.removeEventListener('loadingdone', onInput);
+        wakeRef.current = () => {};
+      };
 
       uninstall = installInteraction(app, w);
       setCaptureSource(app);
@@ -1444,9 +1704,19 @@ export function BoardView({
       // when recording the app (screenshots, trailers).
       if (import.meta.env.DEV) {
         (window as unknown as { aslBoard: unknown }).aslBoard = {
-          stats: () => ({ ...stats.current, fx: { ...stats.current.fx } }),
+          stats: () => ({ ...stats.current, fx: { ...stats.current.fx }, follows: [...stats.current.follows], ink: inkRef.current.length, heat: heatRef.current?.length ?? 0 }),
+          /** Whether the render loop runs, and what keeps it running. */
+          loop: () => ({
+            running: app.ticker.started,
+            anims: anims.current.length,
+            weather: weatherRef.current?.kind ?? null,
+            checkLos: checkLosRef.current !== null,
+            highlights: highlights.visible && highlights.context.instructions.length > 0,
+          }),
           /** The map's screen offset and zoom; `setView` moves it without the pan limits (to test the off-screen arrow). */
           view: () => ({ x: w.x, y: w.y, scale: w.scale.x }),
+          /** How many display objects sit on the stage itself (a dragged counter's ghost is one while it is carried). */
+          stageChildren: () => app.stage.children.length,
           setView: (x: number, y: number, scale = w.scale.x) => {
             w.scale.set(scale);
             w.position.set(x, y);
@@ -1498,6 +1768,7 @@ export function BoardView({
       destroyed = true;
       observer?.disconnect();
       uninstall?.();
+      unwake?.();
       ready.current = false;
       // A redraw still waiting on textures must not draw on the destroyed layers.
       redrawToken.current++;
@@ -1525,9 +1796,19 @@ export function BoardView({
   const hideRef = useRef(hidePieces);
   hideRef.current = hidePieces;
   useEffect(() => {
+    redrawInk();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ink]);
+  useEffect(() => {
+    redrawHeat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heat]);
+  useEffect(() => {
     const L = layers.current;
     if (L) showUnitLayers(L, !hidePieces);
   }, [hidePieces]);
+  // Any new props may have changed the picture (overlay, ink, highlights, a LOS check): render it.
+  useEffect(() => wakeRef.current());
 
   // Play newly arrived effects (after the redraw, so positions are current).
   useEffect(() => {
@@ -1536,6 +1817,11 @@ export function BoardView({
     if (fresh.length === 0) return;
     // Only the ids still in the list can come back: forget the rest.
     playedFx.current = new Set(fx.map((f) => f.id));
+    // A shot by a side the map follows: the firers and the target are brought into view.
+    for (const f of fresh) {
+      if (f.kind !== 'tracer' || !f.side || !followRef.current?.(f.side)) continue;
+      followAction([...f.from, f.to].map((h) => fxPos(h)).filter((v): v is { x: number; y: number } => !!v));
+    }
     if (!animateRef.current) return;
     for (const f of fresh) playFx(f);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1556,7 +1842,7 @@ export function BoardView({
 
   function later(delay: number, fn: () => void) {
     if (delay <= 0) fn();
-    else anims.current.push({ start: performance.now(), dur: delay, step: () => {}, end: fn });
+    else pushAnim({ start: performance.now(), dur: delay, step: () => {}, end: fn });
   }
 
   /** A counter burning away where it stood (elimination). */
@@ -1569,7 +1855,7 @@ export function BoardView({
     ghost.position.set(cx, cy);
     ghost.tint = 0xff8060;
     L.fx.addChild(ghost);
-    anims.current.push({
+    pushAnim({
       start: performance.now(),
       dur: 900,
       step(t) {
@@ -1610,7 +1896,7 @@ export function BoardView({
     let by = sprite.scale.y;
     const cx = sprite.position.x;
     const cy = sprite.position.y;
-    anims.current.push({
+    pushAnim({
       start: performance.now(),
       dur: bad ? 700 : 520,
       step(t) {
@@ -1653,7 +1939,7 @@ export function BoardView({
       const froms = f.from.map((h) => fxPos(h)).filter((p): p is { x: number; y: number } => !!p);
       const g = new Graphics();
       L.fx.addChild(g);
-      anims.current.push({
+      pushAnim({
         start: now,
         dur: 750,
         step(t) {
@@ -1678,7 +1964,7 @@ export function BoardView({
       later(f.delay, () => {
         const g = new Graphics();
         L.fx.addChild(g);
-        anims.current.push({
+        pushAnim({
           start: performance.now(),
           dur: 600,
           step(t) {
@@ -1707,7 +1993,7 @@ export function BoardView({
         g.circle(at.x, at.y, r).stroke({ color: 0x000000, width: width + 2.5, alpha: 0.45 * alpha });
         g.circle(at.x, at.y, r).stroke({ color: f.color, width, alpha });
       };
-      anims.current.push({
+      pushAnim({
         start: now,
         dur: 1500,
         step(t) {
@@ -1773,7 +2059,7 @@ export function BoardView({
         liveTexts.current.set(key, [...alive, line]);
         txt.position.set(at.x, base);
         L.fx.addChild(txt);
-        anims.current.push({
+        pushAnim({
           start: born,
           dur: FLOAT_MS,
           step(t) {
@@ -1817,9 +2103,55 @@ export function BoardView({
     if (!app || !w) return;
     const { width: mapW, height: mapH } = xf.current;
     const scale = Math.min(app.screen.width / mapW, app.screen.height / mapH) * 0.98;
+    cam.current = null;
+    camPending.current = null;
     w.scale.set(scale);
     w.position.set((app.screen.width - mapW * scale) / 2, (app.screen.height - mapH * scale) / 2);
     drawControls();
+  }
+
+  /** Pan to show these view-space points (the action) if they lie outside the middle of the pane: see `FOLLOW_INSET`. */
+  function followAction(points: { x: number; y: number }[]) {
+    const app = appRef.current;
+    const w = world.current;
+    if (!app || !w || points.length === 0) return;
+    const now = performance.now();
+    if (now < camHold.current) return;
+    if (now - camLast.current < FOLLOW_DWELL) {
+      camPending.current = points;
+      wakeRef.current(FOLLOW_DWELL);
+      return;
+    }
+    camPending.current = null;
+    const s = w.scale.x;
+    const sw = app.screen.width;
+    const sh = app.screen.height;
+    const pad = COUNTER / 2;
+    const x0 = Math.min(...points.map((p) => p.x)) - pad;
+    const x1 = Math.max(...points.map((p) => p.x)) + pad;
+    const y0 = Math.min(...points.map((p) => p.y)) - pad;
+    const y1 = Math.max(...points.map((p) => p.y)) + pad;
+    // Judged from where the camera is heading, so a pan under way is not undone by the next step of the same move.
+    const at = cam.current?.to ?? { x: w.x, y: w.y };
+    const ix = Math.max(FOLLOW_INSET_MIN, sw * FOLLOW_INSET);
+    const iy = Math.max(FOLLOW_INSET_MIN, sh * FOLLOW_INSET);
+    if (at.x + x0 * s >= ix && at.x + x1 * s <= sw - ix && at.y + y0 * s >= iy && at.y + y1 * s <= sh - iy) return;
+    // More than the pane can show (a replay jump, a view turned): nothing to centre on.
+    if ((x1 - x0) * s > sw || (y1 - y0) * s > sh) return;
+    const to = clampedPos(sw / 2 - ((x0 + x1) / 2) * s, sh / 2 - ((y0 + y1) / 2) * s, s, xf.current.width, xf.current.height, sw, sh);
+    const dist = Math.hypot(to.x - w.x, to.y - w.y);
+    if (dist < 2) return;
+    camLast.current = now;
+    stats.current.follows.push(Math.round(now));
+    if (!animateRef.current) {
+      cam.current = null;
+      w.position.set(to.x, to.y);
+      wakeRef.current();
+      return;
+    }
+    const dur = followMs(dist);
+    cam.current = { from: { x: w.x, y: w.y }, to, start: now, dur };
+    wakeRef.current(Math.max(dur, FOLLOW_DWELL) + 50);
   }
 
   /** Show the finder arrow at the pane's edge, aimed at the map's centre, while little or none of the map is in view. */
@@ -1856,6 +2188,41 @@ export function BoardView({
     el.style.setProperty('--finder-angle', `${Math.atan2(dy, dx)}rad`);
   }
 
+  /** The LOS being checked, drawn as far as it has grown (0.8 s from the firer to the target), then held. */
+  function drawCheckLos(g: Graphics) {
+    const c = checkLosRef.current;
+    g.clear();
+    if (!c) return;
+    const a = anyHex(c.los.from);
+    const b = anyHex(c.los.to);
+    if (!a || !b) return;
+    const pa = center(a);
+    const pb = center(b);
+    const t = Math.min(1, (performance.now() - c.start) / 800);
+    const tip = { x: pa.x + (pb.x - pa.x) * t, y: pa.y + (pb.y - pa.y) * t };
+    const block = c.los.blockedAt ? xf.current.toView(c.los.blockedAt.x, c.los.blockedAt.y) : null;
+    // How far along the thread the block lies (0..1); a blocked thread with no known point is red throughout.
+    const len = Math.hypot(pb.x - pa.x, pb.y - pa.y) || 1;
+    const at = c.los.clear ? 1 : block ? Math.min(1, Math.hypot(block.x - pa.x, block.y - pa.y) / len) : 0;
+    const seg = (from: { x: number; y: number }, to: { x: number; y: number }, color: number) => {
+      g.moveTo(from.x, from.y).lineTo(to.x, to.y).stroke({ color: 0x000000, width: 9, alpha: 0.45, cap: 'round' });
+      g.moveTo(from.x, from.y).lineTo(to.x, to.y).stroke({ color, width: 5, cap: 'round' });
+    };
+    const mid = { x: pa.x + (pb.x - pa.x) * at, y: pa.y + (pb.y - pa.y) * at };
+    if (t <= at) seg(pa, tip, CHECK_LOS_CLEAR);
+    else {
+      if (at > 0) seg(pa, mid, CHECK_LOS_CLEAR);
+      seg(mid, tip, CHECK_LOS_BLOCKED);
+    }
+    g.circle(pa.x, pa.y, 10).stroke({ color: CHECK_LOS_CLEAR, width: 4 });
+    if (t >= 1) g.circle(pb.x, pb.y, 12).stroke({ color: c.los.clear ? CHECK_LOS_CLEAR : CHECK_LOS_BLOCKED, width: 4 });
+    if (!c.los.clear && t > at) {
+      const pulse = 14 + 6 * Math.sin(performance.now() / 180);
+      g.circle(mid.x, mid.y, 7).fill({ color: CHECK_LOS_BLOCKED });
+      g.circle(mid.x, mid.y, pulse).stroke({ color: CHECK_LOS_BLOCKED, width: 3, alpha: 0.85 });
+    }
+  }
+
   function installInteraction(app: Application, w: Container) {
     const clamp = () => clampView(w, xf.current.width, xf.current.height, app.screen.width, app.screen.height);
     const canvas = app.canvas;
@@ -1866,7 +2233,14 @@ export function BoardView({
     /** A two-finger pinch in progress: the fingers' last midpoint (pane pixels) and separation. */
     let pinch: { mx: number; my: number; dist: number } | null = null;
     /** Zoom to `next` about the pane point (mx, my), which stays over the same spot of the map. */
+    /** The player's own pan or zoom: the map stops following the action for a while (`FOLLOW_HOLD`). */
+    const holdFollow = () => {
+      cam.current = null;
+      camPending.current = null;
+      camHold.current = performance.now() + FOLLOW_HOLD;
+    };
     const zoomAt = (mx: number, my: number, next: number) => {
+      holdFollow();
       const old = w.scale.x;
       next = Math.min(4, Math.max(0.25, next));
       w.position.set(mx - ((mx - w.x) / old) * next, my - ((my - w.y) / old) * next);
@@ -1932,7 +2306,7 @@ export function BoardView({
     // Touch screens have no right button: pressing and holding a hex opens the action wheel. The browser's own
     // long-press menu (Android sends a contextmenu, at about the same moment) is swallowed while that finger stays
     // down and just after it lifts, so the wheel neither opens twice nor closes itself under the finger.
-    let press: { id: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
+    let press: { id: number; x: number; y: number; touch: boolean; timer: ReturnType<typeof setTimeout> } | null = null;
     let held: number | null = null;
     let swallowUntil = 0;
     const cancelPress = () => {
@@ -1966,13 +2340,22 @@ export function BoardView({
     };
     window.addEventListener('contextmenu', swallow, true);
     window.addEventListener('click', swallow, true);
+    /** Drop a press or drag whose release will never come (a context menu, a lost capture, the window left): its ghost too. */
+    const abandonDrag = () => {
+      drag?.ghost?.destroy();
+      drag = null;
+    };
+    window.addEventListener('blur', abandonDrag);
     canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       // The browser's long-press menu, from a finger still in its hold: open the wheel now, once.
-      if (press) {
+      if (press && press.touch) {
         longPress();
         return;
       }
+      cancelPress();
+      // A Mac's Ctrl+click opens a context menu and may never deliver the button's release: no drag survives it.
+      abandonDrag();
       const h = hexUnder(e);
       if (!h) return;
       // A Mac turns Ctrl+click into a context menu: that is a ping, not the wheel.
@@ -1983,12 +2366,34 @@ export function BoardView({
       const rect = canvas.getBoundingClientRect();
       cb.current.onHexContextMenu?.(h, { x: e.clientX - rect.left, y: e.clientY - rect.top });
     });
+    /** A stroke being drawn with the pen: its points in map pixels, and the pen it was started with. */
+    let stroke: { id: number; points: number[]; pen: { color: number; width: number } } | null = null;
+    const drawPen = () => {
+      const l = inkLayers.current;
+      if (!l || !stroke) return;
+      l.pen.clear();
+      drawStroke(l.pen, { color: stroke.pen.color, width: stroke.pen.width / w.scale.x, points: stroke.points }, xf.current.toView);
+    };
+    const endStroke = (keep: boolean) => {
+      const s = stroke;
+      stroke = null;
+      inkLayers.current?.pen.clear();
+      if (keep && s) cb.current.onInk?.({ color: s.pen.color, width: s.pen.width / w.scale.x, points: s.points.map((v) => Math.round(v * 10) / 10) });
+    };
     canvas.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       canvas.setPointerCapture(e.pointerId);
       cancelPress();
-      if (e.pointerType !== 'mouse' && pointers.size === 1) press = { id: e.pointerId, x: e.clientX, y: e.clientY, timer: setTimeout(longPress, LONG_PRESS_MS) };
+      // The pen: one finger or the mouse draws; a second finger drops the stroke and pinches as usual.
+      if (penRef.current && pointers.size === 1 && !e.ctrlKey && !e.metaKey) {
+        const at = mapPointUnder(e);
+        stroke = { id: e.pointerId, points: [at.x, at.y], pen: penRef.current };
+        drawPen();
+        return;
+      }
+      if (stroke) endStroke(false);
+      if (e.pointerType !== 'mouse' && pointers.size === 1) press = { id: e.pointerId, x: e.clientX, y: e.clientY, touch: true, timer: setTimeout(longPress, LONG_PRESS_MS) };
       if (pointers.size === 2) {
         // A second finger turns a press or pan into a pinch; a counter being carried is put back.
         drag?.ghost?.destroy();
@@ -1999,7 +2404,11 @@ export function BoardView({
       if (pinch) return;
       const h = hexUnder(e);
       const piece = h ? (cb.current.draggablePiece?.(h) ?? null) : null;
+      // A drag whose release never came (see abandonDrag) must not leave its ghost floating over the board.
+      drag?.ghost?.destroy();
       drag = { x: e.clientX, y: e.clientY, wx: w.x, wy: w.y, moved: false, piece, ghost: null };
+      // The mouse held still on a hex opens the wheel as a finger does (not on a counter that may be dragged).
+      if (e.pointerType === 'mouse' && !piece && h) press = { id: e.pointerId, x: e.clientX, y: e.clientY, touch: false, timer: setTimeout(longPress, LONG_PRESS_MOUSE_MS) };
     });
     canvas.addEventListener('pointermove', (e) => {
       const rect = canvas.getBoundingClientRect();
@@ -2009,6 +2418,12 @@ export function BoardView({
         p.y = e.clientY;
       }
       if (press?.id === e.pointerId && Math.hypot(e.clientX - press.x, e.clientY - press.y) > LONG_PRESS_SLOP) cancelPress();
+      if (stroke?.id === e.pointerId) {
+        const at = mapPointUnder(e);
+        stroke.points.push(at.x, at.y);
+        drawPen();
+        return;
+      }
       if (pinch) {
         if (!p) return;
         // Zoom by how far the fingers spread, about their midpoint, which drags the map along with it.
@@ -2017,6 +2432,11 @@ export function BoardView({
         zoomAt(g.mx, g.my, w.scale.x * (g.dist / pinch.dist));
         pinch = g;
         return;
+      }
+      // The button is up though no release arrived (a Mac context menu swallowed it): the drag is over, not a pan.
+      if (drag && e.pointerType === 'mouse' && e.buttons === 0) {
+        cancelPress();
+        abandonDrag();
       }
       if (drag) {
         const dx = e.clientX - drag.x;
@@ -2038,6 +2458,7 @@ export function BoardView({
             drag.ghost.position.set(e.clientX - rect.left, e.clientY - rect.top);
           }
         } else if (drag.moved) {
+          holdFollow();
           w.position.set(drag.wx + dx, drag.wy + dy);
           clamp();
         }
@@ -2069,9 +2490,18 @@ export function BoardView({
       }
       cb.current.onHexHover?.(hov, { x: e.clientX - rect.left, y: e.clientY - rect.top }, !!(drag?.moved && drag.piece));
     });
+    canvas.addEventListener('lostpointercapture', (e) => {
+      // After a release the drag is already over; capture lost mid-drag (the page took the pointer) ends it.
+      if (pointers.has(e.pointerId) && !pinch) {
+        pointers.delete(e.pointerId);
+        lifted(e.pointerId);
+        abandonDrag();
+      }
+    });
     canvas.addEventListener('pointercancel', (e) => {
       pointers.delete(e.pointerId);
       lifted(e.pointerId);
+      if (stroke?.id === e.pointerId) endStroke(false);
       if (pinch) {
         endPinch();
         return;
@@ -2082,6 +2512,10 @@ export function BoardView({
     canvas.addEventListener('pointerup', (e) => {
       pointers.delete(e.pointerId);
       lifted(e.pointerId);
+      if (stroke?.id === e.pointerId) {
+        endStroke(true);
+        return;
+      }
       if (pinch) {
         endPinch();
         return;
@@ -2160,6 +2594,7 @@ export function BoardView({
     return () => {
       cancelPress();
       window.removeEventListener('contextmenu', swallow, true);
+      window.removeEventListener('blur', abandonDrag);
       window.removeEventListener('click', swallow, true);
     };
   }
@@ -2219,7 +2654,16 @@ export function BoardView({
     if (!waited || fresh.length < missing.length) void all.then(() => redraw());
   }
 
+  /** Redraws the counters and markers, then renders them (the render loop may be asleep). */
   async function redraw() {
+    try {
+      await redrawPieces();
+    } finally {
+      wakeRef.current();
+    }
+  }
+
+  async function redrawPieces() {
     const L = layers.current;
     if (!L) return;
     const token = ++redrawToken.current;
@@ -2249,7 +2693,7 @@ export function BoardView({
       if (split) urls.push(split.hull, split.turret);
       for (const m of markersOf(p)) urls.push(markerImage(m));
     }
-    for (const m of ['Smk12', 'Smk2', 'Smk3', 'WP1', 'WP2', 'CC', 'Melee', 'RFP01', 'RFP02', 'RFP04', 'RFP06', 'RFP08', 'RFP12', 'acq1wh', 'acq2wh', 'Lev1', 'Lev2', 'Cave', 'CaveOG', 'Blaze', 'Flame', 'Rubble', 'TI', 'Labor1', 'Labor2']) urls.push(markerImage(m));
+    for (const m of ['Smk12', 'Smk2', 'Smk2gr', 'Smk3', 'WP1', 'WP2', 'CC', 'Melee', 'RFP01', 'RFP02', 'RFP04', 'RFP06', 'RFP08', 'RFP12', 'acq1wh', 'acq2wh', 'Lev1', 'Lev2', 'Cave', 'CaveOG', 'Blaze', 'Flame', 'Rubble', 'TI', 'Labor1', 'Labor2']) urls.push(markerImage(m));
     for (const f of fortifications) urls.push(markerImage(f.marker));
     if (o.declaredFire) for (const m of new Set(o.declaredFire.units.values())) urls.push(markerImage(m));
     await preload(urls);
@@ -2341,6 +2785,8 @@ export function BoardView({
     const prev = lastPos.current;
     const nextPos = new Map<string, { x: number; y: number; url: string | null }>();
     const doAnim = animateRef.current;
+    /** Where the other side's counters moved from and to this redraw: the map follows them (`followAction`). */
+    const moved: { x: number; y: number }[] = [];
     // Hex markers (Smoke, Melee, Residual FP) belong to the hex, so empty hexes are drawn too; so do
     // the Acquired Target counters Guns have placed (SK4 6.10: on the target, where they wait for it).
     const markedHexes = Object.entries(s.hexMarkers)
@@ -2451,11 +2897,19 @@ export function BoardView({
         const box = new Container();
         box.position.set(c.x - COUNTER / 2 + offsets[0]!.x, c.y - COUNTER / 2 + offsets[0]!.y);
         box.addChild(new Graphics().roundRect(2, 3, COUNTER, COUNTER, 4).fill({ color: 0x000000, alpha: 0.45 }));
-        box.addChild(counterSprite(chit, COUNTER));
+        const sp = counterSprite(chit, COUNTER);
+        // A Pillbox counter's arrow points at the hexspine that defines its CA (ASLRB B30.1): the art's arrow is printed
+        // to the lower right like a vehicle's front, so it turns from there to corner `ca`.
+        if (inPillbox && pillboxHere?.ca !== undefined) sp.rotation = pillboxArtTurn(pillboxHere.ca) + xf.current.angle;
+        box.addChild(sp);
         if (inPillbox && pillboxHere?.hidden) {
           box.alpha = 0.62;
           box.addChild(hipChip());
         }
+        // Occupied, its contents not inspectable (ASLRB B30.7): the stack card says so too.
+        if (inPillbox && pillboxHere?.occupied) box.addChild(hipChip('OCCUPIED'));
+        // The Rout Phase: a pillbox the router may make for, or one barred to it (B30.5); the readout and wheel say why.
+        if (inPillbox && pillboxHere?.rout) box.addChild(routChip(pillboxHere.rout.chip, pillboxHere.rout.barred));
         L.pieces.addChild(box);
         i++;
       }
@@ -2583,6 +3037,7 @@ export function BoardView({
           box.addChild(tg);
         }
         if (p.tags['broken'] === true) box.addChild(new Graphics().roundRect(1, 1, size - 2, size - 2, 4).stroke({ color: BROKEN_RED, width: 2.5 }));
+        else if (p.tags['malf'] === true && isWeaponDef(d)) box.addChild(new Graphics().roundRect(1.5, 1.5, size - 3, size - 3, 4).stroke({ color: MALF_DARK, width: 4.5 }).roundRect(1.5, 1.5, size - 3, size - 3, 4).stroke({ color: MALF_AMBER, width: 2 }));
         if (o.selectedPieces?.has(p.id)) {
           // Turned with the counter: a vehicle or Gun is drawn facing its Covered Arc.
           const sel = new Graphics().roundRect(-size / 2 - 1, -size / 2 - 1, size + 2, size + 2, 5).stroke({ color: 0xffe066, width: 3 });
@@ -2627,6 +3082,8 @@ export function BoardView({
         });
         // Slide from where the counter was last drawn (or is right now, if it was mid-slide).
         const from = inFlight.get(p.id) ?? was;
+        // A move to another hex (not a shuffle inside its stack) by a side the map follows.
+        if (from && Math.hypot(from.x - x, from.y - y) > COUNTER && followRef.current?.(p.side)) moved.push({ x: from.x + size / 2, y: from.y + size / 2 }, { x: x + size / 2, y: y + size / 2 });
         if (doAnim && from && (Math.abs(from.x - x) > 1 || Math.abs(from.y - y) > 1)) {
           const far = Math.hypot(from.x - x, from.y - y) > COUNTER;
           box.position.set(from.x, from.y);
@@ -2645,7 +3102,7 @@ export function BoardView({
             },
           };
           slides.current.set(p.id, { box, anim });
-          anims.current.push(anim);
+          pushAnim(anim);
         }
         nextPos.set(p.id, { x, y, url });
         i++;
@@ -2670,6 +3127,16 @@ export function BoardView({
       if (hiddenBroken > 0) {
         const chip = brokenChip(hiddenBroken);
         chip.position.set(c.x - COUNTER / 2 - 2, c.y + COUNTER / 2 - 2);
+        L.pieces.addChild(chip);
+      }
+      // Malfunctioned weapons the stack does not show: a SW under other counters, and a vehicle's MA or MGs (its
+      // counter never shows them: the MGs are part of it, and a malfunctioned MA leaves its face as it is).
+      const hiddenMalf =
+        stack.slice(0, -1).filter((p) => p.tags['malf'] === true && isWeaponDef(defOf(env, p))).length +
+        stack.filter((p) => vehicleDef(env as never, p)).reduce((n, v) => n + (v.tags['malf'] === true ? 1 : 0) + Object.values(s.pieces).filter((x) => x.loc.kind === 'held' && x.loc.by === v.id && isFixedMg(defOf(env, x)) && x.tags['malf'] === true).length, 0);
+      if (hiddenMalf > 0) {
+        const chip = brokenChip(hiddenMalf, MALF_DARK, MALF_AMBER, MALF_AMBER);
+        chip.position.set(c.x - COUNTER / 2 - 2 + (hiddenBroken > 0 ? 18 : 0), c.y + COUNTER / 2 - 2);
         L.pieces.addChild(chip);
       }
       // Location markers.
@@ -2761,6 +3228,7 @@ export function BoardView({
       burn(tex, was.x + COUNTER / 2, was.y + COUNTER / 2);
     }
     lastPos.current = nextPos;
+    followAction(moved);
 
     // LOS threads: green where the thread sees, red from the pixel where it is blocked.
     L.top.clear();

@@ -24,8 +24,12 @@ import { BOT_VERSION, type ComputerSpeed, useComputerOpponent } from '../ai';
 import type { Session } from '../game/session';
 import { ChatDock } from '../chat/ChatDock';
 import { SUPPORT_NAME } from '../siteConfig';
+import { SsSettings } from '../superSpectator/SsSettings';
 
 type Loaded = { match: MatchDoc; scenario: ScenarioDef; actions: Action[] };
+
+/** What a finished match did for this player's decorations. */
+const myAwards = (match: MatchDoc, uid: string) => match.awards?.[uid] ?? null;
 
 /** /app/match/:id — opens a match: the board for a hotseat or online game, the waiting room for an open seat. */
 export function MatchRoute() {
@@ -155,6 +159,7 @@ function OutdatedGate({ matchId, text, canEnd }: { matchId: string; text: string
 }
 
 function HotseatMatch({ matchId, match, scenario, actions, onReload }: { matchId: string; onReload(): void } & Loaded) {
+  const { user } = useMember();
   const navigate = useNavigate();
   const { session, writeError, scored, lock } = usePersistedGame(matchId, match, scenario, actions);
   // Development builds: `?fixture=<id>` starts the game at a dev fixture position.
@@ -162,10 +167,10 @@ function HotseatMatch({ matchId, match, scenario, actions, onReload }: { matchId
   if (session.replayError) return <OutdatedGate matchId={matchId} text={`${session.replayError} ${OLD_RULES}`} canEnd={match.status === 'active'} />;
   return (
     <>
-      <GameScreen scenario={scenario} players={seatNames(match)} session={session} matchId={matchId} onQuit={() => navigate('/app')} aar={aarCue(matchId, match, scored === 'done' || match.status === 'complete', scoreFailure(scored))} />
+      <GameScreen scenario={scenario} players={seatNames(match)} session={session} matchId={matchId} onQuit={() => navigate('/app')} aar={aarCue(matchId, match, scored === 'done' || match.status === 'complete', scoreFailure(scored))} awards={myAwards(match, user.uid)} />
       {lock && <LockedBoard lock={lock} onReload={lock === 'moved' || match.result ? onReload : null} />}
       {fixtureError && <div className="save-warning">Dev fixture: {fixtureError}</div>}
-      {!lock && (writeError || (scored !== 'pending' && scored !== 'done')) && <div className="save-warning">{writeError ? `Not saved: ${writeError}` : `Result not recorded: ${scored}`}</div>}
+      {!lock && (writeError || (scoreFailure(scored) && match.status !== 'complete')) && <div className="save-warning">{writeError ? `Not saved: ${writeError}` : `Result not recorded: ${scored}`}</div>}
     </>
   );
 }
@@ -175,6 +180,7 @@ function HotseatMatch({ matchId, match, scenario, actions, onReload }: { matchId
  * side, there is no undo (decisions stand, as online), and the computer answers its own decisions.
  */
 function ComputerMatch({ matchId, match, scenario, actions, onReload }: { matchId: string; onReload(): void } & Loaded) {
+  const { user } = useMember();
   const navigate = useNavigate();
   const ai = match.computer ?? null;
   // The computer's moves are recorded with the bot's version and how long it thought.
@@ -206,7 +212,7 @@ function ComputerMatch({ matchId, match, scenario, actions, onReload }: { matchI
   const theirTurn = session.engine.currentDecision(session.state)?.owner === ai?.side;
   return (
     <>
-      <GameScreen scenario={scenario} players={seatNames(match)} session={session} matchId={matchId} onQuit={() => navigate('/app')} onResolvingChange={setRevealing} slow={speed === 'slow'} aar={aarCue(matchId, match, scored === 'done' || match.status === 'complete', scoreFailure(scored))} />
+      <GameScreen scenario={scenario} players={seatNames(match)} session={session} matchId={matchId} onQuit={() => navigate('/app')} onResolvingChange={setRevealing} slow={speed === 'slow'} aar={aarCue(matchId, match, scored === 'done' || match.status === 'complete', scoreFailure(scored))} awards={myAwards(match, user.uid)} />
       {!session.state.result && (
         <div className={`online-strip ${computer.thinking ? '' : 'mine'}`}>
           <span>
@@ -235,7 +241,7 @@ function ComputerMatch({ matchId, match, scenario, actions, onReload }: { matchI
           </div>
         </Modal>
       )}
-      {!lock && (writeError || (scored !== 'pending' && scored !== 'done')) && <div className="save-warning">{writeError ? `Not saved: ${writeError}` : `Result not recorded: ${scored}`}</div>}
+      {!lock && (writeError || (scoreFailure(scored) && match.status !== 'complete')) && <div className="save-warning">{writeError ? `Not saved: ${writeError}` : `Result not recorded: ${scored}`}</div>}
     </>
   );
 }
@@ -291,6 +297,7 @@ function LegacyMatch({ matchId, match, scenario, mySide, seat }: { matchId: stri
 }
 
 function OnlineMatchBody({ matchId, match, scenario, mySide, session }: { matchId: string; match: MatchDoc; scenario: ScenarioDef; mySide: string | null; session: OnlineSession }) {
+  const { user } = useMember();
   const navigate = useNavigate();
   const [conceding, setConceding] = useState<'ask' | 'busy' | null>(null);
   const [concedeError, setConcedeError] = useState<string | null>(null);
@@ -350,7 +357,7 @@ function OnlineMatchBody({ matchId, match, scenario, mySide, session }: { matchI
 
   return (
     <>
-      <GameScreen scenario={scenario} players={seatNames(match)} session={mySide && match.status === 'active' ? { ...session, canUndo: undo.canUndo, askUndo: undo.askUndo } : session} matchId={matchId} onQuit={() => navigate('/app')} aside={mySide ? <ChatDock variant="rail" channelId={matchId} title="Table chat" storageKey="asl.matchChat" /> : undefined} aar={aarCue(matchId, match, match.status === 'complete' && !!match.result)} />
+      <GameScreen scenario={scenario} players={seatNames(match)} session={mySide && match.status === 'active' ? { ...session, canUndo: undo.canUndo, askUndo: undo.askUndo } : session} matchId={matchId} onQuit={() => navigate('/app')} aside={mySide ? <ChatDock variant="rail" channelId={matchId} title="Table chat" storageKey="asl.matchChat" /> : undefined} aar={aarCue(matchId, match, match.status === 'complete' && !!match.result)} awards={myAwards(match, user.uid)} settingsExtra={mySide ? undefined : <SsSettings matchId={matchId} match={match} on={false} />} />
       <div className={`online-strip ${toMove && toMove === mySide && !session.sending ? 'mine' : ''}`}>
         {mySide ? (
           <span>
@@ -385,7 +392,7 @@ function OnlineMatchBody({ matchId, match, scenario, mySide, session }: { matchI
       {undo.dialogs}
       {claiming === 'ask' && (
         <Modal title="Claim the win?" kicker="Out of time" onClose={() => setClaiming(null)}>
-          <p>{opponent?.displayName ?? sideName(deadline?.side)} has run out of time. Claiming scores the match as a forfeit win for {sideName(mySide)}. Nothing happens unless you claim: you can keep waiting as long as you like.</p>
+          <p>{opponent?.displayName ?? sideName(deadline?.side)} has run out of time. {officialConcession ? `Claiming scores the match as a forfeit win for ${sideName(mySide)}.` : 'The match has not reached its halfway point, so claiming now abandons it: no winner, no rating change, no battle record and no after action report.'} Nothing happens unless you claim: you can keep waiting as long as you like.</p>
           <div className="buttons">
             <button className="ghost" onClick={() => setClaiming(null)}>
               Keep waiting
@@ -400,7 +407,7 @@ function OnlineMatchBody({ matchId, match, scenario, mySide, session }: { matchI
         <Modal title="Concede the match?" kicker="Surrender" onClose={conceding === 'ask' ? () => setConceding(null) : undefined}>
           <p>
             {!officialConcession
-              ? 'The match has not reached its halfway point, so conceding now abandons it without a result or rating change.'
+              ? 'The match has not reached its halfway point, so conceding now abandons it: no winner, no rating change, no battle record and no after action report, for either player.'
               : match.competition === 'friendly'
                 ? `The match is scored as a friendly win for ${sideName(Object.keys(match.seats).find((s) => s !== mySide))}. You still earn participation XP, but ratings and ranked records do not change.`
                 : `The match is scored as a ranked win for ${sideName(Object.keys(match.seats).find((s) => s !== mySide))}. Your rating and record take the loss.`}

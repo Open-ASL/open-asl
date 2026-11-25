@@ -5,6 +5,7 @@ import { newSk1Game } from '@asl/content';
 import type { ScenarioDef } from '@asl/rules';
 import { COL, type MatchActionDoc } from '@asl/platform';
 import { api, db, errorOf } from '../firebase';
+import { recordError } from '../diagnostics/errorLog';
 import { useOnlineExtras } from './onlineExtras';
 import type { OnlineSession } from './onlineSession';
 
@@ -135,6 +136,7 @@ export function useOnlineGameLegacy(matchId: string, scenario: ScenarioDef, seed
           } catch (e) {
             generation.current++;
             setSendError(errorOf(e).message);
+            recordError('refused', `${full.type} (order ${seq}): ${errorOf(e).message}`);
             setShown(server.current);
           }
         })

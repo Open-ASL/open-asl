@@ -23,7 +23,8 @@ const KEYS: Row[] = [
 ];
 
 const MOUSE: Row[] = [
-  [['Right-click'], 'Open the action wheel: every order lives there'],
+  [['Right-click'], 'Open the action wheel: every order lives there (on a Mac trackpad, click with two fingers)'],
+  [['Press and hold'], 'Open the action wheel on that hex: hold the button still on it, for a trackpad without a secondary click'],
   [['Click'], 'Select your stack, or pick a target or destination hex; a moving vehicle turns its hull toward a neighbouring hex it cannot enter'],
   [['Shift', 'Click'], 'Add a stack to the selection (fire groups)'],
   [['Ctrl', 'Click'], 'Ping a hex: a pulse in your colour, with a chime, that your opponent sees too (⌘ on a Mac)'],

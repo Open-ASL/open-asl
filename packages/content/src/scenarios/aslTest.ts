@@ -128,5 +128,118 @@ export const ASL_TESTBED_FIRE_SCENARIO: ScenarioDef = {
   ],
 };
 
+/**
+ * The test bed for minefields (full ASL B28): the Germans add a PzKpfw IVF2 and a PSW 234/1; the Russians have more
+ * minefield factors (18 recorded, 24 Known: room for a Known belt, B28.46) and Booby Trap capability Level A on board u
+ * (B28.9), Russians set up in P10 or O10 begin broken (for rout through and round minefields); the Known minefield the Russians put in N9 has a Trail Break from its O9 hexside to its M10 one, as if cleared.
+ */
+export const ASL_TESTBED_MINES_SCENARIO: ScenarioDef = {
+  ...ASL_TESTBED_SCENARIO,
+  id: 'asl-testbed-mines',
+  number: 'T3',
+  title: 'T3 Full ASL Test Bed: Minefields',
+  forces: ASL_TESTBED_SCENARIO.forces.map((f) => (f.side === 'ge' ? { ...f, units: [...f.units, { def: 'ge.pzivf2', count: 1 }, { def: 'ge.psw2341', count: 1 }] } : f)),
+  notes: [...ASL_TESTBED_SCENARIO.notes!, 'Minefields: the Germans add two AFV; the Russians have more mines, Booby Traps on board u and a Trail Break through N9.'],
+  ssr: [
+    ...ASL_TESTBED_SCENARIO.ssr.map((r) =>
+      r.module === 'fortifications'
+        ? {
+            ...r,
+            params: { ...r.params, mines: { factors: 18, known: 24, dummies: 1, at: true } },
+            text: 'The Russians receive 3 squads of foxhole capacity, two trenches, two Wire counters, 18 A-P minefield factors (which may be exchanged for A-T mines, B28.5), 24 Known minefield factors with one Dummy Minefield counter, one roadblock and one 1+3+5 pillbox. They are set up in the Russian setup area with the Russian units, hidden or open per A12.33; minefields are recorded (B28.1).',
+          }
+        : r,
+    ),
+    {
+      module: 'booby-traps',
+      params: { side: 'ru', boards: ['u'], level: 'A', rule: 'SSR 4' },
+      text: 'The Russians have Booby Trap capability Level A on board u (B28.9): a German Task Check of an Original 11 or 12 on board u causes Casualty Reduction to a unit of its Location.',
+    },
+    {
+      module: 'trail-breaks',
+      params: { tbs: [{ hex: 'uN9', sides: [2, 5] }] },
+      text: 'N9 holds a Trail Break across its O9 and M10 hexsides (B24.74, B28.61).',
+    },
+    {
+      module: 'set-up-broken',
+      params: { side: 'ru', hexes: ['uP10', 'uO10'] },
+      text: 'Russian units set up in P10 or O10 begin play broken, under DM.',
+    },
+  ],
+};
+
+/**
+ * The test bed for pillboxes (full ASL B30): the Germans add a PzKpfw IVF2 and a PSW 234/1 (ordnance against a pillbox),
+ * the Russians a 45L AT Gun with its crew (a Gun in a pillbox, B30.45); Russians set up in O6 begin broken (a broken unit
+ * inside a pillbox, B30.5). The fortification counters are the test bed's.
+ */
+export const ASL_TESTBED_PILLBOX_SCENARIO: ScenarioDef = {
+  ...ASL_TESTBED_SCENARIO,
+  id: 'asl-testbed-pillbox',
+  number: 'T4',
+  title: 'T4 Full ASL Test Bed: Pillboxes',
+  forces: ASL_TESTBED_SCENARIO.forces.map((f) =>
+    f.side === 'ge'
+      ? { ...f, units: [...f.units, { def: 'ge.pzivf2', count: 1 }, { def: 'ge.psw2341', count: 1 }, { def: 'ge.468', count: 1, withSw: ['ge.MTR'] }] }
+      : { ...f, units: [...f.units, { def: 'ru.228c', count: 1, withSw: ['ru.AT45L'] }] },
+  ),
+  notes: [...ASL_TESTBED_SCENARIO.notes!, 'Pillboxes: the Germans add two AFV and the Russians a 45L AT Gun with its crew; Russians set up in O6 begin broken.'],
+  ssr: [
+    ...ASL_TESTBED_SCENARIO.ssr,
+    {
+      module: 'set-up-broken',
+      params: { side: 'ru', hexes: ['uO6'] },
+      text: 'Russian units set up in O6 (inside a pillbox there too) begin play broken, under DM.',
+    },
+  ],
+};
+
+/**
+ * The test bed for vehicles and the fortification counters (full ASL B27.43, B27.51, B27.52, B9.32, B9.36, C10.3): the
+ * Russians add a T-34 M41, which may set up beneath a trench (Hull Down, never moving), and a 45L AT Gun with its crew (to
+ * push, and to fire at armor behind the roadblock); the Germans a PzKpfw IVF2, a PSW 234/1 (an Armored Car, slowed by a
+ * foxhole) and a 4-6-8 with a 50mm Mortar (Area Target Type fire at a hex holding a stopped AFV: SK4 7.11, ASLRB C3.33).
+ * The fortification counters are the test bed's.
+ */
+export const ASL_TESTBED_VEHICLES_SCENARIO: ScenarioDef = {
+  ...ASL_TESTBED_SCENARIO,
+  id: 'asl-testbed-vehicles',
+  number: 'T5',
+  title: 'T5 Full ASL Test Bed: Vehicles and fortifications',
+  forces: ASL_TESTBED_SCENARIO.forces.map((f) =>
+    f.side === 'ge'
+      ? { ...f, units: [...f.units, { def: 'ge.pzivf2', count: 1 }, { def: 'ge.psw2341', count: 1 }, { def: 'ge.468', count: 1, withSw: ['ge.MTR'] }] }
+      : { ...f, units: [...f.units, { def: 'ru.T34M41', count: 1 }, { def: 'ru.228c', count: 1, withSw: ['ru.AT45L'] }] },
+  ),
+  notes: [...ASL_TESTBED_SCENARIO.notes!, 'Vehicles and fortifications: the Russians add a T-34 M41 (it may set up beneath a trench) and a 45L AT Gun with its crew; the Germans a PzKpfw IVF2, a PSW 234/1 and a 4-6-8 with a 50mm Mortar.'],
+};
+
+/**
+ * The test bed for Deployment and Recombination (full ASL A1.31, A1.32, A2.9, A2.52, A25.2): the Russians add two 2-2-6 HS
+ * (to Recombine, A25.2: Russian squads never Deploy, their HS still Recombine), and the Germans a reinforcement group of an
+ * 8-1 and three 4-6-7 entering on Turn 2 along the east edge (A2.9: one of the three may be Deployed at their offboard
+ * setup; A2.52: the rest may Deploy offboard under the 8-1 in the German RPh). Everything else is the test bed.
+ */
+export const ASL_TESTBED_DEPLOY_SCENARIO: ScenarioDef = {
+  ...ASL_TESTBED_SCENARIO,
+  id: 'asl-testbed-deploy',
+  number: 'T6',
+  title: 'T6 Full ASL Test Bed: Deploy',
+  forces: [
+    ...ASL_TESTBED_SCENARIO.forces.map((f) => (f.side === 'ru' ? { ...f, units: [...f.units, { def: 'ru.226h', count: 2 }] } : f)),
+    {
+      id: 'ge-reinforcements',
+      side: 'ge',
+      group: 'Reinforcements',
+      units: [
+        { def: 'ge.L81', count: 1 },
+        { def: 'ge.467', count: 3 },
+      ],
+      setup: { kind: 'enter', turn: 2, edge: 'E', description: 'enter on Turn 2 along the east edge' },
+    },
+  ],
+  notes: [...ASL_TESTBED_SCENARIO.notes!, 'Deploy and Recombine: the Russians add two 2-2-6 half-squads; a German 8-1 with three 4-6-7 enters on Turn 2 along the east edge.'],
+};
+
 /** The scenarios that play under the Full ASL ruleset. */
-export const ASL_SCENARIOS: ScenarioDef[] = [ASL_TESTBED_SCENARIO, ASL_TESTBED_FIRE_SCENARIO];
+export const ASL_SCENARIOS: ScenarioDef[] = [ASL_TESTBED_SCENARIO, ASL_TESTBED_FIRE_SCENARIO, ASL_TESTBED_MINES_SCENARIO, ASL_TESTBED_PILLBOX_SCENARIO, ASL_TESTBED_VEHICLES_SCENARIO, ASL_TESTBED_DEPLOY_SCENARIO];

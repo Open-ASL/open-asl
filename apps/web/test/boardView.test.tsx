@@ -14,7 +14,7 @@ import type { BoardFx } from '../src/fx/useGameFx';
  * (tracer, burst, result) that arrived with that state change.
  */
 
-const pixi = vi.hoisted(() => ({ inits: 0, destroys: 0, tickers: [] as (() => void)[], graphics: [] as { calls: string[] }[] }));
+const pixi = vi.hoisted(() => ({ inits: 0, destroys: 0, tickers: [] as (() => void)[], graphics: [] as { calls: string[] }[], apps: [] as { ticker: { started: boolean } }[] }));
 
 vi.mock('pixi.js', () => {
   // A stand-in Pixi: every display object is a recorder whose methods are chainable no-ops.
@@ -34,6 +34,7 @@ vi.mock('pixi.js', () => {
       anchor: { set() {} },
       pivot: { set() {} },
       style: {},
+      context: { instructions: [] as unknown[] },
     };
     const p: any = new Proxy(o, {
       get: (t, k) => {
@@ -54,7 +55,21 @@ vi.mock('pixi.js', () => {
     screen = { width: 800, height: 600 };
     // The board listens for the renderer's resize to keep the map in view.
     renderer = { on() {} };
-    ticker = { deltaMS: 16, add: (fn: () => void) => pixi.tickers.push(fn) };
+    ticker = {
+      deltaMS: 16,
+      maxFPS: 0,
+      started: true,
+      add: (fn: () => void) => pixi.tickers.push(fn),
+      start() {
+        this.started = true;
+      },
+      stop() {
+        this.started = false;
+      },
+    };
+    constructor() {
+      pixi.apps.push(this);
+    }
     async init() {
       pixi.inits++;
     }
@@ -74,7 +89,7 @@ vi.mock('pixi.js', () => {
       return g;
     }
   };
-  return { Application, Assets: { load: async () => node() }, Container: plain, Graphics, Sprite: plain, Text: plain, Texture: plain, Rectangle: plain };
+  return { UPDATE_PRIORITY: { UTILITY: -50 }, Application, Assets: { load: async () => node() }, Container: plain, Graphics, Sprite: plain, Text: plain, Texture: plain, Rectangle: plain };
 });
 
 const { BoardView } = await import('../src/board/BoardView');
@@ -101,7 +116,8 @@ afterEach(() => {
   act(() => root?.unmount());
   root = null;
   pixi.inits = pixi.destroys = 0;
-  pixi.tickers.length = pixi.graphics.length = 0;
+  pixi.tickers.length = pixi.graphics.length = pixi.apps.length = 0;
+  vi.restoreAllMocks();
 });
 
 async function mount(props: Partial<Parameters<typeof BoardView>[0]> = {}) {
@@ -148,5 +164,38 @@ describe('BoardView keeps its canvas across renders', () => {
     const drawn = pixi.graphics.slice(before).filter((g) => g.calls.includes('lineTo') && g.calls.includes('circle'));
     expect(pixi.inits).toBe(1);
     expect(drawn.length).toBeGreaterThan(0);
+  });
+
+  it('stops rendering when nothing moves, and starts again when the picture changes', async () => {
+    const render = await mount({ offboard: statics.map.offboard('N') });
+    const app = pixi.apps.at(-1)!;
+    const tickAll = () => {
+      for (const tick of pixi.tickers) tick();
+    };
+    // Just after a change the loop runs; a moment later, with nothing animating, it stops.
+    tickAll();
+    expect(app.ticker.started).toBe(true);
+    const t0 = performance.now();
+    vi.spyOn(performance, 'now').mockReturnValue(t0 + 5000);
+    tickAll();
+    expect(app.ticker.started).toBe(false);
+    // A new position wakes it.
+    await render({ state: { ...state, pieces: { ...state.pieces } }, offboard: statics.map.offboard('N') });
+    await settle();
+    expect(app.ticker.started).toBe(true);
+    // An effect keeps it running until the effect is done, however long the board was idle before.
+    vi.spyOn(performance, 'now').mockReturnValue(t0 + 10_000);
+    tickAll();
+    expect(app.ticker.started).toBe(false);
+    const fx: BoardFx[] = [{ id: 2, kind: 'tracer', from: ['yN5'], to: 'yP5', color: 0xffc85a }];
+    await render({ state: { ...state, pieces: { ...state.pieces } }, offboard: statics.map.offboard('N'), fx });
+    await settle();
+    vi.spyOn(performance, 'now').mockReturnValue(t0 + 10_400);
+    tickAll();
+    expect(app.ticker.started).toBe(true);
+    vi.spyOn(performance, 'now').mockReturnValue(t0 + 30_000);
+    tickAll();
+    tickAll();
+    expect(app.ticker.started).toBe(false);
   });
 });

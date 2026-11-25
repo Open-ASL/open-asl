@@ -145,14 +145,10 @@ export const manhandleModule: RuleModule = {
           outcome,
         });
         if (outcome === 'failed') {
-          // Nobody moves this turn: the MF are spent where they stand and the stack is done.
-          moveInternals.spendInPlace(ctx, ms, cost, { manhandle: { gun: gunId, mustStop: true } });
+          // Nobody moves this turn: the MF are spent where they stand and the stack is done. It is halted, so its move
+          // ends once the defender has had its First Fire chance at that expenditure (SK1 3.3.1), not before.
+          moveInternals.spendInPlace(ctx, ms, cost, { manhandle: { gun: gunId, mustStop: true }, halted: true });
           moveInternals.afterMfExpenditure(ctx);
-          const after = moveState(ctx);
-          if (after) {
-            moveInternals.finishStack(ctx);
-            moveInternals.reAskMover(ctx);
-          }
           return;
         }
         for (const id of ms.units) ctx.emit('piece.moved', { id, loc: { kind: 'hex', hex: a.to } });
@@ -172,13 +168,11 @@ export const manhandleModule: RuleModule = {
           firedHere: {},
           residualDrmHere: null,
           manhandle: { gun: gunId, mustStop: outcome === 'stopped' },
+          // A push that stops the Gun ends the stack's move there, after the defender's First Fire chance in the new hex.
+          ...(outcome === 'stopped' ? { halted: true } : {}),
         };
         ctx.emit('sk1.move.state', { state: next });
         moveInternals.afterMfExpenditure(ctx);
-        if (outcome === 'stopped' && moveState(ctx)) {
-          moveInternals.finishStack(ctx);
-          moveInternals.reAskMover(ctx);
-        }
       },
     });
 

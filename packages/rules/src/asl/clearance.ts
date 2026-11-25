@@ -7,7 +7,9 @@ import { moveLoc, moveState } from '../sk1/moveState';
 import { T, fireMarker, isGoodOrder, isPinned, mmc, pieceOf, setTags, smc } from '../sk1/status';
 import { T2 } from '../sk2/status';
 import { clearanceDrm } from './fire';
-import { removeFortification, roadblocks, shownCounter, wireAt, type FortRecord } from './fortifications';
+import { minefieldAt, removeFortification, roadblocks, shownCounter, wireAt, type FortRecord } from './fortifications';
+import { P as MP, type CasualtyFn, type FlushFn } from '../sk1/morale';
+import { clearPartialTbs, mineClearable, partialTbsAt } from './mineTb';
 import { laborTag, parseLabor, tiIllegal } from './labor';
 import { roadblockObstacles } from './roadblocks';
 import { rubbleClearable, trailBreaksAt } from './rubble';
@@ -32,11 +34,17 @@ import { rubbleClearable, trailBreaksAt } from './rubble';
  *   move is the entry into the hex) or to remain in (declared before any stack moves) a non-building hex's fallen rubble, as
  *   Hazardous Movement; the declaration names the two hexsides the TB will cross (the clearing player's choice), no two TB on
  *   the exact same hexsides (B13.4211).
- * Minefields (B24.74) and Set DC (B24.75) join this model with their counters.
+ * - Minefields (B24.74): only the ATTACKER, in his MPh, by Good Order Infantry in a Known minefield Location (not on top of
+ *   Wire) that have not fired or directed fire this Player Turn: declared before any stack moves by units already there (no
+ *   MF, so no First Fire; Q&A to B24.74), or by a stack entering free of attack with all of its MF (`move.step` `mines:
+ *   'clear'`, a partial TB, `asl/mineTb.ts`). The two TB hexsides are chosen at the declaration, a partial TB's among them.
+ *   The DR at the end of the CCPh: Final ≤ 2 places the TB; an Original 12 (11 or 12 Inexperienced) Casualty Reduces every
+ *   participating MMC and the directing leader (a SMC is wounded). Once every hexside is crossed by a TB, mines and TB go.
+ * Set DC (B24.75) joins this model with its counter.
  */
 
 export const CLEARANCE_EXT = 'asl.clearance';
-export type ClearanceKind = 'wire' | 'roadblock' | 'rubble';
+export type ClearanceKind = 'wire' | 'roadblock' | 'rubble' | 'mines';
 export interface ClearanceTask {
   key: string;
   kind: ClearanceKind;
@@ -46,14 +54,14 @@ export interface ClearanceTask {
   units: PieceId[];
   director?: PieceId;
   phase: string;
-  /** Rubble (B24.71): the two hexsides of the hex the TB will cross, the clearing player's choice. */
+  /** Rubble and minefields (B24.71, B24.74): the two hexsides of the hex the TB will cross, the clearing player's choice. */
   hexsides?: [number, number];
 }
 /** `counter`: the Fortification's id; for rubble (B24.71) the rubble hex itself. */
 export type ClearanceDeclare = Action & { type: 'clearance.declare'; kind: ClearanceKind; counter: string; loc: LocId; units: PieceId[]; director?: PieceId; hexsides?: [number, number] };
 /** The rule each kind of Task is declared under. */
-export const CLEARANCE_RULE: Record<ClearanceKind, string> = { wire: 'B24.73', roadblock: 'B24.76', rubble: 'B24.71' };
-const KIND_NAME: Record<ClearanceKind, string> = { wire: 'Wire', roadblock: 'roadblock', rubble: 'rubble' };
+export const CLEARANCE_RULE: Record<ClearanceKind, string> = { wire: 'B24.73', roadblock: 'B24.76', rubble: 'B24.71', mines: 'B24.74' };
+const KIND_NAME: Record<ClearanceKind, string> = { wire: 'Wire', roadblock: 'roadblock', rubble: 'rubble', mines: 'minefield' };
 
 export const clearanceTasks = (env: QueryEnv): ClearanceTask[] => ((env.state.ext[CLEARANCE_EXT] as { tasks: ClearanceTask[] } | undefined)?.tasks ?? []);
 /** The Labor key of a Task (B24.8): the kind and its Location. */
@@ -66,6 +74,8 @@ export const clearanceLaborKey = (kind: ClearanceKind, loc: LocId) => `${kind}:$
  */
 export function clearanceSideFor(env: QueryEnv, kind: ClearanceKind): SideId | null {
   if (kind === 'rubble') return env.state.phase === 'MPh' ? env.state.attacker : null;
+  // B24.74: "becomes TI during its MPh": the ATTACKER's MPh only, before any stack moves (the entry is `move.step`'s).
+  if (kind === 'mines') return env.state.phase === 'MPh' && !moveState(env) ? env.state.attacker : null;
   return clearanceSide(env);
 }
 /** Whose Wire or roadblock Clearance declaration it could be now: the ATTACKER's in his MPh before a stack moves, the DEFENDER's in the DFPh. */
@@ -81,6 +91,8 @@ export function clearanceTargets(env: QueryEnv, loc: LocId, side: SideId): { kin
   const hex = hexOfLoc(loc);
   const out: { kind: ClearanceKind; counter: { id: string } }[] = [];
   if (rubbleClearable(env, hex)) out.push({ kind: 'rubble', counter: { id: hex } });
+  const m = minefieldAt(env, hex);
+  if (m && mineClearable(env, hex, side)) out.push({ kind: 'mines', counter: m });
   const w = wireAt(env, hex);
   if (w && shownCounter(w, side)) out.push({ kind: 'wire', counter: w });
   for (const o of roadblockObstacles(env)) {
@@ -111,6 +123,7 @@ export function clearanceUnitIllegal(env: QueryEnv, p: Piece, kind: ClearanceKin
   if (ti) return ti;
   if (p.tags[T2.manhandled]) return `${p.id} is manhandling a Gun`;
   if (kind === 'wire' && p.loc.kind === 'hex' && p.loc.pos?.wire !== 'beneath') return `${p.id} is on top of the Wire: only units beneath it clear it (ASLRB B24.73)`;
+  if (kind === 'mines' && p.loc.kind === 'hex' && p.loc.pos?.wire === 'on') return `${p.id} is on top of a Wire counter (ASLRB B24.74)`;
   return null;
 }
 
@@ -120,20 +133,27 @@ export function clearanceIllegal(env: QueryEnv, a: { kind: ClearanceKind; counte
   if (!side)
     return a.kind === 'rubble'
       ? 'Rubble is cleared by spending all MF in the hex in your own MPh (ASLRB B24.71)'
+      : a.kind === 'mines'
+        ? 'Minefield Clearance is declared in your own MPh before any stack moves, or by entering the minefield with all MF (ASLRB B24.74)'
       : env.state.phase === 'MPh'
         ? 'Clearance is declared before any stack moves in the MPh, or in the DFPh (ASLRB B24.73, B24.76)'
         : 'Clearance is declared in the MPh or the DFPh (ASLRB B24.73, B24.76)';
   if (a.side !== side) return 'Not your phase';
   if (!clearanceTargets(env, a.loc, side).some((t) => t.kind === a.kind && t.counter.id === a.counter))
-    return a.kind === 'rubble' ? `No fallen rubble to clear in ${a.loc}: only a non-building hex's rubble, with a hexside not yet crossed by a TB (ASLRB B24.71)` : `No ${KIND_NAME[a.kind]} to clear from ${a.loc}`;
-  if (a.kind === 'rubble') {
-    const k = a.hexsides;
-    if (!k || k.length !== 2 || k[0] === k[1] || k.some((x) => !Number.isInteger(x) || x < 0 || x > 5)) return 'Name the two hexsides the Trail Break will cross (ASLRB B24.71)';
-    if (trailBreaksAt(env, hexOfLoc(a.loc)).some((t) => t.includes(k[0]) && t.includes(k[1]))) return 'No two Trail Breaks mark the exact same hexsides (ASLRB B13.4211)';
+    return a.kind === 'rubble' ? `No fallen rubble to clear in ${a.loc}: only a non-building hex's rubble, with a hexside not yet crossed by a TB (ASLRB B24.71)` : a.kind === 'mines' ? `No Known minefield to clear in ${a.loc} (ASLRB B24.74)` : `No ${KIND_NAME[a.kind]} to clear from ${a.loc}`;
+  if (a.kind === 'mines') {
+    const why = tbSidesIllegal(env, hexOfLoc(a.loc), a.hexsides, 'B24.74');
+    if (why) return why;
+    // B24.74 "to include any existing partial TB placed upon entry": the partial TB of these units is one of the two.
+    const partial = partialTbsAt(env, hexOfLoc(a.loc)).find((t) => t.units?.some((u) => a.units.includes(u)));
+    if (partial && !a.hexsides!.includes(partial.side)) return 'The TB must include the hexside of the partial TB these units placed on entry (ASLRB B24.74)';
+  } else if (a.kind === 'rubble') {
+    const why = tbSidesIllegal(env, hexOfLoc(a.loc), a.hexsides, 'B24.71');
+    if (why) return why;
     const ms = moveState(env);
     if (ms && a.units.some((u) => !ms.units.includes(u))) return 'Only the units of the stack moving now may join it now (ASLRB B24.71)';
     if (ms && ms.units.some((u) => !a.units.includes(u) && u !== a.director)) return 'The whole moving stack spends its MF in the rubble hex: declare it for every unit (ASLRB B24.71)';
-  } else if (a.hexsides) return 'Only a rubble Clearance names hexsides';
+  } else if (a.hexsides) return 'Only a rubble or minefield Clearance names hexsides';
   if (!a.units.length) return 'At least one MMC must take part in a Clearance attempt (ASLRB B24.7)';
   const all = [...a.units, ...(a.director ? [a.director] : [])];
   if (new Set(all).size !== all.length) return 'A unit is listed twice';
@@ -154,11 +174,24 @@ export function clearanceIllegal(env: QueryEnv, a: { kind: ClearanceKind; counte
   return null;
 }
 
+/** Why two TB hexsides may not be named for `hex` (B24.71, B24.74, B13.4211), or null. */
+export function tbSidesIllegal(env: QueryEnv, hex: HexId, k: [number, number] | undefined, rule: string): string | null {
+  if (!k || k.length !== 2 || k[0] === k[1] || k.some((x) => !Number.isInteger(x) || x < 0 || x > 5)) return `Name the two hexsides the Trail Break will cross (ASLRB ${rule})`;
+  if (trailBreaksAt(env, hex).some((t) => t.includes(k[0]) && t.includes(k[1]))) return 'No two Trail Breaks mark the exact same hexsides (ASLRB B13.4211)';
+  return null;
+}
+
 const taskKey = (kind: ClearanceKind, counter: string, loc: LocId, side: SideId, phase: string) => `${kind}|${counter}|${loc}|${side}|${phase}`;
 
 /** The two hexsides a rubble Task names by default (B24.71): the first two not yet crossed by a TB, else the first pair no TB marks. */
-export function defaultTbHexsides(env: QueryEnv, hex: HexId): [number, number] {
+export function defaultTbHexsides(env: QueryEnv, hex: HexId, include?: number): [number, number] {
   const tbs = trailBreaksAt(env, hex);
+  if (include !== undefined) {
+    const used = new Set(tbs.flat());
+    const other = [0, 1, 2, 3, 4, 5].filter((k) => k !== include && !tbs.some((t) => t.includes(k) && t.includes(include)));
+    const b = other.find((k) => !used.has(k)) ?? other[0] ?? (include + 3) % 6;
+    return include < b ? [include, b] : [b, include];
+  }
   const used = new Set(tbs.flat());
   const free = [0, 1, 2, 3, 4, 5].filter((k) => !used.has(k));
   if (free.length >= 2) return [free[0]!, free[1]!];
@@ -189,7 +222,17 @@ function rollTasks(ctx: Ctx) {
       return !!p && locOf(ctx.state, p) === t.loc && isGoodOrder(ctx, p) && !isPinned(p);
     });
     const director = t.director && ctx.state.pieces[t.director] && locOf(ctx.state, ctx.state.pieces[t.director]!) === t.loc && isGoodOrder(ctx, ctx.state.pieces[t.director]!) && !isPinned(ctx.state.pieces[t.director]!) ? t.director : undefined;
-    const counter = t.kind === 'rubble' ? (rubbleClearable(ctx, hexOfLoc(t.loc)) ? { id: t.counter } : undefined) : [...roadblocks(ctx), ...(wireAt(ctx, hexOfLoc(t.loc)) ? [wireAt(ctx, hexOfLoc(t.loc))!] : [])].find((c) => c.id === t.counter);
+    const mf = minefieldAt(ctx, hexOfLoc(t.loc));
+    const counter =
+      t.kind === 'rubble'
+        ? rubbleClearable(ctx, hexOfLoc(t.loc))
+          ? { id: t.counter }
+          : undefined
+        : t.kind === 'mines'
+          ? mf && mf.id === t.counter && !mf.mines?.dummy
+            ? mf
+            : undefined
+          : [...roadblocks(ctx), ...(wireAt(ctx, hexOfLoc(t.loc)) ? [wireAt(ctx, hexOfLoc(t.loc))!] : [])].find((c) => c.id === t.counter);
     if (!counter || !units.some((u) => mmc(ctx, pieceOf(ctx, u)))) {
       ctx.emit('asl.clearance.dr', { task: t, units, abandoned: true });
       continue;
@@ -197,6 +240,10 @@ function rollTasks(ctx: Ctx) {
     const { drm, explain, labor } = taskDrm(ctx, { ...t, units, ...(director ? { director } : {}) });
     const roll = ctx.roll(`Clearance DR: ${KIND_NAME[t.kind]} in ${t.loc} (ASLRB ${CLEARANCE_RULE[t.kind]})`);
     const success = roll.total + drm <= 2;
+    // B24.74: an Original 12 (11 or 12 if Inexperienced) Casualty Reduces the clearing units: every participating MMC and
+    // the directing leader (B24.7 counts him a participant; a SMC is wounded).
+    const clearers = [...units, ...(director ? [director] : [])];
+    const casualty = t.kind === 'mines' && (roll.total === 12 || (roll.total === 11 && clearers.some((u) => ctx.query('unit.inexperienced', { unit: u }, false))));
     const key = clearanceLaborKey(t.kind, t.loc);
     let nextLabor: number | undefined;
     if (success) {
@@ -205,10 +252,22 @@ function rollTasks(ctx: Ctx) {
       nextLabor = Math.max(-2, labor - 1);
       for (const u of units) if (mmc(ctx, pieceOf(ctx, u))) setTags(ctx, u, { labor: laborTag(key, nextLabor) });
     }
-    ctx.emit('asl.clearance.dr', { task: t, units, ...(director ? { director } : {}), dr: roll.dice as [number, number], drm, explain, success, ...(nextLabor !== undefined ? { labor: nextLabor } : {}) });
+    ctx.emit('asl.clearance.dr', { task: t, units, ...(director ? { director } : {}), dr: roll.dice as [number, number], drm, explain, success, ...(nextLabor !== undefined ? { labor: nextLabor } : {}), ...(casualty ? { casualty: true as const } : {}) });
+    if (casualty) {
+      for (const u of [...clearers].sort()) if (ctx.state.pieces[u]?.loc.kind === 'hex') ctx.proc<CasualtyFn>(MP.casualtyReduce)(ctx, u, 'Minefield Clearance: Original 12 (ASLRB B24.74)');
+      ctx.proc<FlushFn>(MP.flushLeaderLoss)(ctx);
+    }
     // The units are engaged in the Task until its DR: their Hazardous Movement ends with it (B24.7; Q&A [K33] to B24.7 & E1.21).
     for (const u of [...units, ...(director ? [director] : [])]) if (ctx.state.pieces[u]?.tags[T2.hazardous]) setTags(ctx, u, { [T2.hazardous]: null });
-    if (success && t.kind === 'rubble') {
+    if (success && t.kind === 'mines') {
+      // B24.74: a TB across the two hexsides chosen (the partial TB of the entry among them); every hexside crossed: mines and TB go.
+      const hex = hexOfLoc(t.loc);
+      const tbs: [number, number][] = [...trailBreaksAt(ctx, hex), t.hexsides ?? defaultTbHexsides(ctx, hex)];
+      const all = new Set(tbs.flat()).size === 6;
+      clearPartialTbs(ctx, hex, (p) => !!p.units && t.hexsides!.includes(p.side));
+      ctx.emit('asl.tb', { hex, tbs: all ? [] : tbs });
+      if (all) removeFortification(ctx, counter.id, 'every hexside crossed by a TB (ASLRB B24.74)');
+    } else if (success && t.kind === 'rubble') {
       // B24.71: a TB across the two hexsides chosen; once every hexside is crossed, the rubble and the TB are removed.
       const hex = hexOfLoc(t.loc);
       const tbs: [number, number][] = [...trailBreaksAt(ctx, hex), t.hexsides ?? defaultTbHexsides(ctx, hex)];
@@ -233,13 +292,13 @@ export const aslClearanceModule: RuleModule = {
       },
     });
     r.event<{ task: ClearanceTask; joined?: true }>({ type: 'asl.clearance.declared', apply() {} });
-    r.event<{ task: ClearanceTask; units: PieceId[]; director?: PieceId; dr?: [number, number]; drm?: number; explain?: string[]; success?: boolean; labor?: number; abandoned?: true }>({ type: 'asl.clearance.dr', apply() {} });
+    r.event<{ task: ClearanceTask; units: PieceId[]; director?: PieceId; dr?: [number, number]; drm?: number; explain?: string[]; success?: boolean; labor?: number; abandoned?: true; casualty?: true }>({ type: 'asl.clearance.dr', apply() {} });
 
     r.action<ClearanceDeclare>({
       type: 'clearance.declare',
       decisionKinds: [PHASE_DECISION],
       legal(env) {
-        const side = clearanceSideFor(env, 'rubble') ?? clearanceSide(env);
+        const side = clearanceSideFor(env, 'rubble') ?? clearanceSideFor(env, 'mines') ?? clearanceSide(env);
         if (!side) return [];
         const out: ClearanceDeclare[] = [];
         const locs = new Set<LocId>();
@@ -251,7 +310,8 @@ export const aslClearanceModule: RuleModule = {
             const ms = t.kind === 'rubble' ? moveState(env) : undefined;
             const units = ms ? ms.units.filter((u) => mmcs.some((p) => p.id === u)) : mmcs.map((p) => p.id);
             const director = ms ? leaders.find((l) => ms.units.includes(l.id)) : leaders[0];
-            const a = { type: 'clearance.declare', kind: t.kind, counter: t.counter.id, loc, units, ...(director ? { director: director.id } : {}), ...(t.kind === 'rubble' ? { hexsides: defaultTbHexsides(env, hexOfLoc(loc)) } : {}) } as ClearanceDeclare;
+            const partial = t.kind === 'mines' ? partialTbsAt(env, hexOfLoc(loc)).find((x) => x.units?.some((u) => units.includes(u))) : undefined;
+            const a = { type: 'clearance.declare', kind: t.kind, counter: t.counter.id, loc, units, ...(director ? { director: director.id } : {}), ...(t.kind === 'rubble' || t.kind === 'mines' ? { hexsides: defaultTbHexsides(env, hexOfLoc(loc), partial?.side) } : {}) } as ClearanceDeclare;
             if (!clearanceIllegal(env, { ...a, side })) out.push(a);
           }
         }
@@ -347,14 +407,14 @@ export const aslClearanceModule: RuleModule = {
       ext: CLEARANCE_EXT,
       redactExt(slice, viewer, env) {
         const st = slice as { tasks: ClearanceTask[] };
-        const tasks = st.tasks.filter((t) => t.side === viewer || t.kind === 'rubble' || [...roadblocks(env), wireAt(env, hexOfLoc(t.loc))].some((c) => c && c.id === t.counter && shownCounter(c, viewer)));
+        const tasks = st.tasks.filter((t) => t.side === viewer || t.kind === 'rubble' || [...roadblocks(env), wireAt(env, hexOfLoc(t.loc)), minefieldAt(env, hexOfLoc(t.loc))].some((c) => c && c.id === t.counter && shownCounter(c, viewer)));
         return tasks.length ? { tasks } : undefined;
       },
       events: ['asl.clearance.declared', 'asl.clearance.dr'],
       redactEvent(ev, viewer, env) {
         const t = (ev.payload as { task: ClearanceTask }).task;
         if (t.side === viewer || t.kind === 'rubble') return ev;
-        const c = [...roadblocks(env), wireAt(env, hexOfLoc(t.loc))].find((x) => x && x.id === t.counter);
+        const c = [...roadblocks(env), wireAt(env, hexOfLoc(t.loc)), minefieldAt(env, hexOfLoc(t.loc))].find((x) => x && x.id === t.counter);
         return !c || shownCounter(c, viewer) ? ev : null;
       },
     });

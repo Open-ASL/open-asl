@@ -147,16 +147,7 @@ const outcomes = [
   'loss',
   'win',
 ] as const;
-const medalIds: MedalId[] = [
-  'cib',
-  'purple-heart',
-  'bronze-star',
-  'silver-star',
-  'good-conduct',
-  'eame-campaign',
-  'beta-service',
-  'beta-campaign',
-];
+const medalIds: MedalId[] = ['beta-service', 'beta-campaign'];
 const medals: AwardedMedal[] = medalIds.map((id, index) => ({
   id,
   awardedAt: stamp(now - (160 - index * 15) * DAY),

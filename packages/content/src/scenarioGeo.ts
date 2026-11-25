@@ -60,7 +60,8 @@ const ETO_PLACES: PlaceGeo[] = [
   { match: 'Vierville', region: 'Western Europe', area: 'Normandy', latitude: 49.358, longitude: -1.247 },
   { match: 'Chef-du-Pont', region: 'Western Europe', area: 'Normandy', latitude: 49.384, longitude: -1.343 },
   { match: 'Carentan', region: 'Western Europe', area: 'Normandy', latitude: 49.303, longitude: -1.248 },
-  { match: 'Amfréville', region: 'Western Europe', area: 'Normandy', latitude: 49.411, longitude: -1.388 },
+  // Amfréville (Calvados), on the ridge east of the Orne by Ranville and Bréville: not the Amfreville of the Cotentin.
+  { match: 'Amfréville', region: 'Western Europe', area: 'Normandy', latitude: 49.249, longitude: -0.231 },
   { match: 'Putot', region: 'Western Europe', area: 'Normandy', latitude: 49.212, longitude: -0.547 },
   { match: 'Colleville', region: 'Western Europe', area: 'Normandy', latitude: 49.347, longitude: -0.843 },
   { match: 'Plouzane', region: 'Western Europe', area: 'Brittany', latitude: 48.383, longitude: -4.616 },

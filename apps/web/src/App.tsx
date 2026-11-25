@@ -16,10 +16,14 @@ import { MemberPresence } from './lobby-v2/Presence';
 import { AdminAnnouncements } from './lobby-v2/AdminAnnouncements';
 import { PublicReplay } from './match/PublicReplay';
 import { ProfileRedirect } from './profile/ProfileRedirect';
+import { SsBoardRoute } from './superSpectator/SsBoard';
+import { SsControlsWindow } from './superSpectator/SsControlsWindow';
 
 const ScenarioExplorer = lazy(() => import('./lobby-v2/ScenarioExplorer').then((m) => ({ default: m.ScenarioExplorer })));
 const PublicProfilePage = lazy(() => import('./profile/PublicProfilePage').then((m) => ({ default: m.PublicProfilePage })));
+const DecorationsPage = lazy(() => import('./profile/decorations/DecorationsPage').then((m) => ({ default: m.DecorationsPage })));
 const AarPage = lazy(() => import('./aar/AarPage').then((m) => ({ default: m.AarPage })));
+const ChartsWindow = lazy(() => import('./panels/Charts').then((m) => ({ default: m.ChartsWindow })));
 
 export function App() {
   useEffect(() => {
@@ -41,8 +45,12 @@ export function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/not-invited" element={<NotInvited />} />
         <Route path="/profile/:nickname" element={<Suspense fallback={<Splash text="Reading service record…" />}><PublicProfilePage /></Suspense>} />
+        <Route path="/profile/:nickname/decorations" element={<Suspense fallback={<Splash text="Reading service record…" />}><DecorationsPage /></Suspense>} />
+        <Route path="/profile/:nickname/decorations/:id" element={<Suspense fallback={<Splash text="Reading service record…" />}><DecorationsPage /></Suspense>} />
         <Route path="/match/:id/replay" element={<PublicReplay />} />
         <Route path="/aar/:matchId" element={<Suspense fallback={<Splash text="Reading the after action report…" />}><AarPage /></Suspense>} />
+        {/* The charts popped out of a game into a window of their own. */}
+        <Route path="/charts" element={<Suspense fallback={<Splash text="Opening the charts…" />}><ChartsWindow /></Suspense>} />
         <Route
           path="/app"
           element={
@@ -63,6 +71,8 @@ export function App() {
           </Route>
           <Route path="profile/:uid" element={<ProfileRedirect />} />
           <Route path="match/:id" element={<MatchRoute />} />
+          <Route path="match/:id/ss" element={<SsBoardRoute />} />
+          <Route path="match/:id/ss/controls" element={<SsControlsWindow />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

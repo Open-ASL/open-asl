@@ -16,6 +16,7 @@ import {
   locationsOf,
   piecesModule,
   pillboxCaHexsides,
+  pillboxGray,
   redactState,
   roadblockExtension,
   seenByEnemy,
@@ -175,7 +176,7 @@ describe('where each counter may go', () => {
     expect(fortPlaceIllegal(two, 'ru', [{ kind: 'roadblock', hex: 'uM5', hidden: true, hexside: 1 }, { kind: 'roadblock', hex: 'uM6', hidden: true, hexside: 4 }])).toMatch(/One roadblock per hexside \(uM5-uM6/);
     expect(fortPlaceIllegal(two, 'ru', [{ kind: 'roadblock', hex: 'uM5', hidden: true, hexside: 1 }, { kind: 'roadblock', hex: 'uM5', hidden: true, hexside: 4 }])).toBeNull();
   });
-  it('a pillbox only in Open Ground, brush, orchard, grain or woods, with a Covered Arc; one per hex, not with an entrenchment (B30.1)', () => {
+  it('a pillbox only in Open Ground, brush, orchard, grain or woods, with a Covered Arc, its factors as printed; one per hex, with or without an entrenchment (B30.1, B30.11, B30.8)', () => {
     const { engine, state } = game(far);
     const env = engine.env(state);
     const pb = (hex: string, ca?: number): FortPlacement => ({ kind: 'pillbox', hex, hidden: true, ...(ca !== undefined ? { ca } : {}), pillbox: { capacity: 1, ca: 3, nca: 5 } });
@@ -185,7 +186,15 @@ describe('where each counter may go', () => {
     for (const hex of ['uL4', 'uN4', 'uM4', 'uK5']) expect(counterTerrainIllegal(env, pb(hex, 2)), hex).toBeNull();
     expect(pillboxCaHexsides(0)).toEqual([5, 0]);
     expect(pillboxCaHexsides(3)).toEqual([2, 3]);
-    expect(fortPlaceIllegal(env, 'ru', [pb('uL4', 0), fox('uL4')])).toMatch(/pillbox hex takes no foxhole or trench/);
+    // A trench (or A-T Ditch) in the pillbox's hex makes it a bunker (B30.8); a foxhole may share it too (B27.1 lists no pillbox).
+    expect(fortPlaceIllegal(env, 'ru', [pb('uL4', 0), fox('uL4')])).toBeNull();
+    expect(fortPlaceIllegal(env, 'ru', [pb('uL4', 0), { kind: 'trench', hex: 'uL4', hidden: true }])).toBeNull();
+    expect(fortPlaceIllegal(env, 'ru', [pb('uL4', 0), { kind: 'ditch', hex: 'uL4', hidden: true }])).toBeNull();
+    // The counters pair the Defense Modifications 3+5, 4+6, 5+7 (B30.11).
+    expect(counterTerrainIllegal(env, { ...pb('uL4', 0), pillbox: { capacity: 1, ca: 3, nca: 7 } })).toMatch(/No pillbox counter is 1\+3\+7/);
+    expect(counterTerrainIllegal(env, { ...pb('uL4', 0), pillbox: { capacity: 2, ca: 4, nca: 6 } })).toBeNull();
+    expect(pillboxGray({ capacity: 3, ca: 5, nca: 7 })).toBe(true);
+    expect(pillboxGray({ capacity: 1, ca: 3, nca: 5 })).toBe(false);
     expect(fortPlaceIllegal(env, 'ru', [{ ...pb('uL4', 0), pillbox: { capacity: 2, ca: 3, nca: 5 } }])).toMatch(/No pillbox 2\+3\+5/);
     // Mines and Wire may share its hex.
     expect(fortPlaceIllegal(env, 'ru', [pb('uL4', 0), { kind: 'wire', hex: 'uL4', hidden: true }, { kind: 'mines', hex: 'uL4', hidden: true, mines: { ap: 6 } }])).toBeNull();
@@ -239,6 +248,23 @@ describe('units set up with the counters', () => {
     // Nor the Gun counter itself, set up beneath the foxhole on its own.
     expect(fortSetupIllegal(env, 'ru', setup({ gun: 'uL4' }, { beneath: ['gun'] }))).toMatch(/gun cannot be placed beneath a foxhole: only Infantry, SW and a mortar may/);
     expect(fortSetupIllegal(env, 'ru', setup({ gun: 'uL5' }, { beneath: ['gun'] }))).toBeNull();
+  });
+  it('any vehicle may start beneath a trench or an A-T Ditch, outside its Infantry capacity; never beneath a foxhole or Wire (B27.51, B27.52, B27.56, B27.1, B26.43)', () => {
+    const tanks: PieceSpec[] = [
+      ...units,
+      { id: 'c2', def: 'ru.447', side: 'ru', hex: 'uL5' },
+      { id: 't34', def: 'ru.T34M41', side: 'ru', hex: 'uL5', tags: { vca: 0, ca: 0 } },
+      { id: 'ac', def: 'ge.psw2341', side: 'ru', hex: 'uN5', tags: { vca: 0, ca: 0 } },
+    ];
+    const { engine, state } = game(tanks);
+    const s = place(engine, state, [fox('uL4', 1), { kind: 'trench', hex: 'uL5', hidden: true }, { kind: 'ditch', hex: 'uN5', hidden: false }, { kind: 'wire', hex: 'uN4', hidden: false }]);
+    const env = engine.env(s);
+    // A trench holds three squads and four SMC whatever vehicle is beneath it as well (Q&A to B27.51 & B27.52).
+    expect(fortSetupIllegal(env, 'ru', setup({ t34: 'uL5', a: 'uL5', b: 'uL5', c2: 'uL5' }, { beneath: ['t34', 'a', 'b', 'c2'] }))).toBeNull();
+    // An Armored Car may start beneath an A-T Ditch: B27.55 and B27.56 bar entering it, not starting there.
+    expect(fortSetupIllegal(env, 'ru', setup({ ac: 'uN5' }, { beneath: ['ac'] }))).toBeNull();
+    expect(fortSetupIllegal(env, 'ru', setup({ t34: 'uL4' }, { beneath: ['t34'] }))).toMatch(/vehicle cannot set up beneath a foxhole.*: only Infantry, SW and a mortar may \(ASLRB B27.1\)/);
+    expect(fortSetupIllegal(env, 'ru', setup({ t34: 'uN4' }, { beneath: ['t34'] }))).toMatch(/Vehicles are never placed beneath Wire \(ASLRB B26.43\)/);
   });
   it('inside a pillbox: its capacity, one Gun, no vehicle, only the owner (B30.111)', () => {
     const { engine, state } = game(units);

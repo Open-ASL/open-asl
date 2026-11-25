@@ -1,6 +1,6 @@
 /**
- * The page's recent errors, for bug reports: uncaught exceptions, unhandled promise rejections, `console.error` and
- * what an error boundary catches. Only the last few are kept, each cut short, and nothing leaves the page unless the
+ * The page's recent errors, for bug reports: uncaught exceptions, unhandled promise rejections, `console.error`,
+ * what an error boundary catches and orders the server refused (the "Order refused" line says why only until the next order). Only the last few are kept, each cut short, and nothing leaves the page unless the
  * player files a report.
  */
 const MAX_ENTRIES = 30;
@@ -9,7 +9,7 @@ const MAX_LENGTH = 500;
 export interface ErrorEntry {
   /** Seconds since the page loaded. */
   t: number;
-  kind: 'exception' | 'rejection' | 'console' | 'boundary';
+  kind: 'exception' | 'rejection' | 'console' | 'boundary' | 'refused';
   text: string;
 }
 

@@ -131,10 +131,24 @@ export const withdrawGameListing = onCall(async (req) => {
     }
     const slots = listing.bookingSlotIds.map((slot) => db.collection(COL.bookingSlots).doc(slot));
     await Promise.all(slots.map((slot) => tx.get(slot)));
+    // A scheduled game: the player left behind is told by email (read before the first write of the transaction).
+    const scheduled = listing.status === 'scheduled' && listing.opponentUid && listing.scheduledAt ? { opponentUid: listing.opponentUid } : null;
+    const remainingUid = scheduled ? (uid === listing.hostUid ? scheduled.opponentUid : listing.hostUid) : null;
+    // A deleted account gets no email, and never blocks the withdrawal.
+    const remaining = remainingUid ? ((await tx.get(db.collection(COL.users).doc(remainingUid))).data() as UserDoc | undefined) ?? null : null;
     slots.forEach((slot) => tx.delete(slot));
-    if (listing.status === 'scheduled' && uid !== listing.hostUid && listing.opponentUid) {
-      // The opponent backs out: the host's post goes back on the board as they wrote it, and the session reminders are dropped.
-      for (const who of [listing.hostUid, listing.opponentUid]) for (const kind of ['reminder-30m', 'reminder-24h']) tx.delete(db.collection(COL.emailOutbox).doc(`${id}_${who}_${kind}`));
+    if (scheduled) {
+      // The session reminders are dropped for both players, whoever withdraws.
+      for (const who of [listing.hostUid, scheduled.opponentUid]) for (const kind of ['reminder-30m', 'reminder-24h']) tx.delete(db.collection(COL.emailOutbox).doc(`${id}_${who}_${kind}`));
+      const reopened = uid !== listing.hostUid;
+      const withdrawnBy = (reopened ? listing.opponentNickname : listing.hostNickname) ?? undefined;
+      const remainingNickname = (reopened ? listing.hostNickname : listing.opponentNickname) ?? remaining?.displayName ?? '';
+      // One notice per scheduled session: the same post can be booked and given up again later.
+      const notice = `${id}_${remainingUid}_withdrawn_${(listing.scheduledAt as Timestamp).toMillis()}`;
+      if (remaining?.email) tx.set(db.collection(COL.emailOutbox).doc(notice), { ...emailDoc(id, remaining.email, remainingNickname, 'withdrawn', listing, Timestamp.now()), ...(withdrawnBy ? { withdrawnBy } : {}), reopened });
+    }
+    if (scheduled && uid !== listing.hostUid) {
+      // The opponent backs out: the host's post goes back on the board as they wrote it.
       tx.update(ref, { status: 'open', opponentUid: null, opponentNickname: null, playerIds: [listing.hostUid], scheduledAt: null, bookingSlotIds: [], presentUids: [], updatedAt: now() });
       return 'open' as const;
     }

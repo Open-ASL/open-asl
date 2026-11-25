@@ -3,16 +3,18 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import type { Action } from '@asl/engine';
 import type { ScenarioDef } from '@asl/rules';
-import { COL, COMPUTER_NAME, COMPUTER_OPPONENTS, COMPUTER_UID, RANDOM_SIDE, XP, countsForBeta, eloUpdate, evaluateMedals, reachedOfficialProgress, type AarPlayer, type Competition, type MatchActionDoc, type MatchDoc, type MatchResult, type MatchVisibility, type Seat, type UserDoc } from '@asl/platform';
+import { COL, COMPUTER_NAME, COMPUTER_OPPONENTS, COMPUTER_UID, RANDOM_SIDE, XP, countsForBeta, eloUpdate, reachedOfficialProgress, recordEarlyQuit, type AarPlayer, type Competition, type MatchActionDoc, type MatchAwards, type MatchDoc, type MatchResult, type MatchVisibility, type Seat, type UserDoc } from '@asl/platform';
 import { firstDeadline, requirePace } from './lib/clock';
 import { db, FieldValue, now, stamp } from './lib/app';
 import { requireMember, requireString } from './lib/auth';
-import { CAMPAIGN_SCENARIO_IDS, drawSide, otherSide, prepareScenario, replay, requireRuleset, requireSideChoice, rulesetOf, summaryOf } from './lib/scenarios';
+import { drawSide, otherSide, prepareScenario, replay, requireRuleset, requireSideChoice, rulesetOf, summaryOf } from './lib/scenarios';
 import { readUser, requireFree } from './lib/users';
 import { usesViews } from './lib/views';
 import { seedNewOnlineMatch, seedOf } from './lib/viewStore';
 import { aarPlayers } from './aar';
 import { publicResultOf } from './lib/publicResult';
+import { abandonedPatch } from './lib/abandon';
+import { serviceAfter } from './lib/service';
 
 export const matchRef = (id: string) => db.collection(COL.matches).doc(id) as DocumentReference<MatchDoc>;
 
@@ -213,7 +215,7 @@ export const leaveMatch = onCall(async (req) => {
       // Void: the recording cannot be continued by anyone, so nobody wins, loses or is penalised.
       // Every player is read before the first write: a transaction may not read after writing.
       const players = await Promise.all(match.playerIds.map((pid) => (pid === uid ? me : readUser(tx, pid))));
-      tx.update(ref, { status: 'abandoned', summary: { ...match.summary, toMove: null }, deadline: null, updatedAt: now(), completedAt: now(), ...seedBack });
+      tx.update(ref, { ...abandonedPatch(match, { by: uid, reason: 'ruleset' }, now()), ...seedBack });
       for (const player of players) {
         if (player.data.activeMatchId === ref.id) tx.update(player.ref, { activeMatchId: null, updatedAt: now() });
       }
@@ -224,8 +226,10 @@ export const leaveMatch = onCall(async (req) => {
     const opponent = await readUser(tx, opponentUid);
     const { scenario } = prepareScenario(match.scenarioId, match.balance);
     if (!hasReachedOfficialThreshold(match, scenario)) {
-      tx.update(ref, { status: 'abandoned', official: false, result: null, summary: { ...match.summary, toMove: null }, deadline: null, updatedAt: now(), completedAt: now(), ...seedBack });
+      tx.update(ref, { ...abandonedPatch(match, { by: uid, reason: 'concession' }, now()), ...seedBack });
       for (const player of [me, opponent]) if (player.data.activeMatchId === ref.id) tx.update(player.ref, { activeMatchId: null, updatedAt: now() });
+      // Conceding a ranked match early starts the Good Conduct count again.
+      if ((match.competition ?? 'ranked') === 'ranked') tx.update(me.ref, { service: recordEarlyQuit(me.data.service), updatedAt: now() });
       return 'abandoned' as const;
     }
     const winner = Object.keys(match.seats).find((s) => s !== mySide) ?? null;
@@ -241,8 +245,9 @@ export const leaveMatch = onCall(async (req) => {
  * server; the result the engine reaches is the one that counts. A computer game is only marked
  * finished: it awards no experience, rating, record or medals.
  */
-// A long recording (4000+ events) takes seconds to replay: a full CPU and room beyond the 60 s default.
-export const completeHotseatMatch = onCall({ timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
+// A long recording takes a minute or more to replay (1,500 actions of a PTO scenario: 50 s on a fast desktop): a whole
+// vCPU (1 GiB alone gets about half of one) and room beyond the 60 s default.
+export const completeHotseatMatch = onCall({ timeoutSeconds: 300, memory: '1GiB', cpu: 1 }, async (req) => {
   const { uid } = requireMember(req);
   const ref = matchRef(requireString(req.data?.matchId, 'matchId'));
   const match = (await ref.get()).data();
@@ -268,10 +273,20 @@ export const completeHotseatMatch = onCall({ timeoutSeconds: 300, memory: '1GiB'
     const loserUid = result.winner ? (Object.entries(match.seats).find(([side]) => side !== result.winner)?.[1]?.uid ?? null) : null;
     const scoredResult: MatchResult = { ...result, winnerUid, loserUid };
     const isPublic = (match.visibility ?? 'private') === 'public';
+    const mySide = Object.entries(match.seats).find(([, s]) => s?.uid === uid)?.[0];
     await db.runTransaction(async (tx) => {
       const fresh = (await tx.get(ref)).data();
       if (fresh?.status !== 'active') throw new HttpsError('failed-precondition', 'That game is already over.');
-      tx.update(ref, { status: 'complete', result: scoredResult, summary: summaryOf(engine, state), updatedAt: now(), completedAt: now() });
+      const me = await readUser(tx, uid);
+      // A win over the computer counts toward its decorations; nothing else does (no experience, rating or record).
+      const service = mySide
+        ? serviceAfter(me.data, { pool: 'bot', scenarioId: match.scenarioId, side: mySide, outcome: winnerUid === uid ? 'win' : result.winner ? 'loss' : 'draw', reason: result.reason, opponentBalance: !!match.computer && match.balance.includes(match.computer.side) }, stamp())
+        : null;
+      tx.update(ref, { status: 'complete', result: scoredResult, summary: summaryOf(engine, state), updatedAt: now(), completedAt: now(), ...(service ? { awards: { [uid]: service.awards } } : {}) });
+      if (service) {
+        tx.update(me.ref, { service: service.service, medals: service.medals, updatedAt: now() });
+        tx.set(db.collection(COL.publicProfiles).doc(uid), { medals: service.medals, awardProgress: service.awardProgress, updatedAt: now() }, { merge: true });
+      }
       // A public game against the computer shows on the record like a friendly: no rating, no Elo.
       const publicResult = publicResultOf(ref.id, match, match.rulesetId ?? 'starter-kit', isPublic, scoredResult, now());
       if (publicResult) tx.set(db.collection(COL.publicResults).doc(ref.id), publicResult);
@@ -289,14 +304,12 @@ export const completeHotseatMatch = onCall({ timeoutSeconds: 300, memory: '1GiB'
       xp: me.data.xp + XP.hotseatComplete,
       scenariosCompleted: Array.from(new Set([...me.data.scenariosCompleted, match.scenarioId])),
     };
-    const earned = evaluateMedals(after, { mode: 'hotseat', allScenarioIds: CAMPAIGN_SCENARIO_IDS });
     // The recording opens with the report: anyone may read the report, and a signed-in viewer may replay it.
     tx.update(ref, { status: 'complete', visibility: 'public', result, summary: summaryOf(engine, state), updatedAt: now(), completedAt: now() });
     tx.update(me.ref, {
       hotseatGames: after.hotseatGames,
       xp: after.xp,
       scenariosCompleted: after.scenariosCompleted,
-      medals: [...me.data.medals, ...earned.map((id) => ({ id, awardedAt: stamp() }))],
       updatedAt: now(),
     });
   });
@@ -349,9 +362,10 @@ export function applyMatchResult(
   const publicResult = publicResultOf(ref.id, match, rulesetOf(scenario), isPublic, result, now());
   if (publicResult) tx.set(db.collection(COL.publicResults).doc(ref.id), publicResult);
 
-  for (const [uid, before, elo, opp] of [
-    [p1, a, rating.a, b],
-    [p2, b, rating.b, a],
+  const awards: Record<string, MatchAwards> = {};
+  for (const [uid, before, elo] of [
+    [p1, a, rating.a],
+    [p2, b, rating.b],
   ] as const) {
     const won = winnerUid === uid;
     const lost = loserUid === uid;
@@ -369,18 +383,24 @@ export function applyMatchResult(
       betaScenarios: beta ? Array.from(new Set([...(before.betaScenarios ?? []), match.scenarioId])) : (before.betaScenarios ?? []),
       activeMatchId: null,
     };
-    const earned = ranked ? evaluateMedals(after, { mode: 'online', won, lost, opponentElo: opp.elo, ownEloBefore: before.elo, allScenarioIds: CAMPAIGN_SCENARIO_IDS }) : [];
-    const { email: _e, gravatarHash: _g, displayName: _d, photoURL: _p, createdAt: _c, lastSeenAt: _l, medals, ...stats } = after;
-    tx.update(players[uid]!.ref, { ...stats, medals: [...medals, ...earned.map((id) => ({ id, awardedAt: stamp() }))], updatedAt: now() });
+    // Decorations count ranked matches only. A concession or timeout reaches here only after half the turns.
+    const mySide = Object.entries(match.seats).find(([, s]) => s?.uid === uid)![0];
+    const service = ranked
+      ? serviceAfter(after, { pool: 'human', scenarioId: match.scenarioId, side: mySide, outcome: won ? 'win' : lost ? 'loss' : 'draw', reason: outcome.reason, opponentBalance: match.balance.some((s) => s !== mySide) }, stamp())
+      : null;
+    if (service) awards[uid] = service.awards;
+    const { email: _e, gravatarHash: _g, displayName: _d, photoURL: _p, createdAt: _c, lastSeenAt: _l, medals, service: _s, ...stats } = after;
+    tx.update(players[uid]!.ref, { ...stats, ...(service ? { service: service.service, medals: service.medals } : {}), updatedAt: now() });
     tx.set(db.collection(COL.publicProfiles).doc(uid), {
       xp: after.xp,
       elo: after.elo,
       wins: after.wins,
       losses: after.losses,
       draws: after.draws,
-      medals: [...medals, ...earned.map((id) => ({ id, awardedAt: stamp() }))],
+      ...(service ? { medals: service.medals, awardProgress: service.awardProgress } : { medals }),
       updatedAt: now(),
     }, { merge: true });
   }
+  if (Object.keys(awards).length) tx.update(ref, { awards });
   return { result, players: aarPlayers(match, result, { [p1]: a.elo, [p2]: b.elo }) };
 }

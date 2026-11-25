@@ -34,8 +34,17 @@ declare module '@asl/engine' {
      * (`heightOf`); a cave "treated as being at ground level for LOS purposes" (S70 SSR 2) answers 0.
      */
     'loc.height': { ctx: { loc: LocId }; value: number };
+    /**
+     * Whether Location `a` is ADJACENT to Location `b` for one purpose (ASLRB A.8): Point Blank Fire, Final Protective
+     * Fire, DM, rout or DC Placement. The default is ADJACENT in general (`adjacentLoc`); full ASL adds a pillbox's
+     * Covered Arc, which counts for these purposes only (B30.2).
+     */
+    'loc.adjacentFor': { ctx: { a: LocId; b: LocId; purpose: AdjacentPurpose }; value: boolean };
   }
 }
+
+/** The purposes for which ADJACENT may be wider than A.8's (ASLRB B30.2). */
+export type AdjacentPurpose = 'pbf' | 'fpf' | 'dm' | 'rout' | 'dc';
 
 /** The Location id of a hex's level (0: ground) or sub-Location. Ground level is the hex id itself. */
 export const locId = (hex: HexId, level = 0, sub?: SubLoc): LocId => (sub ? `${hex}:${sub}` : level ? `${hex}:${level}` : hex);
@@ -99,3 +108,14 @@ export const LEVEL_CHANGE_MF = 1;
 /** The Locations adjacent to a Location (`'loc.adjacent'`): the neighbouring hexes in the Starter Kit. */
 export const adjacentLocs = (env: QueryEnv, loc: LocId): LocId[] =>
   env.query('loc.adjacent', { loc }, mapOf(env).neighbors(hexOfLoc(loc)));
+
+/**
+ * Whether two Locations are ADJACENT (ASLRB A.8): ground Locations of neighbouring hexes (the Starter Kit's one Location
+ * per hex), otherwise as `'loc.adjacent'` says.
+ */
+export const adjacentLoc = (env: QueryEnv, a: LocId, b: LocId): boolean =>
+  a !== b && (isGroundLoc(a) && isGroundLoc(b) ? mapOf(env).distance(a, b) === 1 : adjacentLocs(env, a).includes(b));
+
+/** Whether `a` is ADJACENT to `b` for `purpose` (`'loc.adjacentFor'`): in the Starter Kit simply ADJACENT. */
+export const adjacentFor = (env: QueryEnv, a: LocId, b: LocId, purpose: AdjacentPurpose): boolean =>
+  env.query('loc.adjacentFor', { a, b, purpose }, adjacentLoc(env, a, b));

@@ -1,6 +1,8 @@
 import type { PieceId, QueryEnv, SideId } from '@asl/engine';
 import type { FireMode } from '../sk1/fire';
 import { withoutSecrets } from '../sk1/fire';
+import { firstFireView, moveState, movingInfo } from '../sk1/movement';
+import { ammoColumn, isSmokeAmmo } from '../sk2/ammo';
 import { shotContext, toHitNumber, type OrdnanceShot } from '../sk2/ordnance';
 import { vehicle } from './status';
 import { toKillNumbers } from './toKill';
@@ -26,6 +28,11 @@ export interface ShotOutlook {
   nonStopped: boolean;
   /** A Vehicle Target Type shot: the To Kill number and the target's Armor Factors per aspect. */
   tk?: { target: string; tk: number | null; hull: Record<Facing, number>; turret: Record<Facing, number>; turretType: string } | null;
+  /**
+   * On the Infantry or Area Target Type, the IFT column a hit attacks on with this ammunition (SK4 3.2.4, the To Hit
+   * Chart's HE FP columns) and a Critical Hit's (6.1), so the player need not look them up; absent for Smoke and WP.
+   */
+  ift?: { fp: number; ch: number | null };
   /** What else the shot attacks (ASLRB B29.5: a roadblock, with the original DR that hits it). */
   also?: string[];
 }
@@ -36,7 +43,12 @@ export function shotOutlook(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, s
   if (shot.targetType === 'IFE') return none;
   try {
     // Before the shot is declared nothing that needs the LOS is worked out (ASLRB A6.11, SK4 3.2.1).
-    const sc = { ...shotContext(env, shot, mode, side, moving ? { moving } : {}), hindrance: 0, losBlind: true };
+    // At a moving stack the DRM of its move count as they will when it is fired (FFNAM, FFMO: SK4 To Hit case 19), so
+    // the shot is read with the move the resolution reads (`movingInfo` of the stack's view in the target Location).
+    const ms = moving ? moveState(env) : null;
+    const view = ms ? firstFireView(env, ms, shot.target) : null;
+    const opts = moving ? { moving, ...(view ? { movingInfo: movingInfo(env, view) } : {}) } : {};
+    const sc = { ...shotContext(env, shot, mode, side, opts), hindrance: 0, losBlind: true };
     const thn = toHitNumber(env, sc);
     const drm = withoutSecrets(env.explain('ordnance.thDrm', sc, 0));
     // Case 16 shows as an extra on the dice: with a 1 and a 1 the extra is the lower die, 1.
@@ -45,6 +57,7 @@ export function shotOutlook(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, s
     const tvd = tv ? vehicle(env, tv) : null;
     const tkn = tvd ? toKillNumbers(env, sc) : null;
     const also = env.query('ordnance.alsoAttacks', sc, []);
+    const fp = (shot.targetType === 'ITT' || shot.targetType === 'ATT') && !isSmokeAmmo(sc.ammo) ? ammoColumn(env, sc.def, sc.ammo, shot.targetType, false) : null;
     return {
       illegal,
       th: thn?.th ?? null,
@@ -56,6 +69,7 @@ export function shotOutlook(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, s
       caChange: sc.spines,
       nonStopped,
       ...(also.length ? { also } : {}),
+      ...(fp !== null ? { ift: { fp, ch: ammoColumn(env, sc.def, sc.ammo, shot.targetType as 'ITT' | 'ATT', true) } } : {}),
       ...(shot.targetType === 'VTT' ? { tk: tvd && tkn ? { target: tvd.name, tk: tkn.tk, hull: tkn.hull, turret: tkn.turret, turretType: tvd.turret } : null } : {}),
     };
   } catch (e) {

@@ -4,7 +4,7 @@ import { SETUP_PLACED, type SetupPlacedFn } from '../sk1/scenario';
 import { setTags } from '../sk1/status';
 import { pieceOf } from '../sk1/status';
 import { OP, type ResolveHitFn } from '../sk2/ordnance';
-import { hitLocation } from './facing';
+import { hitLocationOf } from './toKill';
 import { T3, vehicle } from './status';
 
 /*
@@ -12,7 +12,7 @@ import { T3, vehicle } from './status';
  * never move from the setup hex or change its VCA. There is a +1 TH DRM for all attacks against a dug-in AFV, and any
  * hull hit is treated as a miss."). The choice is made at setup (the vehicle's `dugIn`); the vehicle movement rules keep
  * a dug-in vehicle from starting or attempting Motion. The +1 and the hull-hit miss apply to To Hit shots at the AFV
- * itself (Vehicle Target Type).
+ * itself (Vehicle Target Type). A Critical Hit is never a hull hit on it (ASLRB C3.9, as vs a Hull Down target).
  */
 
 export const DIG_IN_MODULE = 'dig-in';
@@ -99,10 +99,18 @@ export const digInModule: RuleModule = {
       when: (sc, env) => sc.shot.targetType === 'VTT' && isDugIn(env, sc.targetVehicle),
       apply: (v, sc, env) => v + digInParams(env, pieceOf(env, sc.targetVehicle!).side)!.thDrm,
     });
+    // A dug-in AFV is hit only above the ground, as a Hull Down one (ASLRB D4.2): a Critical Hit on it is always a turret
+    // hit (C3.9 "A CH vs a HD target is always considered to occur vs the turret/upper-superstructure"; the SSR is silent).
+    r.contribute({
+      id: 'ssr.dig-in.ch-turret',
+      query: 'vehicle.hitLocation',
+      when: ({ vehicle: id, ch }, env) => ch && isDugIn(env, id),
+      apply: () => 'turret' as const,
+    });
     r.event<{ weapon: PieceId; target: PieceId; dice: [number, number]; rule?: string }>({ type: 'ssr.dig-in.hullHit', apply() {} });
     // A hit on the hull of a dug-in AFV is a miss: no To Kill roll, no Collateral Attack, no Residual FP.
     r.procedure<ResolveHitFn>(OP.resolveHit, (next) => (ctx: Ctx, sc, hit, targets, results) => {
-      if (sc.shot.targetType === 'VTT' && hit.hit && isDugIn(ctx, sc.targetVehicle) && hitLocation(hit.dice[0], hit.dice[1]) === 'hull') {
+      if (sc.shot.targetType === 'VTT' && hit.hit && isDugIn(ctx, sc.targetVehicle) && hitLocationOf(ctx, sc.targetVehicle!, hit.dice, hit.ch) === 'hull') {
         const rule = digInParams(ctx, pieceOf(ctx, sc.targetVehicle!).side)?.rule;
         ctx.emit('ssr.dig-in.hullHit', { weapon: sc.weapon, target: sc.targetVehicle!, dice: hit.dice, ...(rule ? { rule } : {}) });
         return [];

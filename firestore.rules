@@ -15,6 +15,13 @@ service cloud.firestore {
     function fullAslGate() { return request.auth.token.admin == true || request.auth.token.aud.matches('demo-.*'); }
     // Each ruleset's lobby has its own chat; the Full ASL one only behind the gate.
     function lobbyChat(channelId) { return channelId == 'lobby_starter-kit' || (channelId == 'lobby_full-asl' && fullAslGate()); }
+    // A commentator: reads any match whole, live or finished, hidden information and all, and shares a room on it with the
+    // other commentators that its players never see. The claim is set only by an administrator through the Admin SDK (a
+    // client cannot mint it), so every commentator read below rests on it, never on what a client chooses to show.
+    function superSpectator() { return member() && request.auth.token.superSpectator == true; }
+    // A commentator on this match: never one of its players, who would otherwise read their opponent's hidden units and
+    // the dice to come. Matches without a player list (none today) count as having no players.
+    function commentatorOn(game) { return superSpectator() && !(me() in game.get('playerIds', [])); }
 
     match /users/{uid} {
       allow read: if member() && uid == me();
@@ -60,7 +67,7 @@ service cloud.firestore {
     }
 
     match /matches/{matchId} {
-      function canReadMatch() { return resource.data.visibility == 'public' || (member() && me() in resource.data.playerIds); }
+      function canReadMatch() { return resource.data.visibility == 'public' || (member() && me() in resource.data.playerIds) || commentatorOn(resource.data); }
       allow read: if canReadMatch();
       allow create, delete: if false;
       // A hotseat (or computer game) owner keeps the lobby summary current and may abandon the game.
@@ -77,7 +84,7 @@ service cloud.firestore {
         // An online match on the older model (no `model`) is still played by replaying this recording, as before
         // the views model; it closes once a migration has moved the match over.
         function recordingOpen() { return parent().mode != 'online' || parent().get('model', null) != 'views' || (parent().status != 'active' && parent().status != 'open'); }
-        allow read: if recordingOpen() && (parent().visibility == 'public' || (member() && me() in parent().playerIds));
+        allow read: if (recordingOpen() && (parent().visibility == 'public' || (member() && me() in parent().playerIds))) || commentatorOn(parent());
         function ownGameRecording() { return member() && (parent().mode == 'hotseat' || parent().mode == 'computer') && parent().createdBy == me() && parent().status == 'active'; }
         // The computer's moves carry its version and thinking time (MatchActionDoc.bot).
         function botOk() { return !('bot' in request.resource.data) || parent().mode == 'computer'; }
@@ -107,8 +114,51 @@ service cloud.firestore {
         }
       }
 
-      // The dice seed of a live online match: the server's alone.
-      match /private/{document=**} { allow read, write: if false; }
+      // The dice seed of a live online match: the server's, and a commentator's, who replays the recording with it.
+      match /private/{document=**} {
+        allow read: if commentatorOn(get(/databases/$(database)/documents/matches/$(matchId)).data);
+        allow write: if false;
+      }
+
+      // The commentators' room (see packages/platform/src/superSpectator.ts). Closed to the match's own players, even one
+      // who holds the claim: what commentators show and say must never reach the table.
+      function inRoom() { return commentatorOn(get(/databases/$(database)/documents/matches/$(matchId)).data); }
+      match /ssRoom/{doc} {
+        allow read, delete: if inRoom();
+        allow create, update: if inRoom() && doc == 'state'
+          && request.resource.data.keys().hasOnly(['cursor', 'virtual', 'show', 'epoch', 'check', 'heat', 'play', 'speed', 'by', 'at'])
+          && request.resource.data.by == me()
+          && request.resource.data.epoch is int;
+      }
+      match /ssMembers/{uid} {
+        allow read: if inRoom();
+        allow create, update: if inRoom() && uid == me()
+          && request.resource.data.keys().hasOnly(['uid', 'name', 'color', 'at'])
+          && request.resource.data.uid == me()
+          && request.resource.data.color is int
+          && request.resource.data.name is string && request.resource.data.name.size() <= 60;
+        allow delete: if inRoom() && uid == me();
+      }
+      match /ssPings/{uid} {
+        allow read: if inRoom();
+        allow create, update: if inRoom() && uid == me()
+          && request.resource.data.keys().hasOnly(['uid', 'hex', 'n', 'color', 'x', 'y', 'at'])
+          && request.resource.data.uid == me()
+          && request.resource.data.hex is string && request.resource.data.hex.size() <= 16
+          && request.resource.data.n is number;
+        allow delete: if inRoom() && uid == me();
+      }
+      match /ssStrokes/{id} {
+        allow read: if inRoom();
+        allow create: if inRoom()
+          && request.resource.data.keys().hasOnly(['uid', 'color', 'width', 'points', 'epoch', 'at'])
+          && request.resource.data.uid == me()
+          && request.resource.data.points is list && request.resource.data.points.size() <= 1200
+          && request.resource.data.width is number && request.resource.data.epoch is int;
+        allow update: if false;
+        // "Erase all" leaves old ink behind; any commentator may sweep it up.
+        allow delete: if inRoom();
+      }
 
       // A seated player's work in progress (setup placements), shown live to the opponent. Not the recording.
       // The writer leaves its own hidden placements out (its own secret); the server does not re-check it.

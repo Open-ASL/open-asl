@@ -201,7 +201,7 @@ describe('Concealment (SK4 8.3): loss in the LOS of a Good Order enemy', () => {
     expect(columns).toEqual([{ targets: ['c'], column: 12 }, { targets: ['a'], column: 6 }]);
   });
 
-  it('a Gun firing at a concealed stack takes the concealed-target +2 only, never the empty-hex +2 as well (one To Hit case)', async () => {
+  it('a Gun firing at a concealed stack, Smoke included, takes the concealed-target +2 only, never the empty-hex +2 as well (one To Hit case)', async () => {
     const { engine, state } = game([sq('a', 'yK5', { concealed: true }), { id: 'crew', def: 'ge.228c', side: 'ge', hex: 'yK8' }, { id: 'gun', def: 'ge.AT75L', side: 'ge', heldBy: 'crew', tags: { ca: 0 } }], 'PFPh', { firstSide: 'ge' });
     const env = engine.env(state);
     const { shotContext } = await import('../../src');
@@ -210,6 +210,9 @@ describe('Concealment (SK4 8.3): loss in the LOS of a Good Order enemy', () => {
       expect(trace.some((x) => x.id === 'sk4.th.concealed-target')).toBe(true);
       expect(trace.some((x) => x.id === 'sk2.th.hip-target')).toBe(false);
     }
+    // Smoke too: the hex holds a non-hidden enemy unit, none of it Known (ASLRB C6.2 EXC).
+    const smoke = env.explain('ordnance.thDrm', shotContext(env, { weapon: 'gun', target: 'yK5', targetType: 'ATT', ca: 0, ammo: 'SMOKE' }, 'prep', 'ge'), 0).trace.filter((x) => !x.suppressedBy);
+    expect(smoke.some((x) => x.id === 'sk4.th.concealed-target')).toBe(true);
   });
 
   it('a unit seen where it was but stepping out of sight keeps the "?": the move is judged where its MF are spent (ASLRB A12.14 EX)', () => {
@@ -394,6 +397,26 @@ describe('Concealment (SK4 8.3.1, 8.3.2): gain and Close Combat', () => {
     expect(engine.query(state, 'cc.meleeHolds', { hex: 'yK5' }, true).value).toBe(false);
   });
 
+  it('the Ambush drs are recorded with their drm: the concealed side\'s -2 counts toward its final dr (SK4 8.3.2)', () => {
+    // German dr 4, Russian dr 4 -2 concealed = 2: no ambush (not 3 lower). German dr 5, Russian 4 - 2 = 2: Russian ambush.
+    const run = (dice: number[]) => {
+      const { engine, state } = game([ge('g', 'yK5', { advancedInto: 'yK5' }), sq('a', 'yK5', { concealed: true })], 'CCPh', { firstSide: 'ge', dice });
+      let s = state;
+      const ambush: Record<string, unknown>[] = [];
+      for (let i = 0; i < 6 && engine.currentDecision(s) && engine.currentDecision(s)!.kind !== 'ccDeclare'; i++) {
+        const d = engine.currentDecision(s)!;
+        const t = engine.submit(s, engine.legalActions(s, d.owner)[0]!);
+        ambush.push(...events(t, 'sk1.cc.state').flatMap((p) => (p['ambush'] ? [p['ambush'] as Record<string, unknown>] : [])));
+        s = t.state;
+      }
+      return ambush;
+    };
+    expect(run([4, 4])).toEqual([
+      { rolls: [{ side: 'ge', dr: 4, drm: 0, final: 4, notes: [] }, { side: 'ru', dr: 4, drm: -2, final: 2, notes: ['-2 concealed'] }], ambusher: null },
+    ]);
+    expect(run([5, 4])).toMatchObject([{ rolls: [{ final: 5 }, { final: 2 }], ambusher: 'ru' }]);
+  });
+
   it('a concealed stack that advanced into a Melee drops its "?" for CC: the enemy it engages sees it, though in Melee he is not Good Order', () => {
     // A Russian squad and a German one are locked in Melee; concealed Germans advanced in to reinforce it.
     const g0 = game([ge('f', 'yK5'), ge('g', 'yK5', { advancedInto: 'yK5', concealed: true }), ge('h', 'yK5', { advancedInto: 'yK5', concealed: true }), sq('a', 'yK5')], 'CCPh', { firstSide: 'ge', dice: [3, 3, 3, 3] });
@@ -410,6 +433,32 @@ describe('Concealment (SK4 8.3.1, 8.3.2): gain and Close Combat', () => {
     // So the Russian, in his own view, declares on the German units themselves, and the game accepts it.
     const view = redactState(engine, s, 'ru');
     expect(Object.keys(view.pieces).some((id) => id.startsWith('?:'))).toBe(false);
+  });
+
+  it('a concealed unit that ambushes and eliminates every enemy unit in the hex keeps its "?", though a Good Order enemy outside sees the hex', () => {
+    // SK4 8.3: Concealment is lost by CC "without both Ambushing and eliminating all enemy units in the hex". The German
+    // 4-6-7 advanced into the concealed Russian squad in K5; another German in K9 watches K5. Ambush dr: German 6,
+    // Russian 1 (-2 concealed): the Russian ambushes. Then its CC DR: kill or no kill.
+    const run = (ccDice: number[]) => {
+      const { engine, state } = game([ge('g', 'yK5', { advancedInto: 'yK5' }), ge('w', 'yK9'), sq('a', 'yK5', { concealed: true })], 'CCPh', { firstSide: 'ge', dice: [6, 1, ...ccDice] });
+      let s = state;
+      for (let i = 0; i < 12 && s.phase === 'CCPh'; i++) {
+        const d = engine.currentDecision(s);
+        if (!d) break;
+        const legal = engine.legalActions(s, d.owner);
+        const pick = d.kind === 'ccDeclare' && d.owner === 'ru' ? legal.find((x) => JSON.stringify(x).includes('"a"')) : (legal.find((x) => x.type === 'endPhase') ?? legal[0]);
+        s = engine.submit(s, pick!).state;
+      }
+      return s;
+    };
+    // An original 3 (-1 ambush) eliminates the 4-6-7 at 1:1: the Russian keeps its "?".
+    const kill = run([1, 2]);
+    expect(kill.pieces['g']!.loc.kind).toBe('eliminated');
+    expect(concealed(kill.pieces['a'])).toBe(true);
+    // An original 12 leaves the German standing: the Russian did not eliminate all, and K9 sees it lose the "?".
+    const miss = run([6, 6, 6, 6]);
+    expect(miss.pieces['g']!.loc).toMatchObject({ kind: 'hex', hex: 'yK5' });
+    expect(concealed(miss.pieces['a'])).toBe(false);
   });
 });
 

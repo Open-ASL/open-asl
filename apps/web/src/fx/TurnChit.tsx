@@ -1,7 +1,9 @@
 import type { SideId } from '@asl/engine';
 
-/** Counter stock colours of the SK1 and SK2 nationalities (sampled from the counter art). */
-const STOCK: Record<string, string> = { am: '#ebf0b3', ge: '#d3ebfb', ru: '#eed1a3', br: '#e5cea0', al: '#bfe3c4', it: '#d2d6d8' };
+/** Counter stock colours of the Starter Kit nationalities (sampled from the counter art). */
+const STOCK: Record<string, string> = { am: '#ebf0b3', ge: '#d3ebfb', ru: '#eed1a3', br: '#e5cea0', al: '#bfe3c4', it: '#d2d6d8', ja: '#f3d867' };
+/** The stock colour of a nationality's counters (a neutral card for one without its own). */
+export const chitStock = (nationality: string) => STOCK[nationality] ?? '#e5e2d0';
 
 /** National emblem drawn centred on the origin, roughly 40 units across. */
 export function Emblem({ side }: { side: SideId }) {
@@ -72,7 +74,7 @@ interface FaceProps {
  * emblem and the turn number, as the chit players park in the middle of the phase track.
  */
 export function ChitFace({ side, label, turn }: FaceProps) {
-  const stock = STOCK[side] ?? '#e5e2d0';
+  const stock = chitStock(side);
   return (
     <svg className={`pw-chit-face-svg side-${side}`} viewBox="0 0 100 100">
       <defs>

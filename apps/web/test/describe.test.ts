@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Ctx, RuleModule } from '@asl/engine';
 import { FP, japaneseModule, type FireDeclaration, type FireMode, type ResolveFireFn } from '@asl/rules';
-import { act, makeEngine } from '../../../packages/rules/test/fixtures';
+import { RU_VS_GE, act, makeEngine } from '../../../packages/rules/test/fixtures';
 import { ASL_TESTBED_SCENARIO, fixtureActions, newGame, PLAYABLE_SCENARIOS } from '@asl/content';
 import type { GameState } from '@asl/engine';
 import { describeEvents, entryRoll, phaseSections, type LogLine } from '../src/game/describe';
@@ -24,6 +24,24 @@ const testFire: RuleModule = {
 const terrain = { yP5: { terrain: 'building-stone' }, yO5: { terrain: 'orchard' } };
 
 describe('game log', () => {
+  it('a phase header names the side the phase belongs to: the DEFENDER in the Defensive Fire Phase (SK1 3.4)', () => {
+    const { engine, state } = makeEngine({ scenario: RU_VS_GE, pieces: [] });
+    const env = engine.env(state);
+    const head =(phase: string) => describeEvents(env, [{ seq: 1, type: 'turn.phaseStarted', payload: { phase, turn: 4, attacker: 'ru' } }] as never)[0]!;
+    expect(head('DFPh').phase).toMatchObject({ turn: 4, side: 'ge', name: 'Defensive Fire Phase' });
+    expect(head('DFPh').text).toBe('Turn 4 — German Defensive Fire Phase');
+    for (const phase of ['RPh', 'PFPh', 'MPh', 'AFPh', 'RtPh', 'APh', 'CCPh']) expect(head(phase).phase!.side, phase).toBe('ru');
+  });
+
+  it('a side that declares no CC attack in a hex gets a log line, once; a declared attack none (SK4 3.8: one side at a time vs a vehicle)', () => {
+    const { engine, state } = makeEngine({ scenario: RU_VS_GE, pieces: [] });
+    const env = engine.env(state);
+    const cc = (seq: number, declared: Record<string, unknown[]>, hex = 'yK5') => ({ seq, type: 'sk1.cc.state', payload: { state: { hex, declared, pending: [] } } });
+    const at = { attackers: ['a'], targets: ['b'] };
+    const lines = describeEvents(env, [cc(1, {}), cc(2, { ge: [] }), cc(3, { ge: [], ru: [at] }), cc(4, {}, 'yL5'), cc(5, { ru: [at] }, 'yL5')] as never).map((l) => l.text);
+    expect(lines).toEqual(['CC in yK5 (German): no attack declared']);
+  });
+
   it('a rout step that drew Interdiction carries the LOS it was interdicted along, to be drawn like a shot\u2019s', () => {
     // Open Ground from N5 to the woods at L5; a German squad at P5 sees M5 (SK1 3.6).
     const { engine, state } = makeEngine({
@@ -60,7 +78,14 @@ describe('game log', () => {
     // 4 + 2 (the pinned one, halved) = 6 against 4: 3:2.
     const ev = { seq: 1, type: 'sk1.cc.attack', payload: { hex: 'yO5', side: 'am', attack: { attackers: ['a1', 'a2'], targets: ['g1'] }, odds: '3:2', drm: 0, dr: 4, kill: 6, result: 'eliminated', fp: { attack: [['a1', 4], ['a2', 2]], defense: [['g1', 4]] } } };
     const lines = describeEvents(engine.env(state), [ev] as never).map((l) => l.text.trim());
-    expect(lines[0]).toMatch(/^CC in yO5 \(American\): American 7²-4-7 4 \+ American 7²-4-7 2 = 6 vs German 4¹-6-7 4 → 3:2, DR /);
+    expect(lines[0]).toMatch(/^CC in yO5 \(American\): American 7²-4-7 4 \+ American 7²-4-7 2 \[pinned: FP halved\] = 6 vs German 4¹-6-7 4 → 3:2, DR /);
+    // The note the attack recorded stands after the Pin has come off (end of the Player Turn): a2 is no longer pinned.
+    const later = { ...ev, payload: { ...ev.payload, fp: { ...ev.payload.fp, notes: { a2: 'pinned: FP halved' } } } };
+    const unpinned = { ...state, pieces: { ...state.pieces, a2: { ...state.pieces['a2']!, tags: {} } } };
+    expect(describeEvents(engine.env(unpinned), [later] as never)[0]!.text).toMatch(/7²-4-7 2 \[pinned: FP halved\] = 6 vs German 4¹-6-7 4 →/);
+    // A pinned defender keeps its full FP (ASLRB A7.8): no note on it.
+    const vsPinned = { seq: 2, type: 'sk1.cc.attack', payload: { hex: 'yO5', side: 'ge', attack: { attackers: ['g1'], targets: ['a2'] }, odds: '1:1', drm: 0, dr: 9, kill: 5, result: 'no effect', fp: { attack: [['g1', 4]], defense: [['a2', 7]] } } };
+    expect(describeEvents(engine.env(state), [vsPinned] as never)[0]!.text).toMatch(/German 4¹-6-7 4 vs American 7²-4-7 7 → 1:1/);
   });
 
   it('gives the Area Fire figure against concealed units beside the attack\u2019s own, without naming them (SK4 8.3.2)', () => {
@@ -69,6 +94,26 @@ describe('game log', () => {
     const line = describeEvents(engine.env(state), [ev] as never)[0]!;
     expect(line.text).toMatch(/: 4\.5 FP → 4 column; vs the concealed unit, Area Fire: 3 FP → 2 column, DR /);
     expect(line.detail).toMatch(/Area Fire FP: ½ Area Fire \(concealed target\)/);
+  });
+
+  it('writes the Ambush drs of a new CC with every part of their drm, even parts that cancel out (SK1 3.8; SK4 8.3.2)', () => {
+    const { engine, state } = makeEngine({
+      scenario: { firstSide: 'ja', sides: [{ side: 'am', name: 'American', nationality: 'am', elr: 5 }, { side: 'ja', name: 'Japanese', nationality: 'ja', elr: 3 }] },
+      extra: [japaneseModule],
+      pieces: [],
+    });
+    const ambush = {
+      rolls: [
+        { side: 'ja', dr: 1, drm: 0, final: 1, notes: ['-1 Elite/1st Line Japanese', '+1 ATTACKER in jungle/kunai/bamboo'] },
+        { side: 'am', dr: 3, drm: -2, final: 1, notes: ['-2 concealed'] },
+      ],
+      ambusher: null,
+    };
+    const ev = { seq: 1, type: 'sk1.cc.state', payload: { state: { pending: [], declared: {}, hex: 'yO5', ambusher: null, step: 'simultaneous-attacker' }, ambush } };
+    const lines = describeEvents(engine.env(state), [ev] as never).map((l) => l.text.trim());
+    expect(lines).toEqual(['Ambush dr in O5: Japanese 1 (-1 Elite/1st Line Japanese, +1 ATTACKER in jungle/kunai/bamboo) = 1, American 3 (-2 concealed) = 1 → no ambush']);
+    // A cc.state with no Ambush drs (every later step of the hex) writes nothing.
+    expect(describeEvents(engine.env(state), [{ ...ev, payload: { state: ev.payload.state } }] as never)).toEqual([]);
   });
 
   it('says why a CC strength is not the printed FP, where a rule changes it (`cc.fpNote`)', () => {
@@ -265,7 +310,7 @@ describe('fortified buildings in the log', () => {
     const log2 = describeEvents(engine.env(t2.state), t2.events);
     expect(log2.map((l) => l.text).join('\n')).not.toMatch(/fortified/i);
     const fire = log2.find((l) => /^[A-Z][\w ]* on P5: /.test(l.text))!;
-    expect(fire.text).toContain('DR 3+3=6 +3');
+    expect(fire.text).toContain('DR 3+3=6, DRM +3');
     expect(fire.detail ?? '').not.toContain('Fortified');
   });
 });
@@ -602,5 +647,25 @@ describe('fortification counters in the log (full ASL A12.33, B28.45, B28.47)', 
     const line = russian.find((t) => /Russian placed:/.test(t))!;
     for (const s of ['foxhole 2S O6 (hidden)', 'minefield (A-P 8 + A-T 1) P10 (recorded)', 'Known minefield (A-P 6) N9', 'Dummy minefield N10', 'roadblock O9 (hidden)', 'pillbox 1+3+5 O3 (hidden)', 'Wire O4 (hidden)']) expect(line, s).toContain(s);
     expect(russian.some((t) => /Dummy Minefield Secret dr/.test(t))).toBe(true);
+  });
+  it('an Acquired Target counter coming off is logged, with the cause when its possessor fired its own FP (SK4 6.10, ASLRB C6.5)', () => {
+    const { engine, state } = makeEngine({
+      scenario: RU_VS_GE,
+      pieces: [
+        { id: 'sq', def: 'ge.467', side: 'ge', hex: 'yK5' },
+        { id: 'mtr', def: 'ge.MTR', side: 'ge', heldBy: 'sq' },
+      ],
+    });
+    const env = engine.env(state);
+    const fire = { seq: 1, type: 'sk1.fire.attack', payload: { attack: { mode: 'prep', target: 'yK8', parts: ['sq'] }, from: ['yK5'], fp: 4, column: 4, dr: [5, 4], drm: 0, explain: [] } };
+    const lost = (seq: number) => ({ seq, type: 'piece.tagged', payload: { id: 'mtr', tags: { acq: null, acqHex: null, acqUnits: null, acqLevel: null } } });
+    const text = (events: unknown[]) => describeEvents(env, events as never).map((l) => l.text);
+    const lines = text([fire, lost(2)]).filter((t) => /Acquired Target/.test(t));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/◎ .+ loses its Acquired Target counter \(its possessor fired its own FP, SK4 6\.10\)$/);
+    expect(text([lost(2)])[0]).toMatch(/loses its Acquired Target counter$/);
+    // A shot at a new target clears the old counter and places a new one: only the new one is logged.
+    const reacquired = { seq: 3, type: 'piece.tagged', payload: { id: 'mtr', tags: { acq: 'ATT', acqHex: 'yK8', acqUnits: '', acqLevel: 1 } } };
+    expect(text([lost(2), reacquired]).some((t) => /loses its Acquired Target/.test(t))).toBe(false);
   });
 });

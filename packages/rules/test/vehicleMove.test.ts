@@ -322,14 +322,62 @@ describe('vehicle movement (SK4 3.3.2)', () => {
     s = act(engine, s, { type: 'vmove.stop' }).state;
     expect(moveState(engine.env(s))!.vehicle).toMatchObject({ stopped: true });
     expect(s.pieces['t34']!.tags[T3.motion]).toBeUndefined();
-    // Still a moving target this turn (it began its MPh in Motion), so the German's First Fire takes case 24 by MP in LOS: 1 MP → +4.
+    // Still a moving target this turn (it began its MPh in Motion), so the German's First Fire takes case 24: +2, as it
+    // began its MPh in his LOS and never left it (no Restricted/Limited Aim, ASLRB C6.15).
     expect(s.pieces['t34']!.tags[T3.movingTarget]).toBe(true);
     expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', owner: 'ge' });
     const r = act(engine, s, { type: 'defFire.ordnance', shot: { weapon: 'pziv', target: 'yM9', targetType: 'VTT' } });
     const shot = r.events.find((e) => e.type === 'sk2.ordnance.shot')!.payload as { explain: { label: string }[] };
     const labels = shot.explain.map((x) => x.label);
-    expect(labels).toContain('+4 moving vehicle (1 MP in your LOS)');
+    expect(labels).toContain('+2 moving vehicle');
     expect(labels.some((l) => /in Motion/.test(l))).toBe(false);
+  });
+
+  describe('case 24 by the MP spent in the firer\u2019s continuous LOS (ASLRB C6.1, C6.11, C6.12, C6.15)', () => {
+    // The T-34 is in Motion at M9, hidden from the panzer at J7 by a building in L8; one step north to M8 brings it into view.
+    const hidden = { terrain: { yL8: { terrain: 'building-stone', buildingId: 'b' } }, dice: [3, 3, 3, 3, 3, 3, 3, 3] };
+    const caseJ = (r: { events: { type: string; payload: unknown }[] }) =>
+      (r.events.find((e) => e.type === 'sk2.ordnance.shot')!.payload as { explain: { id: string; label: string }[] }).explain.filter((x) => /moving vehicle|in Motion/.test(x.label)).map((x) => x.label);
+    const stepIntoView = () => {
+      const { engine, state } = game([t34('yM9', { motion: true }), { id: 'pziv', def: 'ge.pzivf2', side: 'ge', hex: 'yJ7', tags: { vca: 1, ca: 1 } }], hidden);
+      let s = play(engine, state, { type: 'vmove.start', vehicle: 't34' });
+      if (engine.currentDecision(s)!.kind === 'firstFire') s = play(engine, s, { type: 'defPass', side: 'ge' });
+      s = play(engine, s, { type: 'move.step', to: 'yM8' });
+      expect(s.pieces['t34']!.tags[T3.motion]).toBe(true);
+      expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', owner: 'ge' });
+      return { engine, s };
+    };
+
+    it('a vehicle in Motion that has just come into view takes Limited Aim (+4 at \u2264 1 MP), not only the +2 for Motion', () => {
+      const { engine, s } = stepIntoView();
+      const r = act(engine, s, { type: 'defFire.ordnance', shot: { weapon: 'pziv', target: 'yM8', targetType: 'VTT' } });
+      expect(caseJ(r)).toEqual(['+4 moving vehicle (1 MP in your LOS)']);
+    });
+
+    it('a vehicle that began its MPh in the firer\u2019s LOS and never left it takes the +2 of Case J only', () => {
+      const { engine, state } = game([t34('yM9', { motion: true }), { id: 'pziv', def: 'ge.pzivf2', side: 'ge', hex: 'yM4', tags: { vca: 3, ca: 3 } }], { dice: [3, 3, 3, 3] });
+      let s = play(engine, state, { type: 'vmove.start', vehicle: 't34' });
+      if (engine.currentDecision(s)!.kind === 'firstFire') s = play(engine, s, { type: 'defPass', side: 'ge' });
+      s = play(engine, s, { type: 'move.step', to: 'yM8' });
+      const r = act(engine, s, { type: 'defFire.ordnance', shot: { weapon: 'pziv', target: 'yM8', targetType: 'VTT' } });
+      expect(caseJ(r)).toEqual(['+2 target in Motion']);
+    });
+
+    it('in the Defensive Fire Phase the moving vehicle takes +2 whatever MP it spent in view: Restricted and Limited Aim are Defensive First Fire only', () => {
+      const { engine, s: s0 } = stepIntoView();
+      let s = play(engine, s0, { type: 'defPass', side: 'ge' });
+      s = play(engine, s, { type: 'vmove.stop' });
+      if (engine.currentDecision(s)!.kind === 'firstFire') s = play(engine, s, { type: 'defPass', side: 'ge' });
+      while (engine.currentDecision(s)!.kind !== 'phase' || s.phase !== 'DFPh') {
+        const d = engine.currentDecision(s)!;
+        if (d.kind === 'firstFire') s = play(engine, s, { type: 'defPass', side: d.owner });
+        else s = play(engine, s, { type: 'endPhase', side: d.owner });
+      }
+      expect(s.phase).toBe('DFPh');
+      expect(s.pieces['t34']!.tags[T3.movingTarget]).toBe(true);
+      const r = act(engine, s, { type: 'fire.ordnance', side: 'ge', shot: { weapon: 'pziv', target: 'yM8', targetType: 'VTT' } } as never);
+      expect(caseJ(r)).toEqual(['+2 moving vehicle']);
+    });
   });
 
   it('the shot preview counts a moving target\u2019s MP without tracing the LOS (ASLRB A6.11): the same whether or not the Gun sees it', () => {
@@ -380,5 +428,27 @@ describe('Residual FP and a moving vehicle (SK1 3.3.1; SK4 3.2.3, 7.7)', () => {
   it('a Crew Exposed AFV entering Residual FP is attacked: its crew may take the result', () => {
     const { attacks } = enter({ ce: true });
     expect(attacks).toHaveLength(1);
+  });
+});
+
+describe('a broken unit an enemy AFV moves next to is placed under DM (SK4 3.2.3; ASLRB A10.62)', () => {
+  // SK4 3.2.3: "A broken unit not under DM that becomes adjacent to a Known Enemy Unit ... is placed under DM"; a Known
+  // Enemy Unit is "Any unconcealed (8.3) enemy unit to which the friendly unit in question currently has LOS" (SK4
+  // glossary), a vehicle included (ASLRB A10.62: "whenever a Known armed enemy unit ... ADJACENT to it").
+  const setup = () => {
+    const probe = game([t34('yM5')]);
+    const ns = neighbours(probe.engine, probe.state, 'yM5')!;
+    // Two hexes from the tank: adjacent to its first step, not to its start.
+    const far = neighbours(probe.engine, probe.state, ns[0]!)!.find((h) => h !== 'yM5' && !ns.includes(h))!;
+    const { engine, state } = game([t34('yM5'), { id: 'gb', def: 'ge.467', side: 'ge', hex: far, tags: { broken: true } }]);
+    return { engine, state, step: ns[0]! };
+  };
+
+  it('takes DM as the AFV enters the next hex', () => {
+    const { engine, state, step } = setup();
+    let s = play(engine, state, { type: 'vmove.start', vehicle: 't34' });
+    expect(s.pieces['gb']!.tags['dm']).toBeUndefined();
+    s = play(engine, s, { type: 'move.step', to: step });
+    expect(s.pieces['gb']!.tags['dm']).toBe(true);
   });
 });

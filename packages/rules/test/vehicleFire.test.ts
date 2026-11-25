@@ -4,7 +4,7 @@ import { buildAttack } from '../src/sk1/fire';
 import { moveState } from '../src/sk1/movement';
 import { sk2CoreModules } from '../src/sk2';
 import { sk3CoreModules } from '../src/sk3';
-import { caChangeDrm, inCoveredArc, nearestSpine, smoke58Counters, spineChange, statics, turretTurnFor } from '../src';
+import { caChangeDrm, inCoveredArc, maBffRefusal, nearestSpine, smoke58Counters, spineChange, statics, turretTurnFor, vehicleMgUnavailable } from '../src';
 import { T3, tcaOf } from '../src/sk3/status';
 import { T2 } from '../src/sk2/status';
 import { COUNTERS, RU_VS_GE, act, makeEngine, type PieceSpec } from './fixtures';
@@ -234,6 +234,26 @@ describe('vehicular machine guns (SK4 7.8)', () => {
     s = passDff(engine, act(engine, s, { type: 'endPhase' }).state);
     expect(s.pieces['t34']!.tags[T3.bff]).toBeUndefined();
     expect(s.pieces['t34.bmg']!.tags['fire']).toBeUndefined();
+  });
+  it('what the wheel offers after the MGs fired Bounding First Fire: the MA still, until it fires itself; never a Buttoned Up AAMG', () => {
+    // SK4 3.3.2.2 ties the other weapons only to the hex of the first MA shot; the MGs firing first set the vehicle's BFF
+    // record, which is not the MA's own shot. The AAMG fires only Crew Exposed (SK4 7.8; ASLRB D1.83). CMG DR 6+5; MA TH 6+6.
+    const stug = (tags: Record<string, string | number | boolean> = {}): PieceSpec => ({ id: 'sh', def: 'ge.stgiiigl', side: 'ru', hex: 'yM9', tags: { vca: 0, ca: 0, ...tags } });
+    const { engine, state } = game([stug(), { id: 'sq', def: 'ge.467', side: 'ge', hex: 'yM6' }], [6, 5, 6, 6, 6, 6, 6, 6]);
+    expect(vehicleMgUnavailable(engine.env(state), 'sh.aamg')).toMatch(/only while Crew Exposed/);
+    expect(vehicleMgUnavailable(engine.env(state), 'sh.cmg')).toBeNull();
+    const ce = game([stug({ ce: true }), { id: 'sq', def: 'ge.467', side: 'ge', hex: 'yM6' }], []);
+    expect(vehicleMgUnavailable(ce.engine.env(ce.state), 'sh.aamg')).toBeNull();
+    let s = play(engine, state, { type: 'vmove.start', vehicle: 'sh' }, { type: 'move.step', to: 'yM8' }, { type: 'vmove.stop' });
+    expect(maBffRefusal(engine.env(s), 'sh')).toBeNull();
+    s = passDff(engine, act(engine, s, { type: 'vmove.bffMg', decl: { units: [], sw: ['sh.cmg'], target: 'yM6' } }).state);
+    expect(s.pieces['sh']!.tags[T3.bff]).toBe(true);
+    expect(maBffRefusal(engine.env(s), 'sh')).toBeNull();
+    const ma = { type: 'vmove.bff', shot: { weapon: 'sh', target: 'yM6', targetType: 'ITT' } };
+    expect(engine.validate(s, { ...ma, side: 'ru', decisionId: engine.currentDecision(s)!.id } as never)).toBeNull();
+    // Once the MA itself has fired and lost ROF, the wheel greys it with the engine's reason.
+    s = passDff(engine, act(engine, s, ma).state);
+    expect(maBffRefusal(engine.env(s), 'sh')).toMatch(/lost ROF/);
   });
   it('after its MGs fired, the first MA shot of the MPh is from their hex', () => {
     const { engine, state } = game([t34('yM9'), { id: 'sq', def: 'ge.467', side: 'ge', hex: 'yM5' }], [6, 6, 6, 6, 6, 6]);
@@ -620,5 +640,25 @@ describe('turning without MP at the end of a fire phase (SK4 3.3.2, ASLRB C3.22)
     const { engine: e2, state: s2 } = makeEngine({ pieces: [t34('yM9'), stug('yM2')], scenario: GE_FIRST, extra, startPhase: 'DFPh' });
     expect(e2.currentDecision(s2)!.owner).toBe('ru');
     expect(face(e2, s2, { vca: 2 }, 't34')).toBeNull();
+  });
+});
+
+describe('Lend-Lease To Hit numbers (SK3 Russian Vehicle Note 50)', () => {
+  // The Sherman III(a) prints "*75": the asterisk sends the player to its Vehicle Note ("Red TH#s (Pre44)" on the
+  // counter back), not to a short barrel (ASLRB C2.9). Its MA fires on the red numbers before 1944 and the black from 1944.
+  const sherman = (date: string) =>
+    makeEngine({ pieces: [{ id: 'sh', def: 'ru.ShermanIII', side: 'ru', hex: 'yM9', tags: { vca: 0, ca: 0 } }, pziv('yM4')], scenario: { ...RU_VS_GE, date }, extra, startPhase: 'PFPh', dice: [6, 6] });
+  it.each([
+    ['15 August 1943', true],
+    ['28 June 1944', false],
+  ])('a Sherman III(a) in a scenario dated %s fires its MA on the red numbers: %s', (date, red) => {
+    const { engine, state } = sherman(date);
+    const r = act(engine, state, { type: 'fire.ordnance', shot: { weapon: 'sh', target: 'yM4', targetType: 'VTT' } });
+    expect(ev(r, 'sk2.ordnance.shot')[0]).toMatchObject({ red });
+  });
+  it('a Russian MA without the note keeps the red numbers in 1944 (SK4 3.2.4)', () => {
+    const { engine, state } = makeEngine({ pieces: [t34('yM9'), pziv('yM4')], scenario: { ...RU_VS_GE, date: '28 June 1944' }, extra, startPhase: 'PFPh', dice: [6, 6] });
+    const r = act(engine, state, { type: 'fire.ordnance', shot: { weapon: 't34', target: 'yM4', targetType: 'VTT' } });
+    expect(ev(r, 'sk2.ordnance.shot')[0]).toMatchObject({ red: true });
   });
 });

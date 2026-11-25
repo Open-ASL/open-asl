@@ -62,6 +62,33 @@ describe('Support weapons: recovery, portage and dropping (SK1 4.0)', () => {
     expect(s.pieces['rMMG']!.tags['portaged']).toBeUndefined();
   });
 
+  it('a SW recovered mid-move counts against the MF of the whole MPh from then on (ASLRB A4.42, A4.44)', () => {
+    // A 4 MF squad carrying a 3 PP MMG (at its IPC) steps into a hex (1 MF) and recovers a 1 PP FT there (1 MF). It now
+    // carries one PP over its IPC: "loses one MF", so 3 MF for the MPh, 2 of them spent, one left.
+    const pieces = (ft: string) => [
+      { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yN4' },
+      { id: 'mmg', def: 'am.MMG', side: 'ge', heldBy: 'g1' },
+      { id: 'ft', def: ft, side: 'ge', hex: 'yO4' },
+      { id: 'b1', def: 'br.458', side: 'br', hex: 'yA1' },
+    ];
+    const { engine, state } = makeEngine({ scenario: GE_VS_BR, startPhase: 'MPh', dice: [1], terrain: {}, pieces: pieces('ge.FT') });
+    let s = act(engine, state, { type: 'move.start', units: ['g1'] }).state;
+    expect(moveState(engine.env(s))!.allowance['g1']).toBe(4);
+    s = settle(engine, act(engine, s, { type: 'move.step', to: 'yO4' }).state);
+    s = settle(engine, act(engine, s, { type: 'move.recover', unit: 'g1', sw: 'ft' }).state);
+    expect(s.pieces['ft']!.loc).toEqual({ kind: 'held', by: 'g1' });
+    const ms = moveState(engine.env(s))!;
+    expect([ms.allowance['g1'], ms.spent['g1']]).toEqual([3, 2]);
+    s = settle(engine, act(engine, s, { type: 'move.step', to: 'yP4' }).state);
+    expect(() => act(engine, s, { type: 'move.step', to: 'yQ4' })).toThrow();
+    // A failed attempt leaves the PP carried, and the allowance, as they were.
+    const failed = makeEngine({ scenario: GE_VS_BR, startPhase: 'MPh', dice: [6], terrain: {}, pieces: pieces('ge.FT') });
+    let f = act(failed.engine, failed.state, { type: 'move.start', units: ['g1'] }).state;
+    f = settle(failed.engine, act(failed.engine, f, { type: 'move.step', to: 'yO4' }).state);
+    f = settle(failed.engine, act(failed.engine, f, { type: 'move.recover', unit: 'g1', sw: 'ft' }).state);
+    expect(moveState(failed.engine.env(f))!.allowance['g1']).toBe(4);
+  });
+
   it('a SMC may not recover a SW that would take it over 2 PP', () => {
     const { engine, state } = makeEngine({
       scenario: RU_VS_GE,
@@ -158,6 +185,36 @@ describe('Demolition Charges (SK1 4.3)', () => {
     t = toAfph(live.engine, live.s);
     const g1 = t.state.pieces['g1']!;
     expect(g1.loc.kind === 'eliminated' || g1.tags['broken'] === true).toBe(true);
+  });
+
+  it('a placer broken by First Fire in the Placement Hex as its move ends has not placed the DC (ASLRB A23.3)', () => {
+    // The defender passes the shot at the placement, then takes the last one as the move ends: 8 FP (4 x2 PBF) on a DR
+    // of 4+5 -1 FFNAM -1 FFMO = 7, then the MC of 4+3 breaks the squad. The DC stays with it and never attacks.
+    const { engine, s: placed } = place([4, 5, 4, 3]);
+    expect(placed.pieces['aDC']!.tags['dcPlaced']).toBe(true);
+    let s = act(engine, placed, { type: 'move.end' }).state;
+    expect(engine.currentDecision(s)?.kind).toBe('firstFire');
+    s = act(engine, s, { type: 'defFire', decl: { units: ['g1'], sw: [], target: 'yN4' } }).state;
+    expect(s.pieces['a1']!.tags['broken']).toBe(true);
+    expect(s.pieces['aDC']!.loc).toEqual({ kind: 'held', by: 'a1' });
+    expect(s.pieces['aDC']!.tags['dcPlaced']).toBeUndefined();
+    s = settle(engine, s);
+    s = act(engine, s, { type: 'endPhase' }).state;
+    expect(s.phase).toBe('DFPh');
+    const t = act(engine, s, { type: 'endPhase' });
+    expect(t.state.phase).toBe('AFPh');
+    expect(t.events.some((e) => e.type === 'sk1.fire.attack')).toBe(false);
+    expect(t.state.pieces['aDC']!.loc).toEqual({ kind: 'held', by: 'a1' });
+  });
+
+  it('once the placer moves away the DC stays placed whatever befalls it (ASLRB A23.3)', () => {
+    // Placed from N4, the squad steps to N3 (no fire), and is broken there: the DC in O5 is untouched.
+    const { engine, s: placed } = place([4, 5, 4, 3]);
+    let s = settle(engine, act(engine, placed, { type: 'move.step', to: 'yN3' }).state);
+    s = act(engine, s, { type: 'move.end' }).state;
+    if (engine.currentDecision(s)?.kind === 'firstFire') s = act(engine, s, { type: 'defFire', decl: { units: ['g1'], sw: [], target: 'yN3' } }).state;
+    expect(s.pieces['aDC']!.loc).toEqual({ kind: 'hex', hex: 'yO5' });
+    expect(s.pieces['aDC']!.tags).toMatchObject({ dcPlaced: true, dcPlacer: 'a1' });
   });
 });
 
@@ -423,5 +480,22 @@ describe('a DC in a Melee hex (SK4 3.8, ASLRB A23.1)', () => {
     const t = act(engine, state, { type: 'test.dc', dc: 'd1' });
     const hit = t.events.filter((e) => e.type === 'sk1.fire.result').map((e) => (e.payload as { unit: string }).unit).sort();
     expect(hit).toEqual(['aL', 'g1']);
+  });
+
+  it('attacks every unit in a hex whose Melee has ended with all broken (SK1 3.2, 3.8)', () => {
+    const { engine, state } = makeEngine({
+      extra: [testDc],
+      startPhase: 'PFPh',
+      dice: [4, 3, 6, 6, 6, 6, 6, 6],
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yO5' },
+        { id: 'aB', def: 'am.747', side: 'am', hex: 'yP5', tags: { broken: true } },
+        { id: 'd1', def: 'am.DC', side: 'am', hex: 'yP5', tags: { dcPlaced: true, dcPlacer: 'a1' } },
+        { id: 'gB', def: 'ge.467', side: 'ge', hex: 'yP5', tags: { broken: true } },
+      ],
+    });
+    const t = act(engine, state, { type: 'test.dc', dc: 'd1' });
+    const hit = t.events.filter((e) => e.type === 'sk1.fire.result').map((e) => (e.payload as { unit: string }).unit).sort();
+    expect(hit).toEqual(['aB', 'gB']);
   });
 });

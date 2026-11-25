@@ -99,6 +99,13 @@ export function compulsoryHidden(env: QueryEnv, todo: PieceId[], placements: Rec
     .sort();
 }
 
+declare module '@asl/engine' {
+  interface QueryCatalog {
+    /** How many squad equivalents these MMC count against a hidden-units quota (SK4 8.1.8.5); full ASL: A5.5. */
+    'hidden.quotaSquadEquivalents': { ctx: { units: PieceId[] }; value: number };
+  }
+}
+
 export const hiddenUnitsModule: RuleModule = {
   id: 'ssr.hidden-units',
   ref: 'S23 SSR 1; ASL A12.3',
@@ -127,7 +134,8 @@ export const hiddenUnitsModule: RuleModule = {
         const quota = hiddenUnitsParams(env)?.quota;
         if (quota !== undefined && a.hidden?.length) {
           const hidden = a.hidden.map((id) => env.state.pieces[id]).filter((p): p is Piece => !!p);
-          const se = squadEquivalents(env, hidden.filter((p) => mmc(env, p)));
+          const mmcs = hidden.filter((p) => mmc(env, p));
+          const se = env.query('hidden.quotaSquadEquivalents', { units: mmcs.map((p) => p.id) }, squadEquivalents(env, mmcs));
           if (se > quota) return `Only ${quota} squad equivalent${quota === 1 ? '' : 's'} may set up hidden (${hiddenUnitsParams(env)?.rule ?? 'SSR'}): ${se} chosen`;
           for (const p of hidden) if (smc(env, p) && !hidden.some((q) => q.id !== p.id && mmc(env, q) && a.placements[q.id] === a.placements[p.id])) return `${p.id} may only set up hidden stacked with a hidden MMC (${hiddenUnitsParams(env)?.rule ?? 'SSR'})`;
         }

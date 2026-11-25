@@ -19,7 +19,7 @@ import { byId, hexOf, otherSide, personnelAt, statics, unitsAt, vehiclesAt } fro
 import { LEVEL_CHANGE_MF, adjacentLocs, hexOfLoc, isGroundLoc, locExists, locKey, locOf, locationAt, type LocId } from '../common/location';
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
 import { T, actionIllegal, isCx, isGoodOrder, isPinned, mmc, pieceOf, restack, setTags, smc, squadEquivalents } from './status';
-import { stackLimit } from './movement';
+import { entryHexesOf, notEntryHex, stackLimit } from './movement';
 import { inPlay } from './terrain';
 
 /** `to`: the ADJACENT Location advanced into (ASLRB A4.7, A.8; a hex id at ground level). */
@@ -85,6 +85,8 @@ function advanceIllegal(env: QueryEnv, a: { units: PieceId[]; to: LocId; side: s
       if (!p.loc.hex || (p.tags['entryTurn'] as number | undefined ?? Infinity) > env.state.turn) return `${id} cannot enter now`;
       if (!edge || !isGroundLoc(a.to) || !map.edge(edge).includes(a.to) || !map.offboardNeighbors(p.loc.hex).onboard.includes(a.to))
         return `${id} must enter beside its offboard hex`;
+      // By the hexes the card names for its entry ("on/between Y1-GG4"), as when moving on (SK1 3.3).
+      if (!entryHexesOf(env, p).includes(a.to)) return notEntryHex(env, p, a.to);
       froms.add(`off:${p.loc.hex}`);
       continue;
     }
@@ -99,9 +101,7 @@ function advanceIllegal(env: QueryEnv, a: { units: PieceId[]; to: LocId; side: s
   for (const id of a.units) {
     const p = pieceOf(env, id);
     const mf = env.query('unit.mf', { unit: id, stack: a.units, doubleTime: false }, 0);
-    const from = hexOf(env.state, p);
-    // Up or down the stairs of its own hex: one MF (full ASL, ASLRB B23.4; never in the Starter Kit).
-    const cost = locOf(env.state, p) === a.to ? 0 : from === toHex ? LEVEL_CHANGE_MF : env.query('move.cost', { unit: id, from, to: toHex, viaRoad: false, ...(isGroundLoc(a.to) ? {} : { loc: a.to }) }, 1);
+    const cost = advanceCost(env, id, a.to);
     // An advance enters a Location the unit could enter in the MPh (ASLRB A4.7): never one no MF can pay for (flooded
     // terrain, an uncrossable hexside).
     // A module's own reason (a river SSR) is the better message.
@@ -196,6 +196,22 @@ export const advanceModule: RuleModule = {
   },
 };
 
+/**
+ * The MF an advance into `to` costs the unit: what entering it would cost in the MPh (SK1 3.7; ASLRB A4.72 "a hex
+ * requiring two MF to enter during the MPh"). Across a road hexside into a road or Woods-Road hex that is the road rate
+ * (ASLRB B13.4: woods cost two MF "unless entry is made via a road hexside"); up or down the stairs of its own hex, one MF
+ * (full ASL, ASLRB B23.4; never in the Starter Kit).
+ */
+function advanceCost(env: QueryEnv, id: PieceId, to: LocId): number {
+  const p = pieceOf(env, id);
+  if (locOf(env.state, p) === to) return 0;
+  const from = hexOf(env.state, p);
+  const toHex = hexOfLoc(to);
+  if (from === toHex) return LEVEL_CHANGE_MF;
+  const viaRoad = isGroundLoc(to) && from !== null && (statics(env).map.roadHexside?.(from, toHex) ?? false);
+  return env.query('move.cost', { unit: id, from, to: toHex, viaRoad, ...(isGroundLoc(to) ? {} : { loc: to }) }, 1);
+}
+
 /** Move the advancing units: MMC first pass a PAATC when an enemy AFV holds the hex (SK4 3.7), the rest advance. */
 function advanceEnter(ctx: Ctx, a: AdvanceAction) {
   const map = statics(ctx).map;
@@ -225,7 +241,7 @@ function advanceEnter(ctx: Ctx, a: AdvanceAction) {
   for (const id of [...units].sort()) {
     const p = pieceOf(ctx, id);
     const mf = ctx.query('unit.mf', { unit: id, stack: units, doubleTime: false }, 0);
-    const cost = locOf(ctx.state, p) === a.to ? 0 : ctx.query('move.cost', { unit: id, from: hexOf(ctx.state, p), to: hexOfLoc(a.to), viaRoad: false, ...(isGroundLoc(a.to) ? {} : { loc: a.to }) }, 1);
+    const cost = advanceCost(ctx, id, a.to);
     ctx.emit('piece.moved', { id, loc: locationAt(a.to) });
     setTags(ctx, id, {
       advanced: true,

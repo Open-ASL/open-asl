@@ -10,8 +10,9 @@ const AP_ONLY_GUNS = new Set(['br.AA40L', 'br.AT40L']);
  * The SK3 PSW 234/1 (S22's card) has a front AF of 3 where VASL prints 4.
  */
 const SK_PRINTED: Record<string, (d: CounterDef) => CounterDef> = {
-  // The SK Sherman III(a) prints MG 2/4: no AAMG.
-  'ru.ShermanIII': (d) => (d.kind === 'vehicle' && d.mg ? { ...d, mg: { bmg: d.mg.bmg, cmg: d.mg.cmg } } : d),
+  // The SK Sherman III(a) prints MG 2/4: no AAMG. Its "*75" is a notice asterisk (ASLRB C2.9), not a short barrel: the
+  // counter back reads "Red TH#s (Pre44)" (SK3 Russian Vehicle Note 50); its AP stays on the 75 row of the To Kill Table.
+  'ru.ShermanIII': (d) => (d.kind === 'vehicle' && d.mg ? { ...d, mg: { bmg: d.mg.bmg, cmg: d.mg.cmg }, redThBefore: 1944 } : d),
   // The 88L AA Gun's M# is printed in red: a large target (SK4 6.7); the VASL piece leaves it normal.
   'ge.AA88L': (d) => (d.kind === 'gun' ? { ...d, targetSize: 'large' } : d),
   'ge.psw2341': (d) =>
@@ -193,8 +194,8 @@ function counterIds(chart: Record<string, string[][]>, nations: string[], extra:
   ].filter((id, i, a) => a.indexOf(id) === i);
 }
 
-/** Counters in the SK1 counter mix (nationality chart + leaders + SW). */
-export const SK1_COUNTER_IDS: string[] = counterIds(SK1_NATIONALITY_CHART, ['ge', 'ru', 'am']);
+/** Counters in the SK1 counter mix (nationality chart + leaders + SW, and the American .50 cal HMG). */
+export const SK1_COUNTER_IDS: string[] = counterIds(SK1_NATIONALITY_CHART, ['ge', 'ru', 'am'], ['am.HMG50']);
 
 /**
  * The SK2 additions: British, Allied Minor and Italian infantry, then every crew, Gun, Light Mortar and Bazooka imported
@@ -270,8 +271,6 @@ export const SK3_COUNTER_IDS: string[] = [
   // Anti-Tank Rifles (SK4 4.4.4): Russian (S25), German (S27).
   'ru.ATR',
   'ge.ATR',
-  // The American .50 cal HMG (S34).
-  'am.HMG50',
   ...Object.values(COUNTERS)
     .filter((d) => d.kind === 'vehicle')
     .map((d) => d.id)

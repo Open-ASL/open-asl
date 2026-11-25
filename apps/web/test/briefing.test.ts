@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { scenarioById } from '@asl/content';
+import { COUNTERS, scenarioById } from '@asl/content';
+import { counterNotes } from '../src/game/counterNotes';
 import { describeVictory, setupRule } from '../src/panels/Briefing';
 
 describe('victory conditions in words', () => {
@@ -28,5 +29,14 @@ describe('setup in words', () => {
     const am = scenarioById('sk-s29')!.forces.find((f) => f.id === 'am')!;
     expect(setupRule(am)).toBe('enter on Turn 1 along the north edge');
     expect(setupRule({ ...am, setup: { kind: 'enter', turn: 1, edge: 'N,E,S,W' } })).toBe('Enter on Turn 1 along any edge');
+  });
+});
+
+describe('counter notes', () => {
+  it('Backblast is a BAZ or PSK note only: a PIAT fires from inside a building with no penalty (SK4 4.4.3)', () => {
+    for (const id of ['am.BAZ43', 'ge.PSK']) expect(counterNotes(COUNTERS[id]!)).toContain('Backblast from inside a building: +2 To Hit or a 1 FP attack on the hex');
+    const piat = counterNotes(COUNTERS['br.PIAT']!);
+    expect(piat).toContain('No Backblast: fires from inside a building with no penalty');
+    expect(piat.some((n) => /^Backblast/.test(n))).toBe(false);
   });
 });

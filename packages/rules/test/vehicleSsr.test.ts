@@ -97,10 +97,32 @@ describe('Dug-in AFV (SSR)', () => {
     expect(ev(r, 'sk3.toKill')[0]).toMatchObject({ location: 'turret' });
   });
 
+  it('a Critical Hit is never a hull hit: it strikes the turret, as one vs a Hull Down target (ASLRB C3.7, C3.9)', () => {
+    // An Original 1-1 To Hit DR, a hull hit by its dice, is a CH: resolved on the turret with the Basic TK# doubled.
+    const r = shoot(...(Object.values(game([1, 1, 3, 3], { [T3.dugIn]: true })) as [Engine, GameState]));
+    expect(ev(r, 'ssr.dig-in.hullHit')).toHaveLength(0);
+    expect(ev(r, 'sk3.toKill')[0]).toMatchObject({ target: 't', ch: true, location: 'turret' });
+    // Not dug in, the same CH strikes the hull as its dice say.
+    const open = shoot(...(Object.values(game([1, 1, 3, 3], {})) as [Engine, GameState]));
+    expect(ev(open, 'sk3.toKill')[0]).toMatchObject({ ch: true, location: 'hull' });
+  });
+
   it('never starts to move or attempts Motion', () => {
     const { engine, state } = makeEngine({ pieces: [t34('yM9', { [T3.dugIn]: true })], scenario: { ...RU_VS_GE, ssr: [ssr.digIn] }, extra, startPhase: 'MPh' });
     const d = engine.currentDecision(state)!;
     expect(engine.validate(state, { type: 'vmove.start', vehicle: 't', side: 'ru', decisionId: d.id } as never)).toMatch(/dug-in vehicle never moves/);
+    // The hull never turns and no Motion attempt is open to it, whatever the phase.
+    const env = engine.env(state);
+    expect(env.query('vehicle.cannotTurn', { vehicle: 't' }, null)).toMatch(/dug-in vehicle never changes its VCA/);
+    expect(env.query('vehicle.cannotAttemptMotion', { vehicle: 't' }, null)).toMatch(/mobile vehicle may attempt Motion/);
+    const free = makeEngine({ pieces: [t34('yM9', {})], scenario: { ...RU_VS_GE, ssr: [ssr.digIn] }, extra, startPhase: 'MPh' });
+    expect(free.engine.env(free.state).query('vehicle.cannotTurn', { vehicle: 't' }, null)).toBeNull();
+  });
+
+  it('never turns its hull at the end of a fire phase', () => {
+    const { engine, state } = makeEngine({ pieces: [t34('yM9', { [T3.dugIn]: true })], scenario: { ...RU_VS_GE, firstSide: 'ru', ssr: [ssr.digIn] }, extra, startPhase: 'PFPh' });
+    const d = engine.currentDecision(state)!;
+    expect(engine.validate(state, { type: 'vehicle.face', vehicle: 't', vca: 3, side: 'ru', decisionId: d.id } as never)).toMatch(/dug-in vehicle never changes its VCA/);
   });
 
   it('+1 to every IFT and To Hit attack in the darkness', () => {

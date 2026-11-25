@@ -9,7 +9,7 @@ import { clearAreasTally, squadEquivalentsLost } from './clearAreas';
 import { OPEN_STACK_LIMIT, stackLimit } from './movement';
 import { MOVE_EXIT, exitMf, moveState, type MoveExitFn, type MoveState } from './movement';
 import { AP, type AdvanceExitFn } from './advance';
-import type { GameMap, ScenarioDef, ScenarioForce, VictoryCondition, SetupConstraint } from '../common/statics';
+import type { CounterDef, GameMap, ScenarioDef, ScenarioForce, VictoryCondition, SetupConstraint } from '../common/statics';
 import { isBroken, isGoodOrder, mmc, pieceOf, setTags, smc, squadEquivalents } from './status';
 import { isRoadHex, terrainOf } from './terrain';
 
@@ -30,7 +30,7 @@ declare module '@asl/engine' {
      * Why `unit` (with what it holds) may not set up in `hex` by a rule of another rule pack (a large Gun in a building),
      * or null. The default placement steers clear of such hexes; the setup action is still judged by 'setup.illegal'.
      */
-    'setup.hexIllegal': { ctx: { side: SideId; unit: PieceId; hex: HexId }; value: string | null };
+    'setup.hexIllegal': { ctx: { side: SideId; unit: PieceId; hex: HexId; sw?: Record<PieceId, PieceId> }; value: string | null };
     /** Whether a victory condition another rule pack defines currently holds (null: nobody answers). */
     'vc.achieved': { ctx: { vc: VictoryCondition }; value: boolean | null };
     /** How many of a side's AFV in the hexes are mobile with a functioning MA (0 without the vehicle rules). */
@@ -45,6 +45,16 @@ declare module '@asl/engine' {
      */
     'setup.reserve': { ctx: { side: SideId; force: number }; value: ReserveRule | null };
   }
+}
+
+
+/**
+ * What an entering unit has already expended per its force's card: a vehicle its MP (`mpSpent`, a number or "half"), else
+ * the force's MF; anything else only MF (`mfSpent`), a number.
+ */
+export function entrySpentOf(def: CounterDef | undefined, setup: { mfSpent?: number; mpSpent?: number | 'half' }): number | 'half' | undefined {
+  if (def && isVehicleDef(def)) return setup.mpSpent ?? setup.mfSpent;
+  return setup.mfSpent;
 }
 
 export const SETUP_DECISION = 'setup';
@@ -108,8 +118,36 @@ export interface ControlState {
   /** Control of the Locations above ground level (ASLRB A26.11); absent when there is none. */
   locations?: Record<LocId, SideId>;
 }
-export const controlState = (env: QueryEnv): ControlState =>
-  (env.state.ext[CONTROL] as ControlState | undefined) ?? { hexes: {}, buildings: {} };
+/**
+ * Control as recorded: what was gained in play (and the card's own at-start Control). Writers of Control build on this,
+ * not on `controlState`, so that the setup areas' start Control adds no event: decision ids count events, and recorded
+ * games keep replaying.
+ */
+export const storedControl = (env: QueryEnv): ControlState => (env.state.ext[CONTROL] as ControlState | undefined) ?? { hexes: {}, buildings: {} };
+
+/**
+ * Control now: what each side had at scenario start from its setup area (`setupAreaControl`, A26.11), overlaid by
+ * what is recorded (`storedControl`), then passed through the rules that amend Control (`control.adjust`: a building
+ * wholly rubbled is nobody's, B24.1). A hex whose recorded Control is withdrawn (an AFV leaving) is back to its start.
+ */
+export const controlState = (env: QueryEnv): ControlState => {
+  const cached = MERGED.get(env.state);
+  if (cached) return cached;
+  const stored = env.state.ext[CONTROL] as ControlState | undefined;
+  const start = startControl(env);
+  const merged: ControlState = stored ? { ...stored, hexes: { ...start.hexes, ...stored.hexes }, buildings: { ...start.buildings, ...stored.buildings } } : start;
+  const out = env.query('control.adjust', { next: merged, prev: stored ?? { hexes: {}, buildings: {} } }, merged);
+  MERGED.set(env.state, out);
+  return out;
+};
+const MERGED = new WeakMap<object, ControlState>();
+const START = new WeakMap<object, ControlState>();
+const startControl = (env: QueryEnv): ControlState => {
+  const st = statics(env);
+  let c = START.get(st);
+  if (!c) START.set(st, (c = setupAreaControl(env)));
+  return c;
+};
 
 /**
  * Every hex a side Controls, for display: hex control plus every hex of a Controlled building
@@ -304,6 +342,19 @@ export type SetupAction = Action & {
 
 /** Procedure run after a setup's placements are applied: (ctx, action, decision). Other rule packs wrap it (Guns). */
 export const SETUP_PLACED = 'sk1.scenario.placed';
+
+/** Reinforcements set up on the map hexes their card names, as their side's RPh begins (ASLRB A2.51). */
+export interface AppearedEvent {
+  side: SideId;
+  units: PieceId[];
+  hexes: HexId[];
+}
+/** Reinforcements due to appear that none of their hexes could take: they come on the given Game Turn (ASLRB A2.5). */
+export interface AppearDelayedEvent {
+  side: SideId;
+  units: PieceId[];
+  turn: number;
+}
 export type SetupPlacedFn = (ctx: Ctx, action: SetupAction, decision: Decision) => void;
 
 function setupHexes(force: ScenarioForce): HexId[] | null {
@@ -375,6 +426,9 @@ function placementHexesOf(env: QueryEnv, p: Piece): HexId[] {
     // Not where no unit may enter (S19's flooded grain), whatever area the card names.
     return (setupHexes(forceOf(env, p)) ?? [...map.hexes()].map((h) => h.id)).filter((h) => terrainOf(env, h).mf !== Infinity);
   }
+  // A force the card has appear on map hexes is set up on them, where a unit may enter (ASLRB A2.51).
+  const appear = p.tags['appearHexes'] as string | undefined;
+  if (appear !== undefined && p.loc.kind === 'offboard') return appear.split(',').filter((h) => !!map.hex(h) && terrainOf(env, h).mf !== Infinity);
   const edge = p.tags['entryEdge'] as string | undefined;
   if (!edge) return [];
   const allowed = (p.tags['entryHexes'] as string | undefined)?.split(',');
@@ -707,22 +761,73 @@ function applySwAssignments(ctx: Ctx, sw: Record<PieceId, PieceId> | undefined) 
   }
 }
 
+/** The weapons a unit carries once the setup's SW assignments `sw` (SW id → unit) are applied. */
+function carriedWith(env: QueryEnv, holder: PieceId, sw: Record<PieceId, PieceId>): Piece[] {
+  return Object.values(env.state.pieces).filter((w) => w.loc.kind === 'held' && (sw[w.id] ?? w.loc.by) === holder);
+}
+
+/**
+ * Why handing weapon `swId` to `holder` breaks the setup so far, or null: the assignment rules (SK1 4.0) and the card's
+ * constraints, judged with the weapon where its new holder stands and the weapons not yet handed out in `sw` standing
+ * nowhere. A Gun dropped beside a building ("≥ 2 hexes away from any building") is refused here, or every later
+ * placement would fail on it.
+ */
+export function weaponDropIllegal(
+  env: QueryEnv,
+  side: SideId,
+  todo: Piece[],
+  placements: Record<PieceId, LocId>,
+  sw: Record<PieceId, PieceId>,
+  swId: PieceId,
+  holder: PieceId,
+): string | null {
+  const next = { ...sw, [swId]: holder };
+  const tray = todo.filter((p) => mmc(env, p) || smc(env, p)).flatMap((p) => swHeldBy(env.state, p.id));
+  const where = { ...Object.fromEntries(tray.map((w) => [w.id, '-'])), ...next };
+  return swAssignmentIllegal(env, side, todo, next) ?? placementIllegal(env, side, todo, placements, true, where);
+}
+
+/**
+ * Every weapon of the units being set up with a holder: the player's assignments `sw` kept, the rest with the unit the
+ * card gave them. A carrier the player has handed another weapon gives its own to a unit of its group left carrying
+ * nothing (two crews that swapped Guns: each Gun stays with one crew, never two with one).
+ */
+export function defaultSwAssignment(env: QueryEnv, todo: Piece[], sw: Record<PieceId, PieceId>): Record<PieceId, PieceId> {
+  const assign = { ...sw };
+  const given = new Set(Object.values(sw));
+  const load = (id: PieceId) => Object.values(assign).filter((h) => h === id).length;
+  // Only Infantry hand weapons about; a vehicle's own armament stays with it (SK4 7.8).
+  for (const p of todo.filter((u) => mmc(env, u) || smc(env, u))) {
+    for (const w of swHeldBy(env.state, p.id).sort(byId)) {
+      if (assign[w.id]) continue;
+      const spare = given.has(p.id)
+        ? todo.find((u) => u.id !== p.id && u.tags['force'] === p.tags['force'] && (mmc(env, u) || smc(env, u)) && load(u.id) === 0 && swHeldBy(env.state, u.id).every((x) => sw[x.id]))
+        : undefined;
+      assign[w.id] = spare?.id ?? p.id;
+    }
+  }
+  return assign;
+}
+
 /**
  * A legal default placement (round-robin over each piece's hexes within stacking limits, offboard
  * units near the middle of their edge), keeping any placements already made. Null if impossible.
+ * `sw` gives weapons to other units than the card's (the setup's SW assignments); the constraints follow them.
  */
 export function defaultPlacement(
   env: QueryEnv,
   side: SideId,
   todo: Piece[],
   existing: Record<PieceId, HexId> = {},
+  sw: Record<PieceId, PieceId> = {},
 ): Record<PieceId, HexId> | null {
   const placements: Record<PieceId, HexId> = { ...existing };
+  const held = (id: PieceId) => carriedWith(env, id, sw);
   const sc = statics(env).scenario;
   const map = statics(env).map;
   // The spacing constraints a piece is under (through the weapons it carries too), for ranking hexes.
   const spacingOf = (p: Piece) => {
-    const defs = [p.defId, ...swHeldBy(env.state, p.id).map((w) => w.defId)];
+    const defs = [p.defId, ...held(p.id).map((w) => w.defId)];
     const f = sc.forces[p.tags['force'] as number];
     const cs = f && (f.setup.kind === 'hexes' || f.setup.kind === 'area') ? (f.setup.constraints ?? []) : [];
     return cs.filter((c): c is Extract<SetupConstraint, { kind: 'spacing' }> => c.kind === 'spacing' && c.defs.some((d) => defs.includes(d)));
@@ -732,7 +837,7 @@ export function defaultPlacement(
   const anchored = (p: Piece) => {
     const f = sc.forces[p.tags['force'] as number];
     const cs = f && (f.setup.kind === 'hexes' || f.setup.kind === 'area') ? (f.setup.constraints ?? []) : [];
-    return cs.some((c) => c.kind === 'minWithin') ? swHeldBy(env.state, p.id).length : 0;
+    return cs.some((c) => c.kind === 'minWithin') ? held(p.id).length : 0;
   };
   // Units that must set up near a vehicle (LMA4 SSR 3) go after the vehicles.
   const nearVehicle = sc.forces.some((f) => f.side === side && (f.setup.kind === 'hexes' || f.setup.kind === 'area') && f.setup.constraints?.some((c) => c.kind === 'nearVehicle'));
@@ -741,11 +846,11 @@ export function defaultPlacement(
   const worth = (p: Piece) => {
     const m = mmc(env, p);
     const l = smc(env, p);
-    return m ? m.fp * 2 + m.morale + swHeldBy(env.state, p.id).length * 3 : l ? -l.leadership * 10 + l.morale : 0;
+    return m ? m.fp * 2 + m.morale + held(p.id).length * 3 : l ? -l.leadership * 10 + l.morale : 0;
   };
   const order = [...todo].sort((a, b) => vehicleFirst(a) - vehicleFirst(b) || Number(spacingOf(a).length === 0) - Number(spacingOf(b).length === 0) || Number(!mmc(env, a)) - Number(!mmc(env, b)) || anchored(b) - anchored(a) || worth(b) - worth(a));
   const geo = setupGeography(env, side);
-  const tactical = (h: HexId, p: Piece) => tacticalRank(env, geo, h, p, placements);
+  const tactical = (h: HexId, p: Piece) => tacticalRank(env, geo, h, p, placements, held);
   for (const p of order) {
     if (placements[p.id]) continue;
     const options = placementHexes(env, p);
@@ -754,7 +859,7 @@ export function defaultPlacement(
     // Spacing: prefer a hex within reach of a piece already placed under the same rule.
     const anchors = spacingOf(p).flatMap((c) =>
       todo
-        .filter((o) => o.id !== p.id && placements[o.id] && [o.defId, ...swHeldBy(env.state, o.id).map((w) => w.defId)].some((d) => c.defs.includes(d)))
+        .filter((o) => o.id !== p.id && placements[o.id] && [o.defId, ...held(o.id).map((w) => w.defId)].some((d) => c.defs.includes(d)))
         .map((o) => ({ hex: placements[o.id]!, near: c.withinOfAnother ?? Infinity, far: c.atLeast ?? 0 })),
     );
     const spacingRank = (h: HexId) =>
@@ -763,14 +868,14 @@ export function defaultPlacement(
         return d >= a.far && d <= a.near ? 0 : d < a.far ? 100 : d - a.near;
       }));
     // Anchor minimums (`minWithin`): prefer the anchor where this piece (and the SW it carries) fills the most shortfalls.
-    const fills = anchorFills(env, side, p, placements);
+    const fills = anchorFills(env, side, p, placements, held);
     const anchorRank = (h: HexId) => (fills.length === 0 ? 0 : 10 * (Math.max(...fills.map((f) => f.gain)) - Math.max(0, ...fills.filter((f) => map.distance(h, f.anchor) <= f.range).map((f) => f.gain))));
     // The card's constraints decide first; among the hexes they allow, the tactical rank (cover, the goals, the enemy's
     // front, spreading the stacks) picks; the middle of an edge only breaks ties for a force entering with no goals.
     const rank = (h: HexId) => 100 * (spacingRank(h) + anchorRank(h)) + tactical(h, p) + (p.loc.kind === 'offboard' && p.loc.edge !== 'setup' && mid ? 0.01 * Math.abs(options.indexOf(h) - options.indexOf(mid)) : 0);
     const used = (h: HexId) => Object.values(placements).filter((x) => x === h).length;
     const sorted = [...options].sort((a, b) => rank(a) - rank(b) || used(a) - used(b) || (a < b ? -1 : 1));
-    const hex = sorted.find((h) => !placementIllegal(env, side, todo, { ...placements, [p.id]: h }, true) && !env.query('setup.hexIllegal', { side, unit: p.id, hex: h }, null));
+    const hex = sorted.find((h) => !placementIllegal(env, side, todo, { ...placements, [p.id]: h }, true, sw) && !env.query('setup.hexIllegal', { side, unit: p.id, hex: h, sw }, null));
     if (!hex) return null;
     placements[p.id] = hex;
   }
@@ -822,10 +927,10 @@ export function setupGeography(env: QueryEnv, side: SideId): { front: HexId[]; g
  * way to the card's goals and toward the enemy's front, and the stack already there (two MMC make a fire group, a
  * third is one attack's worth of casualties; a leader joins MMC with no leader yet; a Gun or a vehicle stands alone).
  */
-function tacticalRank(env: QueryEnv, geo: { front: HexId[]; goals: HexId[]; holder: boolean }, h: HexId, p: Piece, placements: Record<PieceId, LocId>): number {
+function tacticalRank(env: QueryEnv, geo: { front: HexId[]; goals: HexId[]; holder: boolean }, h: HexId, p: Piece, placements: Record<PieceId, LocId>, held: (id: PieceId) => Piece[]): number {
   const map = statics(env).map;
   const vehicleP = isVehicleDef(defOf(env, p));
-  const gunP = swHeldBy(env.state, p.id).some((w) => isGunDef(defOf(env, w)));
+  const gunP = held(p.id).some((w) => isGunDef(defOf(env, w)));
   const leaderP = !!smc(env, p);
   const onMap = !!map.hex(h);
   // Hex distance by cubes: an offboard entry hex has a cube too, and `map.distance` knows only map hexes.
@@ -867,7 +972,7 @@ function tacticalRank(env: QueryEnv, geo: { front: HexId[]; goals: HexId[]; hold
   ];
   const mmcs = there.filter((q) => mmc(env, q)).length;
   const leaders = there.filter((q) => smc(env, q)).length;
-  const guns = there.filter((q) => swHeldBy(env.state, q.id).some((w) => isGunDef(defOf(env, w)))).length;
+  const guns = there.filter((q) => held(q.id).some((w) => isGunDef(defOf(env, w)))).length;
   const vehicles = there.filter((q) => isVehicleDef(defOf(env, q))).length;
   if (vehicleP) r += vehicles ? 6 : 0;
   else if (gunP) r += guns || mmcs ? 4 : 0;
@@ -880,10 +985,10 @@ function tacticalRank(env: QueryEnv, geo: { front: HexId[]; goals: HexId[]; hold
  * For a piece about to be placed by default: each `minWithin` anchor of its force and how many of that anchor's
  * shortfalls (MMC, leaders, SW it carries) placing it there would make up, given the placements so far.
  */
-function anchorFills(env: QueryEnv, side: SideId, p: Piece, placements: Record<PieceId, LocId>): { anchor: HexId; range: number; gain: number }[] {
+function anchorFills(env: QueryEnv, side: SideId, p: Piece, placements: Record<PieceId, LocId>, held: (id: PieceId) => Piece[]): { anchor: HexId; range: number; gain: number }[] {
   const progress = setupAnchorProgress(env, side, placements).filter((a) => a.force === p.tags['force']);
   if (progress.length === 0) return [];
-  const carried = swHeldBy(env.state, p.id).filter((w) => !isVehicleDef(defOf(env, w))).length;
+  const carried = held(p.id).filter((w) => !isVehicleDef(defOf(env, w))).length;
   return progress.map((a) => {
     let gain = 0;
     for (const c of a.counts) {
@@ -908,6 +1013,9 @@ export const scenarioModule: RuleModule = {
     });
     /** Units held back at an offboard setup under a reserve rule, to enter on `turn` from `edges`. */
     r.event<{ side: SideId; pieces: PieceId[]; turn: number; edges: string[]; label: string | null }>({ type: 'sk1.reserve', apply() {} });
+    // A reinforcement set up on the map hexes its card names (ASLRB A2.51), and one none of them could take, a turn later (A2.5).
+    r.event<AppearedEvent>({ type: 'sk1.appeared', apply() {} });
+    r.event<AppearDelayedEvent>({ type: 'sk1.appearDelayed', apply() {} });
     r.event<{ unit: PieceId; side: SideId; vp: number }>({
       type: 'sk1.exited',
       apply(d, p) {
@@ -998,10 +1106,15 @@ export const scenarioModule: RuleModule = {
               const tags: Record<string, string | number> = { force: fi };
               if (force.setup.kind === 'enter') {
                 tags['entryTurn'] = force.setup.turn;
-                tags['entryEdge'] = force.setup.edge;
-                if (force.setup.hexes) tags['entryHexes'] = force.setup.hexes.join(',');
-                // Infantry enter with MF, vehicles with MP (or half their allowance), already expended per the card.
-                const spent = force.setup.mfSpent ?? force.setup.mpSpent;
+                // A force that appears on map hexes has no edge to enter by: it is set up on them when due (ASLRB A2.51).
+                if (force.setup.appear) tags['appearHexes'] = (force.setup.hexes ?? []).join(',');
+                else {
+                  tags['entryEdge'] = force.setup.edge;
+                  if (force.setup.hexes) tags['entryHexes'] = force.setup.hexes.join(',');
+                }
+                // Infantry enter with MF, vehicles with MP (or half their allowance), already expended per the card: a
+                // force's MP ("with AFV having expended half of their MP") never reach its Infantry.
+                const spent = entrySpentOf(statics(ctx).counters[u.def], force.setup);
                 if (spent) tags['entryMfSpent'] = spent;
                 if (force.setup.provisional) {
                   // Provisional reinforcements are not due until the RPh dr releases them (below).
@@ -1019,10 +1132,10 @@ export const scenarioModule: RuleModule = {
             });
           });
         });
-        // Control the card hands a side at the start, before anyone sets up.
+        // Control the card hands a side at the start, before anyone sets up (over the setup areas', see `controlState`).
         if (sc.initialControl?.length) {
           const map = statics(ctx).map;
-          const prev = controlState(ctx);
+          const prev = storedControl(ctx);
           const hexes = { ...prev.hexes };
           for (const c of sc.initialControl) for (const h of c.hexes) hexes[map.hex(h)?.id ?? h] = c.side;
           ctx.emit('sk1.control', { state: { ...prev, hexes } });
@@ -1117,6 +1230,12 @@ export const scenarioModule: RuleModule = {
       event: 'turn.phaseStarted',
       handler(ctx, ev) {
         if (ev.payload.phase !== 'RPh') return;
+        // A unit due to appear on map hexes none of which can take it (enemy-held, or full) comes a Game Turn later: delayed
+        // entry is never voluntary (ASLRB A2.5).
+        const due = dueOffboard(ctx, ctx.state.attacker);
+        const blocked = due.filter((p) => p.tags['appearHexes'] !== undefined && !placementHexes(ctx, p).some((h) => !placementIllegal(ctx, ctx.state.attacker, due, { [p.id]: h }, true)));
+        for (const p of blocked) setTags(ctx, p.id, { entryTurn: ctx.state.turn + 1 });
+        if (blocked.length) ctx.emit('sk1.appearDelayed', { side: ctx.state.attacker, units: blocked.map((p) => p.id), turn: ctx.state.turn + 1 } satisfies AppearDelayedEvent);
         if (dueOffboard(ctx, ctx.state.attacker).length === 0) return;
         ctx.pushDecision({ kind: OFFBOARD_SETUP_DECISION, owner: ctx.state.attacker, deadlineClass: 'turn', data: {} });
       },
@@ -1141,10 +1260,19 @@ export const scenarioModule: RuleModule = {
       resolve(ctx, a) {
         const decision = ctx.state.decisions[ctx.state.decisions.length - 1]!;
         const todo = dueOffboard(ctx, decision.owner);
+        const appeared: PieceId[] = [];
         for (const [id, hex] of Object.entries(a.placements).sort()) {
           const p = pieceOf(ctx, id);
+          // A force that appears on map hexes is set up on the map itself, its waiting over (ASLRB A2.51).
+          if (p.tags['appearHexes'] !== undefined && statics(ctx).map.hex(hexOfLoc(hex))) {
+            ctx.emit('piece.moved', { id, loc: locationAt(hex) });
+            setTags(ctx, id, { appearHexes: null });
+            appeared.push(id);
+            continue;
+          }
           ctx.emit('piece.moved', { id, loc: { kind: 'offboard', edge: p.loc.kind === 'offboard' ? p.loc.edge : undefined, hex } });
         }
+        if (appeared.length) ctx.emit('sk1.appeared', { side: decision.owner, units: appeared, hexes: [...new Set(appeared.map((u) => hexOfLoc(a.placements[u]!)))].sort() } satisfies AppearedEvent);
         applySwAssignments(ctx, a.sw);
         // Units kept back (a reserve rule allowed it) enter later, from the edges it names.
         const kept = todo.filter((p) => !a.placements[p.id]).sort(byId);
@@ -1362,7 +1490,7 @@ const CONTROL_TAGS = ['broken', 'wreck'];
 
 /** Update hex/building Control: Good Order MMC in a location with no enemy units (SK1 2.0). */
 export function updateControl(ctx: Ctx) {
-  const prev = controlState(ctx);
+  const prev = storedControl(ctx);
   let next: ControlState = { hexes: prev.hexes, buildings: { ...prev.buildings } };
   // Hex Control is copied on the first change only: the map of hexes held grows all game.
   let hexesChanged = false;
@@ -1451,6 +1579,53 @@ export function updateControl(ctx: Ctx) {
 
 const buildingsOf = new WeakMap<GameMap, Map<string, HexId[]>>();
 /** Each building's hexes (once per map: Control is re-evaluated after every piece event). */
+/**
+ * Control at scenario start: "a side gains Control of all hexes/buildings within its set-up area (except for those
+ * within both sides' set-up areas), as well as all hexes/buildings on a board if that side is the only side which may
+ * set up on that board" (SK4 Definitions "Control"; ASLRB A26.11). A force that enters, or appears later, sets up
+ * nowhere at the start; one scattered around a hex chosen in play (`scatter`) may set up anywhere, so it denies the
+ * other side every whole board. A building is Controlled with its hexes only when all of them are the side's.
+ * Upper-level Locations follow their hex until a unit gains one (A26.11 Locations are not seeded).
+ */
+export function setupAreaControl(env: QueryEnv): ControlState {
+  const sc = statics(env).scenario;
+  const map = statics(env).map;
+  const area = new Map<SideId, Set<HexId>>();
+  const boards = new Map<SideId, Set<string>>();
+  const everywhere = new Set<SideId>();
+  for (const f of sc.forces) {
+    if (f.setup.kind === 'enter') continue;
+    if (f.setup.kind === 'scatter') {
+      everywhere.add(f.side);
+      continue;
+    }
+    for (const h of f.setup.hexes) {
+      const hex = map.hex(h);
+      if (!hex) continue;
+      if (!area.has(f.side)) area.set(f.side, new Set());
+      area.get(f.side)!.add(hex.id);
+      if (!boards.has(f.side)) boards.set(f.side, new Set());
+      boards.get(f.side)!.add(hex.board);
+    }
+  }
+  const sides = [...new Set([...area.keys(), ...everywhere])];
+  const hexes: Record<HexId, SideId> = {};
+  for (const h of map.hexes()) {
+    const owners = sides.filter((s) => area.get(s)?.has(h.id));
+    if (owners.length === 1) hexes[h.id] = owners[0]!;
+    else if (owners.length === 0) {
+      const alone = sides.filter((s) => everywhere.has(s) || boards.get(s)?.has(h.board));
+      if (alone.length === 1 && !everywhere.has(alone[0]!)) hexes[h.id] = alone[0]!;
+    }
+  }
+  const buildings: Record<string, SideId> = {};
+  for (const [b, bh] of buildingHexes(map)) {
+    const side = hexes[bh[0]!];
+    if (side && bh.every((h) => hexes[h] === side)) buildings[b] = side;
+  }
+  return { hexes, buildings };
+}
+
 function buildingHexes(map: GameMap): Map<string, HexId[]> {
   let buildings = buildingsOf.get(map);
   if (!buildings) {

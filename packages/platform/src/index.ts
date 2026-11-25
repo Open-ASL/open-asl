@@ -9,3 +9,4 @@ export * from './gravatar';
 export * from './clock';
 export * from './lobby';
 export * from './aar';
+export * from './superSpectator';

@@ -52,7 +52,7 @@ declare module '@asl/engine' {
      */
     'rout.planLeaveMf': { ctx: { unit: PieceId; hex: HexId; start: boolean }; value: number };
     /** Full ASL: MF a routing unit pays on top of a step's cost to leave the entrenchment it stands beneath (ASLRB B27.41); 0 in the Starter Kit. */
-    'rout.exitCost': { ctx: { unit: PieceId; from: HexId; to: HexId }; value: number };
+    'rout.exitCost': { ctx: { unit: PieceId; from: HexId; to: HexId; /** The Location entered (full ASL: a pillbox). */ toLoc?: LocId }; value: number };
     /**
      * Full ASL: why a routing unit may not yet step out of the Location it stands in (ASLRB B26.41: on top of Wire it must
      * first make its Wire Exit dr), or null. Null in the Starter Kit.
@@ -65,6 +65,29 @@ declare module '@asl/engine' {
     'rout.inPlace': { ctx: { unit: PieceId }; value: boolean };
     /** Full ASL: MF a routing unit pays to take the stairs to Location `to` of its hex (ASLRB B23.4: one; A24.7 one more into a SMOKE Location). */
     'rout.stairsMf': { ctx: { unit: PieceId; to: LocId }; value: number };
+    /**
+     * Full ASL: hexes a rout need not move through (ASLRB B28.413, A10.51: a known minefield), so that the nearest shelters
+     * round them are legal destinations as well as those through them. None in the Starter Kit.
+     */
+    'rout.avoid': { ctx: { unit: PieceId }; value: HexId[] };
+    /**
+     * Whether rout node `a` is beside (the same as, or ADJACENT to) the Known enemy at node `b`, for the rout rules: the
+     * same or a neighbouring hex by default; full ASL a pillbox only through its Covered Arc and to its own hex (B30.2).
+     */
+    'rout.enemyNear': { ctx: { a: LocId; b: LocId }; value: boolean };
+    /** The rout node a Known enemy unit at Location `loc` stands at: its hex by default; full ASL a pillbox is its own (B30.2). */
+    'rout.enemyNode': { ctx: { loc: LocId }; value: LocId };
+    /** Full ASL: a broken unit here is never forced to rout (ASLRB B30.5: inside a pillbox); false in the Starter Kit. */
+    'rout.notForced': { ctx: { unit: PieceId }; value: boolean };
+    /**
+     * Full ASL: a rout may end at node `node` beside a Known enemy (ASLRB B30.5 over A10.5: inside a pillbox, Q&A [K33-ML] to
+     * A10.5 and B30.5); false in the Starter Kit.
+     */
+    'rout.mayEndBeside': { ctx: { node: LocId }; value: boolean };
+    /** Full ASL: nodes a rout may step to from `node` besides its ADJACENT ones (B30.41: straight into a pillbox of the next hex, or out of one into the next hex); none in the Starter Kit. */
+    'rout.extraNeighbours': { ctx: { node: LocId; unit?: PieceId }; value: LocId[] };
+    /** The MF to a shelter node that counts for "nearest" (full ASL A10.531: not a Fortification's entry cost); the MF spent by default. */
+    'rout.nearestCost': { ctx: { unit: PieceId; node: LocId; cost: number }; value: number };
   }
 }
 
@@ -168,12 +191,13 @@ export type RoutReason = { kind: 'adjacent' | 'openGround'; enemy: PieceId; hex:
 export function routRequirement(env: QueryEnv, unit: Piece): RoutReason | null {
   const hex = nodeOf(env, unit);
   if (!hex || !isBroken(unit) || inMelee(env, locOf(env.state, unit))) return null;
+  if (env.query('rout.notForced', { unit: unit.id }, false)) return null;
   const enemies = knownEnemyUnits(env, unit.side)
     .filter((e) => !isBroken(e))
     .sort(byId);
   for (const e of enemies) {
-    const eh = hexOf(env.state, e)!;
-    if ((eh === hex || nodeDistance(env, eh, hex) === 1) && hasLos(env, hex, eh)) return { kind: 'adjacent', enemy: e.id, hex: eh };
+    const eh = enemyNode(env, e);
+    if (enemyNear(env, hex, eh, eh === hex || nodeDistance(env, eh, hex) === 1) && hasLos(env, hex, eh)) return { kind: 'adjacent', enemy: e.id, hex: hexOfLoc(eh) };
   }
   if (!env.query('hex.openGround', { hex }, false)) return null;
   if (env.query('rout.exemptOpenGround', { unit: unit.id }, false)) return null;
@@ -265,14 +289,19 @@ const mayHaveSubLocs = (env: QueryEnv): boolean => {
 /** The nodes a rout may step to next: the neighbouring hexes, plus any ground-level sub-Location ADJACENT (a cave). */
 const routNeighbours = (env: QueryEnv, node: LocId): LocId[] =>
   special(env, node)
-    ? adjacentLocs(env, node).filter((n) => !levelOfLoc(n))
+    ? [...adjacentLocs(env, node).filter((n) => !levelOfLoc(n)), ...env.query('rout.extraNeighbours', { node }, [])]
     : mayHaveSubLocs(env)
-      ? [...statics(env).map.neighbors(node), ...adjacentLocs(env, node).filter((n) => parseLoc(n).sub && !levelOfLoc(n))]
+      ? [...statics(env).map.neighbors(node), ...adjacentLocs(env, node).filter((n) => parseLoc(n).sub && !levelOfLoc(n)), ...env.query('rout.extraNeighbours', { node }, [])]
       : statics(env).map.neighbors(node);
 const nodeDistance = (env: QueryEnv, a: LocId, b: LocId) => statics(env).map.distance(hexOfLoc(a), hexOfLoc(b));
+/** Whether node `a` is beside the Known enemy at node `b` by the rout rules: `dflt` (the hexes), unless a rule says otherwise (full ASL: a pillbox through its CA). */
+const enemyNear = (env: QueryEnv, a: LocId, b: LocId, dflt: boolean) => env.query('rout.enemyNear', { a, b }, dflt);
+/** The rout node of a Known enemy unit: its hex, unless a rule makes its Location one of its own (full ASL: a pillbox). */
+const enemyNode = (env: QueryEnv, e: Piece): LocId => env.query('rout.enemyNode', { loc: locOf(env.state, e)! }, hexOf(env.state, e)!);
 
+/** The rout nodes Known enemy units stand at (their hexes in the Starter Kit; full ASL a pillbox is its own node). */
 const enemyHexes = (env: QueryEnv, side: SideId) =>
-  [...new Set(knownEnemyUnits(env, side).map((e) => hexOf(env.state, e)!))].sort();
+  [...new Set(knownEnemyUnits(env, side).map((e) => enemyNode(env, e)))].sort();
 
 /** Enemy hexes in LOS of the given hex (known enemy locations). */
 const knownEnemyHexes = (env: QueryEnv, side: SideId, hex: HexId) => enemyHexes(env, side).filter((eh) => hasLos(env, hex, eh));
@@ -291,7 +320,7 @@ function inStartBuilding(env: QueryEnv, start: HexId, hex: HexId): boolean {
 }
 
 /** A shelter hex a rout may not end in: beside an enemy unit (SK1 3.6 "not adjacent to an enemy unit"). */
-const enemyAdjacent = (env: QueryEnv, side: SideId, hex: HexId) => enemyHexes(env, side).some((eh) => nodeDistance(env, eh, hex) <= 1);
+const enemyAdjacent = (env: QueryEnv, side: SideId, hex: HexId) => !env.query('rout.mayEndBeside', { node: hex }, false) && enemyHexes(env, side).some((eh) => enemyNear(env, hex, eh, nodeDistance(env, eh, hex) <= 1));
 
 const routStepCost = (env: QueryEnv, unit: PieceId, from: LocId, to: LocId, woods = false) =>
   special(env, from) || special(env, to)
@@ -310,7 +339,7 @@ function beneathOrStepCost(env: QueryEnv, unit: PieceId, from: HexId, toLoc: Loc
     if (typeof b === 'string') return b;
     return b.cost;
   }
-  return routStepCost(env, unit, from, routNode(toLoc), woods) + env.query('rout.exitCost', { unit, from, to: hexOfLoc(toLoc) }, 0);
+  return routStepCost(env, unit, from, routNode(toLoc), woods) + env.query('rout.exitCost', { unit, from, to: hexOfLoc(toLoc), toLoc }, 0);
 }
 
 /** Is a single rout step legal given enemies already seen during this rout? */
@@ -331,8 +360,8 @@ function stepIllegal(env: QueryEnv, side: SideId, from: HexId, toLoc: LocId, see
   if (all.filter((p) => smc(env, p)).length > 4) return 'Stacking limit: 4 SMC';
   for (const eh of enemyHexes(env, side)) {
     const watching = seen.has(eh) || hasLos(env, from, eh);
-    if (watching && nodeDistance(env, to, eh) < nodeDistance(env, from, eh)) return `Cannot rout toward the enemy in ${hexLabel(eh)} (SK1 3.6: no step that shortens the range to a Known enemy unit in its LOS, even a broken one)`;
-    if (nodeDistance(env, from, eh) === 1 && nodeDistance(env, to, eh) === 1) return `Cannot rout from one hex adjacent to ${hexLabel(eh)} to another`;
+    if (watching && nodeDistance(env, to, eh) < nodeDistance(env, from, eh)) return `Cannot rout toward the enemy in ${hexLabel(hexOfLoc(eh))} (SK1 3.6: no step that shortens the range to a Known enemy unit in its LOS, even a broken one)`;
+    if (enemyNear(env, from, eh, nodeDistance(env, from, eh) === 1) && enemyNear(env, routNode(toLoc), eh, nodeDistance(env, to, eh) === 1)) return `Cannot rout from one hex adjacent to ${hexLabel(hexOfLoc(eh))} to another`;
   }
   return null;
 }
@@ -345,6 +374,8 @@ interface RoutPlan {
   onTheWay: Set<HexId>;
   /** Whether any building or woods hex can be reached this RtPh. */
   sheltered: boolean;
+  /** Full ASL: destinations reached only through a hex the rout need not move through (`rout.avoid`, a known minefield). */
+  viaAvoided?: Set<HexId>;
 }
 
 /**
@@ -355,6 +386,25 @@ interface RoutPlan {
  * into adjacent shelter hexes (see `canStop`).
  */
 export function planRout(env: QueryEnv, unitId: PieceId): RoutPlan {
+  // Full ASL: a router need not move through a known minefield and may take a longer route to a shelter instead (ASLRB
+  // B28.413), but may rout into, out of or within one at its option (A10.51): the shelters nearest without those hexes
+  // and the shelters nearest through them are both legal destinations. The Starter Kit avoids nothing.
+  const avoid = env.query('rout.avoid', { unit: unitId }, []);
+  const plan = planRoutAvoiding(env, unitId, new Set());
+  if (!avoid.length) return plan;
+  const round = planRoutAvoiding(env, unitId, new Set(avoid));
+  const cost = new Map(plan.cost);
+  for (const [h, c] of round.cost) if (!cost.has(h) || c < cost.get(h)!) cost.set(h, c);
+  return {
+    cost,
+    destinations: new Set([...plan.destinations, ...round.destinations]),
+    onTheWay: new Set([...plan.onTheWay, ...round.onTheWay]),
+    sheltered: plan.sheltered || round.sheltered,
+    viaAvoided: new Set([...plan.destinations].filter((h) => !round.destinations.has(h))),
+  };
+}
+
+function planRoutAvoiding(env: QueryEnv, unitId: PieceId, avoid: Set<HexId>): RoutPlan {
   const unit = pieceOf(env, unitId);
   const start = nodeOf(env, unit)!;
   const side = unit.side;
@@ -369,6 +419,7 @@ export function planRout(env: QueryEnv, unitId: PieceId): RoutPlan {
     const h = queue.shift()!;
     const c = cost.get(h)!;
     for (const n of routNeighbours(env, h).sort()) {
+      if (avoid.has(hexOfLoc(n))) continue;
       if (stepIllegal(env, side, h, n, seen, unitId)) continue;
       const nc = c + routStepCost(env, unitId, h, n) + env.query('rout.planLeaveMf', { unit: unitId, hex: h, start: h === start }, 0);
       if (nc > mf) continue;
@@ -391,10 +442,12 @@ export function planRout(env: QueryEnv, unitId: PieceId): RoutPlan {
   if (shelters.length === 0) {
     for (const h of cost.keys()) if (h !== start) destinations.add(h);
   } else {
-    const sorted = [...shelters].sort((a, b) => cost.get(a)! - cost.get(b)!);
+    // "Nearest" by the MF that count for it (full ASL A10.531: not a Fortification's entry cost).
+    const near = (h: HexId) => env.query('rout.nearestCost', { unit: unitId, node: h, cost: cost.get(h)! }, cost.get(h)!);
+    const sorted = [...shelters].sort((a, b) => near(a) - near(b));
     for (const h of sorted) {
       // Legal if every strictly nearer shelter could be ignored.
-      const nearer = sorted.filter((s) => cost.get(s)! < cost.get(h)!);
+      const nearer = sorted.filter((s) => near(s) < near(h));
       if (nearer.every(ignorable)) destinations.add(h);
     }
   }
@@ -420,7 +473,8 @@ interface RoutView {
   spent: number;
   seen: Set<HexId>;
   reached: boolean;
-  plan: Pick<RoutPlan, 'destinations' | 'onTheWay' | 'sheltered'>;
+  /** The plan; `cost` (MF from the start) only before the first step. */
+  plan: Pick<RoutPlan, 'destinations' | 'onTheWay' | 'sheltered'> & Partial<Pick<RoutPlan, 'cost'>>;
 }
 
 /** The MF of a rout: the unit's, or less when an escorting leader has fewer of his own (`rout.escortMf`). */
@@ -587,6 +641,14 @@ function headingRefusal(env: QueryEnv, v: RoutView, to: LocId, base: string): st
   const seen = new Set([...v.seen, ...knownEnemyHexes(env, v.side, v.at)]);
   const firstSteps = routNeighbours(env, v.at).filter((n) => v.plan.onTheWay.has(n) || v.plan.destinations.has(n)).sort();
   const via = firstSteps.length && !firstSteps.some((h) => dests.includes(h)) ? `; the way there is through ${firstSteps.map(hexLabel).join(' or ')}` : '';
+  // A shelter next door can be farther in MF than one two hexes off (a building uphill: COT doubled, SK4 1.1.1), and
+  // "nearest" is in MF (SK1 3.6): give both costs, or the refusal reads as wrong.
+  const cost = v.plan.cost;
+  const toMf = cost?.get(to);
+  const destMf = Math.min(...dests.map((d) => cost?.get(d) ?? Infinity));
+  if (toMf !== undefined && destMf < toMf && isShelter(env, to) && !enemyAdjacent(env, v.side, to)) {
+    return `${base} (${names}): ${hexLabel(to)} is a building or woods hex too, but ${toMf} MF away against ${destMf} for ${names} (SK1 3.6: nearest in MF)${via}`;
+  }
   for (const e of knownEnemyUnits(env, v.side).sort(byId)) {
     const eh = hexOf(env.state, e);
     if (!eh || seen.has(eh) || !hasLos(env, to, eh)) continue;
@@ -594,6 +656,23 @@ function headingRefusal(env: QueryEnv, v: RoutView, to: LocId, base: string): st
     return `${base}: from ${hexLabel(to)} the ${pieceLabel(env, e)} in ${hexLabel(eh)} would be in its LOS, and ${names} is closer to it (SK1 3.6: no rout toward a Known enemy unit in its LOS, even a broken one)${via}`;
   }
   return `${base} (${names})${via}`;
+}
+
+/**
+ * A refusal to end the rout where it stands, naming where it may still end; in a building or woods hex, saying that
+ * this one is not it: the rout ends in the nearest building or woods hex in MF not adjacent to an enemy unit, unless
+ * that one is no farther from a Known enemy unit than the start (SK1 3.6).
+ */
+function stopRefusal(env: QueryEnv, v: RoutView, base: string): string {
+  const reachable = [...reachableEnds(env, v)].filter((h) => h !== v.at).sort();
+  if (reachable.length === 0) return base;
+  // The shelters it set out for, while it can still reach them; past them it may go on into the next (see `canStop`).
+  const planned = reachable.filter((h) => v.plan.destinations.has(h));
+  const ends = planned.length ? planned : reachable;
+  const here = isShelter(env, v.at)
+    ? `; ${hexLabel(v.at)} is not it (SK1 3.6: the nearest in MF and not adjacent to an enemy unit, unless that one is no farther from a Known enemy unit than the start)`
+    : '';
+  return `${base} (${ends.map(hexLabel).join(' or ')})${here}`;
 }
 
 /**
@@ -724,7 +803,7 @@ function routIllegal(env: QueryEnv, a: RoutAction & { type: 'rout' }): string | 
     if (e) return e;
     v = afterStep(env, v, h, a.lowCrawl ? v.mf : routStepCost(env, a.unit, v.at, h));
   }
-  if (!a.lowCrawl && !canStop(env, v)) return 'Rout must end in the nearest legal building or woods hex';
+  if (!a.lowCrawl && !canStop(env, v)) return stopRefusal(env, v, 'Rout must end in the nearest legal building or woods hex');
   return null;
 }
 
@@ -737,6 +816,12 @@ export const routModule: RuleModule = {
     r.procedure<RoutStartSideFn>(ROUT_START_SIDE, () => (ctx, side) => startSide(ctx, side));
     r.procedure<RoutEnterFn>(ROUT_ENTER, () => () => true);
     r.procedure<RoutEnteredFn>(ROUT_ENTERED, () => () => {});
+    r.procedure<RoutEndHereFn>(ROUT_END_HERE, () => (ctx, unit) => {
+      const act = routState(ctx)?.active;
+      if (act?.unit !== unit) return;
+      finishRout(ctx, act, ctx.state.pieces[unit]?.loc.kind === 'hex');
+      reAsk(ctx);
+    });
     r.event<{ state: RoutState | null; step?: RoutStep }>({
       type: 'sk1.rout.state',
       apply(d, p) {
@@ -862,7 +947,8 @@ export const routModule: RuleModule = {
         const act = routState(env)?.active;
         if (!act || act.unit !== a.unit) return 'The unit is not routing';
         if (env.state.pieces[a.unit]?.side !== a.side) return 'Not your unit to rout';
-        if (!canStop(env, activeView(env, act))) return 'Rout must go on to the nearest legal building or woods hex';
+        const v = activeView(env, act);
+        if (!canStop(env, v)) return stopRefusal(env, v, 'Rout must go on to the nearest legal building or woods hex');
         return null;
       },
       resolve(ctx, a) {
@@ -934,6 +1020,7 @@ export function routInPlace(ctx: Ctx, unit: PieceId, opts: { cost: number; end: 
       eliminate(ctx, unit, why);
       ctx.proc<FlushFn>(MP.flushLeaderLoss)(ctx);
     }
+    enlistBroken(ctx);
   }
   reAsk(ctx);
 }
@@ -964,23 +1051,63 @@ function startSide(ctx: Ctx, side: SideId) {
     if (stepOptions(ctx, st, id).length > 0 || ctx.query('rout.inPlace', { unit: id }, false)) continue;
     eliminate(ctx, id, 'failure to rout: no legal rout path');
     ctx.proc<FlushFn>(MP.flushLeaderLoss)(ctx);
-    st = { ...st, done: [...st.done, id] };
+    st = { ...routState(ctx)!, done: [...routState(ctx)!.done, id] };
     ctx.emit('sk1.rout.state', { state: st });
+    enlistBroken(ctx);
+    st = routState(ctx)!;
   }
   if (eligibleRouters(ctx, st).length > 0) askPhaseOwner(ctx, side);
 }
 
-/** Units that had to rout but didn't are eliminated for failure to rout. */
-function finishSide(ctx: Ctx) {
-  const st = routState(ctx);
-  if (!st) return;
-  for (const id of st.mustRout) {
-    if (st.done.includes(id)) continue;
-    const p = ctx.state.pieces[id];
-    if (p && p.loc.kind === 'hex') eliminate(ctx, id, 'failure to rout');
+/**
+ * Units of the side routing that broke during its RtPh (a Leader Loss MC after a leader was eliminated) and now stand
+ * where a broken unit may not stay. SK1 3.6: "During the RtPh a broken unit not in Melee may not end a RtPh adjacent to
+ * ... a unbroken Known Enemy Unit and may not remain in the same Open Ground location ... Such a unit is placed under a
+ * DM counter and ... must rout away ... during that RtPh or be eliminated for failure to rout" (ASLRB A10.5 the same).
+ */
+function newlyBroken(ctx: Ctx, st: RoutState): Piece[] {
+  return Object.values(ctx.state.pieces)
+    .filter((p) => p.side === st.side && p.loc.kind === 'hex' && isBroken(p) && !st.mustRout.includes(p.id) && !st.done.includes(p.id))
+    .filter((p) => mustRout(ctx, p))
+    .sort(byId);
+}
+
+/**
+ * Add the units broken during the step that must rout (`newlyBroken`) to those that must, under DM; one with no legal
+ * rout at all is eliminated at once, as at the start of the step, and its own Leader Loss checks may break more.
+ * Nothing is emitted when no unit broke, so recordings without such a break keep their decision ids.
+ */
+function enlistBroken(ctx: Ctx) {
+  for (let st = routState(ctx); st; st = routState(ctx)) {
+    const fresh = newlyBroken(ctx, st);
+    if (fresh.length === 0) return;
+    for (const p of fresh) if (!hasDm(p)) setTags(ctx, p.id, { [T.dm]: true });
+    ctx.emit('sk1.rout.state', { state: { ...st, mustRout: [...st.mustRout, ...fresh.map((p) => p.id)] } });
+    for (const { id } of fresh) {
+      const now = routState(ctx)!;
+      if (ctx.state.pieces[id]?.loc.kind !== 'hex' || now.done.includes(id)) continue;
+      if (stepOptions(ctx, now, id).length > 0 || ctx.query('rout.inPlace', { unit: id }, false)) continue;
+      eliminate(ctx, id, 'failure to rout: no legal rout path');
+      ctx.proc<FlushFn>(MP.flushLeaderLoss)(ctx);
+      ctx.emit('sk1.rout.state', { state: { ...routState(ctx)!, done: [...routState(ctx)!.done, id] } });
+    }
   }
-  ctx.proc<FlushFn>(MP.flushLeaderLoss)(ctx);
-  ctx.emit('sk1.rout.state', { state: { ...st, done: [...new Set([...st.done, ...st.mustRout])] } });
+}
+
+/**
+ * Units that had to rout but didn't are eliminated for failure to rout; a unit their Leader Loss checks break where it
+ * may not stay can no longer rout "during that RtPh" (SK1 3.6) and goes the same way.
+ */
+function finishSide(ctx: Ctx) {
+  for (let st = routState(ctx); st; st = routState(ctx)) {
+    const pending = st.mustRout.filter((id) => !st!.done.includes(id) && ctx.state.pieces[id]?.loc.kind === 'hex');
+    for (const id of pending) eliminate(ctx, id, 'failure to rout');
+    ctx.proc<FlushFn>(MP.flushLeaderLoss)(ctx);
+    const after = routState(ctx)!;
+    const fresh = newlyBroken(ctx, after);
+    ctx.emit('sk1.rout.state', { state: { ...after, mustRout: [...after.mustRout, ...fresh.map((p) => p.id)], done: [...new Set([...after.done, ...after.mustRout])] } });
+    if (fresh.length === 0) return;
+  }
 }
 
 function reAsk(ctx: Ctx) {
@@ -1001,6 +1128,15 @@ function reAsk(ctx: Ctx) {
  */
 export const ROUT_START_SIDE = 'sk1.rout.startSide';
 export type RoutStartSideFn = (ctx: Ctx, side: SideId) => void;
+/** Procedure that ends the rout under way of `unit` where it stands (full ASL, ASLRB B28.413); never called in the Starter Kit. */
+export const ROUT_END_HERE = 'sk1.rout.endHere';
+export type RoutEndHereFn = (ctx: Ctx, unit: PieceId) => void;
+/** Full ASL: escorting leaders that stay behind before the next step (ASLRB B28.412: broken or pinned by a minefield's exit attack). */
+export function dropRoutEscort(ctx: Ctx, leaders: PieceId[]) {
+  const st = routState(ctx);
+  if (!st?.active || !leaders.length) return;
+  ctx.emit('sk1.rout.state', { state: { ...st, active: { ...st.active, escort: st.active.escort.filter((l) => !leaders.includes(l)) } } });
+}
 export const ROUT_ENTER = 'sk1.rout.enter';
 export type RoutEnterFn = (ctx: Ctx, unit: PieceId, hex: HexId) => boolean;
 /** Procedure run once a routing unit and its escort stand in the Location entered: (ctx, units, loc, beneath its entrenchment). A no-op in the Starter Kit. */
@@ -1043,9 +1179,19 @@ function enterHex(ctx: Ctx, act: ActiveRout, toLoc: LocId, cost: number, lowCraw
   const from = nodeOf(ctx, pieceOf(ctx, act.unit))!;
   const to = routNode(toLoc);
   // A hex that turns out to hold a hidden enemy (SK2 HIP) ends the rout there.
-  if (!ctx.proc<RoutEnterFn>(ROUT_ENTER)(ctx, act.unit, to)) return { act, over: true, alive: true };
+  if (!ctx.proc<RoutEnterFn>(ROUT_ENTER)(ctx, act.unit, to)) return { act, over: true, alive: ctx.state.pieces[act.unit]?.loc.kind === 'hex' };
+  // Full ASL: an escort a rule stopped before the step (ASLRB B28.412: broken or pinned by a minefield's exit attack) stays.
+  const now = record ? routState(ctx)?.active : undefined;
+  if (now?.unit === act.unit && now.escort.length !== act.escort.length) act = { ...act, escort: now.escort };
   for (const id of [act.unit, ...act.escort]) ctx.emit('piece.moved', { id, loc: locationAt(toLoc) });
   ctx.proc<RoutEnteredFn>(ROUT_ENTERED)(ctx, [act.unit, ...act.escort], toLoc, beneath);
+  // Full ASL: a unit lost on entering (ASLRB B28.413: a minefield attack comes before Interdiction) routs no further.
+  if (ctx.state.pieces[act.unit]?.loc.kind !== 'hex') {
+    const gone: ActiveRout = { ...act, path: [...act.path, toLoc], spent: act.spent + cost, escort: act.escort.filter((l) => ctx.state.pieces[l]?.loc.kind === 'hex') };
+    if (record) ctx.emit('sk1.rout.state', { state: { ...routState(ctx)!, active: gone } });
+    return { act: gone, over: true, alive: false };
+  }
+  if (act.escort.some((l) => ctx.state.pieces[l]?.loc.kind !== 'hex')) act = { ...act, escort: act.escort.filter((l) => ctx.state.pieces[l]?.loc.kind === 'hex') };
   let next: ActiveRout = {
     ...act,
     path: [...act.path, toLoc],
@@ -1097,17 +1243,20 @@ function finishRout(ctx: Ctx, act: ActiveRout, alive: boolean) {
   const { active: _active, ...rest } = st;
   void _active;
   ctx.emit('sk1.rout.state', { state: { ...rest, done: [...st.done, act.unit], escorted: [...(st.escorted ?? []), ...act.leaders] } });
+  // A leader killed with the router (a failed Interdiction MC) can break others in his Location: they must rout too.
+  enlistBroken(ctx);
   // Ending adjacent to an unbroken Known Enemy Unit = eliminated for failure to rout.
   const p = ctx.state.pieces[act.unit];
   if (alive && p && p.loc.kind === 'hex') {
     const hex = nodeOf(ctx, p)!;
-    const adjacent = knownEnemyUnits(ctx, p.side).some((e) => {
-      const eh = hexOf(ctx.state, e)!;
-      return !isBroken(e) && (eh === hex || nodeDistance(ctx, eh, hex) === 1) && hasLos(ctx, hex, eh);
+    const adjacent = !ctx.query('rout.mayEndBeside', { node: hex }, false) && knownEnemyUnits(ctx, p.side).some((e) => {
+      const eh = enemyNode(ctx, e);
+      return !isBroken(e) && enemyNear(ctx, hex, eh, eh === hex || nodeDistance(ctx, eh, hex) === 1) && hasLos(ctx, hex, eh);
     });
     if (adjacent) {
       eliminate(ctx, act.unit, 'failure to rout (ended adjacent to enemy)');
       ctx.proc<FlushFn>(MP.flushLeaderLoss)(ctx);
+      enlistBroken(ctx);
     }
   }
 }

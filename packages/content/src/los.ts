@@ -191,13 +191,17 @@ export function pixelTracers(
       placements.find((p) => x >= p.x * width && x < (p.x + 1) * width && y >= p.y * height && y < (p.y + 1) * height) ??
       placements.reduce<PlacedBoard | null>((best, p) => (!best || gap(p) < gap(best) ? p : best), null);
     if (!pb) return null;
-    let lx = Math.min(pb.raster.w - 1, Math.max(0, Math.round(x - pb.x * width)));
-    let ly = Math.min(pb.raster.h - 1, Math.max(0, Math.round(y - pb.y * height)));
+    // The raster is the board as printed; a turned board shows it upside down. Its hex centre dots are the printed ones
+    // mirrored through the board's centre (u -> width - u), so the point is mirrored before it is rounded to a pixel:
+    // the thread then reads exactly the pixels it reads on the board as printed.
+    let ux = x - pb.x * width;
+    let uy = y - pb.y * height;
     if (pb.rotation === 180) {
-      // The raster is the board as printed; a turned board shows it upside down.
-      lx = pb.raster.w - 1 - lx;
-      ly = pb.raster.h - 1 - ly;
+      ux = pb.raster.w - ux;
+      uy = pb.raster.h - uy;
     }
+    const lx = Math.min(pb.raster.w - 1, Math.max(0, Math.round(ux)));
+    const ly = Math.min(pb.raster.h - 1, Math.max(0, Math.round(uy)));
     return { pb, i: ly * pb.raster.w + lx };
   };
   const terrainAt = (x: number, y: number): number => {
@@ -248,10 +252,11 @@ export function pixelTracers(
     let hillRun = 0;
     let sinceHigher = Infinity;
     for (let s = 0; s <= steps; s++) {
-      const t = s / steps;
-      const x = ax + (bx - ax) * t;
-      const y = ay + (by - ay) * t;
-      const owners = nearestHexes(centers, x, y);
+      // LOS is reciprocal (ASLRB A6.5): the k-th point from one end is exactly the k-th from the other end's side, to the
+      // last bit (a weighted sum of the two ends, whose terms only swap places), so both ways read the same pixels.
+      const x = (ax * (steps - s) + bx * s) / steps;
+      const y = (ay * (steps - s) + by * s) / steps;
+      let owners = nearestHexes(centers, x, y);
       if (owners.some((o) => o.id === from.id || o.id === to.id)) {
         // Woods art under the thread inside the end hexes themselves (an SSR may make it a mere hindrance).
         if (obstacle.has(terrainAt(x, y)) && WOODS.has(terrainAt(x, y))) for (const o of owners) if (o.id === from.id || o.id === to.id) woods.add(o.id);
@@ -262,11 +267,17 @@ export function pixelTracers(
         continue;
       }
       sinceHigher++;
+      // Inherent Terrain is at the level of its hex's centre dot throughout, hexsides included, whatever ground the thread
+      // crosses there (SK4 1.1.1, 8.2.1): Dense jungle on a hill blocks a LOS along its hexside at the hill's level, though
+      // the slope beside it is lower; Dense jungle below both ends is overlooked like the ground under it.
+      if (opts.inherentObstacle && owners.some((o) => opts.inherentObstacle!(o) && (o.elevation ?? 0) >= lo)) return { clear: false, crossed, blockedAt: { x, y } };
       if (hasElevation) {
         // SK4 1.1.1 / 3.2.1: hexes, units and terrain are at the level under them. Ground higher than
         // both hexes is a hill in the way; between levels, higher ground outside the higher hex is a
         // second Crest Line (the slope it leaves through may spill a few pixels past its hexside).
-        // Ground below both is overlooked entirely: neither obstacle nor Hindrance.
+        // Ground below both is overlooked entirely: neither obstacle nor Hindrance. Terrain, though, is at the level of its
+        // hex's centre dot (SK4 1.1.1): woods art of a hill hex drawn over the lower ground beside it is on the hill, and
+        // blocks a LOS between two hill hexes.
         const e = elevationAt(x, y);
         if (e > lo) {
           const slope = fromLevel > lo && e <= fromLevel && sinceHigher <= CREST_TOLERANCE_STEPS;
@@ -274,9 +285,11 @@ export function pixelTracers(
           continue;
         }
         hillRun = 0;
-        if (e < lo) continue;
+        if (e < lo) {
+          owners = owners.filter((o) => (o.elevation ?? 0) >= lo);
+          if (!owners.length) continue;
+        }
       }
-      if (opts.inherentObstacle && owners.some(opts.inherentObstacle)) return { clear: false, crossed, blockedAt: { x, y } };
       // Palm trees (PTO): an obstacle to a LOS between two levels, a Hindrance like any orchard on one level.
       if (fromLevel !== lo && opts.obstacleBetweenLevels && owners.some(opts.obstacleBetweenLevels)) return { clear: false, crossed, blockedAt: { x, y } };
       const code = terrainAt(x, y);
@@ -302,7 +315,7 @@ export function pixelTracers(
       if (hindrance.has(code)) {
         const want = hindranceId[code]!;
         const [o1, o2] = nearestTwo(centers, x, y);
-        if (o1) {
+        if (o1 && owners.includes(o1.h)) {
           const sliver = o2 && o1.d / o2.d >= SPILL_RATIO && (o2.h.terrain === want || (want === 'brush' && isInherent(o2.h)));
           // A hex an SSR makes orchard (S20: "hexes that depict only Brush") is orchard whatever is drawn.
           const h = sliver ? o2.h : o1.h;
@@ -452,9 +465,9 @@ function losAtTracer(t: {
         crossed.push({ hex: h.id, terrain, ...(inherentHexside ? { inherentHexside: true } : {}) });
       };
       for (let s = 0; s <= steps; s++) {
-        const u = s / steps;
-        const x = ax + (bx - ax) * u;
-        const y = ay + (by - ay) * u;
+        // The same points as the ground-level tracer (a weighted sum of the ends: see there).
+        const x = (ax * (steps - s) + bx * s) / steps;
+        const y = (ay * (steps - s) + by * s) / steps;
         const owners = nearestHexes(centers, x, y);
         if (atEndPoint(x, y)) continue;
         if (owners.some((w) => (w.id === from.id && freeFrom) || (w.id === to.id && freeTo))) {
@@ -553,16 +566,15 @@ function losAtTracer(t: {
 function hexesNearLine(map: HexGridMap, from: MapHex, to: MapHex): MapHex[] {
   const ids = new Set<HexId>();
   const n = map.distance(from.id, to.id);
-  const res = map.gridLine(from, to, n);
-  for (const h of res) {
+  // The hex line both ways, and in one order: the same candidates whichever end the thread is stretched from (A6.5).
+  for (const h of [...map.gridLine(from, to, n), ...map.gridLine(to, from, n)]) {
     ids.add(h.id);
     for (const nb of map.neighbors(h.id)) ids.add(nb);
   }
-  return [...ids].map((id) => map.hex(id)!).filter(Boolean);
+  return [...ids].sort().map((id) => map.hex(id)!).filter(Boolean);
 }
 
 
-/** The hex(es) whose center is nearest the point (two if on a hexside within 0.75 px). */
 /** Normalised distance from a point to a hex centre: hexes are wider than tall in VASL pixels. */
 const hexDist = (c: { p: { x: number; y: number } }, x: number, y: number) =>
   Math.hypot(((x - c.p.x) / GEO.px.hexWidth) * 1.5, ((y - c.p.y) / GEO.px.hexHeight) * Math.sqrt(3));
@@ -581,28 +593,17 @@ function nearestTwo(centers: { h: MapHex; p: { x: number; y: number } }[], x: nu
   return [a, b].filter((e): e is { h: MapHex; d: number } => !!e);
 }
 
+/**
+ * The hex(es) whose center is nearest the point: every hex within 0.75 px of the nearest, so two on a hexside and all
+ * three at a vertex, whatever order the candidates come in (A6.5: the same owners both ways).
+ */
 function nearestHexes(centers: { h: MapHex; p: { x: number; y: number } }[], x: number, y: number): MapHex[] {
+  // Hexes are slightly wider than tall in VASL pixels; hexDist normalises so boundaries are equidistant.
   let best = Infinity;
-  let second = Infinity;
-  let bh: MapHex | null = null;
-  let sh: MapHex | null = null;
-  for (const c of centers) {
-    // Hexes are slightly wider than tall in VASL pixels; normalise so boundaries are equidistant.
-    const dx = (x - c.p.x) / GEO.px.hexWidth;
-    const dy = (y - c.p.y) / GEO.px.hexHeight;
-    const d = Math.hypot(dx * 1.5, dy * Math.sqrt(3));
-    if (d < best) {
-      second = best;
-      sh = bh;
-      best = d;
-      bh = c.h;
-    } else if (d < second) {
-      second = d;
-      sh = c.h;
-    }
-  }
-  if (!bh) return [];
-  return sh && second - best < 0.75 / GEO.px.hexHeight ? [bh, sh] : [bh];
+  for (const c of centers) best = Math.min(best, hexDist(c, x, y));
+  if (best === Infinity) return [];
+  const near = centers.filter((c) => hexDist(c, x, y) - best < 0.75 / GEO.px.hexHeight).sort((p, q) => hexDist(p, x, y) - hexDist(q, x, y));
+  return near.map((c) => c.h);
 }
 
 /**

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Action, Ctx, Engine, GameState, RuleModule } from '@asl/engine';
 import {
   FP,
+  defOf,
   acquisitionsAt,
   inCoveredArc,
   nearestSpine,
@@ -10,6 +11,7 @@ import {
   type FireDeclaration,
   type FireMode,
   type ResolveFireFn,
+  shotOutlook,
 } from '../src';
 import { GE_VS_BR, act, makeEngine } from './fixtures';
 
@@ -96,6 +98,26 @@ describe('To Hit Example #1 (SK4 3.2.4): an 88mm AA Gun on the Infantry Target T
     expect((shot!['explain'] as { label: string }[]).map((n) => n.label)).toEqual(['+2 Intensive Fire', '-1 Acquired Target']);
     expect(t.state.pieces['g88']!.tags).toMatchObject({ intensive: true, acqLevel: 2 });
     expect(() => act(engine, t.state, { type: 'fire.ordnance', shot: { weapon: 'g88', target: 'yM3', targetType: 'ITT', intensive: true } })).toThrow(/Intensive Fire this Player Turn/);
+  });
+});
+
+describe('the To Hit preview names the FP a hit attacks with (SK4 3.2.4, 6.1)', () => {
+  const pieces = [
+    { id: 'c1', def: 'ge.228c', side: 'ge', hex: 'yK5' },
+    { id: 'g88', def: 'ge.AA88L', side: 'ge', heldBy: 'c1', tags: { ca: 0 } },
+    { id: 'b1', def: 'br.457', side: 'br', hex: 'yO5' },
+  ];
+  it('gives the HE column on the Infantry and Area Target Types and a Critical Hit\'s, and none for Smoke', () => {
+    const { engine, state } = makeEngine({ scenario: GE_VS_BR, extra, pieces });
+    const env = engine.env(state);
+    const tables = statics(env).tables;
+    const def = defOf(env, state.pieces['g88']!) as Parameters<typeof tables.gunColumn>[0];
+    const itt = shotOutlook(env, { weapon: 'g88', target: 'yO5', targetType: 'ITT' }, 'prep', 'ge');
+    // To Hit Example #1: the 88 hits on the 16 column.
+    expect(itt.ift).toEqual({ fp: 16, ch: tables.gunColumn(def, 'CH') });
+    const att = shotOutlook(env, { weapon: 'g88', target: 'yO5', targetType: 'ATT' }, 'prep', 'ge');
+    expect(att.ift).toEqual({ fp: tables.gunColumn(def, 'ATT'), ch: tables.gunColumn(def, 'CH') });
+    expect(shotOutlook(env, { weapon: 'g88', target: 'yO5', targetType: 'ATT', ammo: 'SMOKE' }, 'prep', 'ge').ift).toBeUndefined();
   });
 });
 
@@ -226,6 +248,32 @@ describe('Defensive First Fire with a Gun', () => {
     expect(t.state.hexMarkers['yO5']?.['residualFp']).toBeUndefined();
     expect(t.state.pieces['g40']!.tags['fire']).toBe('first');
     expect(engine.currentDecision(t.state)?.kind).toBe('phase');
+  });
+});
+
+describe('the To Hit preview at a moving stack', () => {
+  it('lists the FFNAM and FFMO the resolution applies, and not FFNAM against Assault Movement', () => {
+    const probe = makeEngine({ scenario: GE_VS_BR, extra, startPhase: 'MPh', pieces: [{ id: 'x', def: 'ge.467', side: 'ge', hex: 'yK5' }] });
+    const ca = spineFor(probe.engine, probe.state, 'yR5', 'yO5');
+    const { engine, state } = makeEngine({
+      scenario: GE_VS_BR,
+      extra,
+      startPhase: 'MPh',
+      pieces: [
+        { id: 'c1', def: 'br.228c', side: 'br', hex: 'yR5' },
+        { id: 'g40', def: 'br.AA40L', side: 'br', heldBy: 'c1', tags: { ca } },
+        { id: 'e1', def: 'ge.467', side: 'ge', hex: 'yN5' },
+      ],
+    });
+    const shot = { weapon: 'g40', target: 'yO5', targetType: 'ITT' as const };
+    let s = act(engine, state, { type: 'move.start', units: ['e1'] }).state;
+    s = act(engine, s, { type: 'move.step', to: 'yO5' }).state;
+    const out = shotOutlook(engine.env(s), shot, 'first', 'br', ['e1']);
+    expect(out.parts).toEqual(['-1 FFNAM', '-1 FFMO']);
+    expect(out.drm).toBe(-2);
+    let a = act(engine, state, { type: 'move.start', units: ['e1'], assault: true }).state;
+    a = act(engine, a, { type: 'move.step', to: 'yO5' }).state;
+    expect(shotOutlook(engine.env(a), shot, 'first', 'br', ['e1']).parts).toEqual(['-1 FFMO']);
   });
 });
 

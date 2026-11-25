@@ -66,6 +66,26 @@ describe('Manhandling a Gun (SK4 6.5, the Emplacement and Manhandling example)',
     expect(s.pieces['c1']!.tags['moved']).toBe(true);
   });
 
+  it('a push that stops or fails spends its MF where the stack stands: the defender may First Fire on them before the move ends (SK1 3.3.1)', () => {
+    const open = { yL5: { terrain: 'open' } };
+    for (const [dice, outcome, hex] of [[[6, 5], 'failed', 'yK5'], [[5, 5], 'stopped', 'yL5']] as const) {
+      const { engine, state } = makeEngine({ scenario: GE_VS_BR, extra, terrain: open, startPhase: 'MPh', dice: [...dice, 3, 4], pieces });
+      let s = act(engine, state, { type: 'move.start', units: ['c1', 'sq'], manhandle: 'g75' }).state;
+      const t = act(engine, s, { type: 'move.manhandle', to: 'yL5' });
+      expect(t.events.find((e) => e.type === 'sk2.gun.manhandle')!.payload).toMatchObject({ outcome });
+      s = t.state;
+      // The defender is asked, and the question is the one awaited: not left behind the mover's next phase decision.
+      expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', owner: 'br', data: { hex } });
+      expect(s.decisions.filter((d) => d.kind === 'phase')).toEqual([]);
+      const fired = act(engine, s, { type: 'defFire', decl: { units: ['b1'], sw: [], target: hex } });
+      expect(fired.events.some((e) => e.type === 'sk1.fire.attack')).toBe(true);
+      // Once the defender has had its say, the stack's move is over and the mover is asked again.
+      s = settle(engine, fired.state);
+      expect(s.pieces['sq']!.tags['moved']).toBe(true);
+      expect(engine.currentDecision(s)).toMatchObject({ kind: 'phase', owner: 'ge' });
+    }
+  });
+
   it('is Hazardous Movement: -2 to fire against the manhandlers, no FFMO/FFNAM; they may not advance afterwards', () => {
     const open = { yL5: { terrain: 'open' } };
     // Push DR 2+2 = 4 (moved); the British 4-5-7 fires: DR 3+3 (cowering would need doubles... it is a squad: directed? no) — use 3+4.
@@ -86,5 +106,54 @@ describe('Manhandling a Gun (SK4 6.5, the Emplacement and Manhandling example)',
     for (let i = 0; i < 6 && s.phase !== 'APh'; i++) s = settle(engine, act(engine, s, { type: 'endPhase' }).state);
     expect(s.phase).toBe('APh');
     expect(() => act(engine, s, { type: 'advance', units: ['sq'], to: 'yM5' })).toThrow(/cannot advance/);
+  });
+
+  it('a Gun picked up during a move goes no further with it: a Gun moves only by manhandling (SK4 4.0, 6.5)', () => {
+    // An enemy Gun unpossessed in K5: the squad walks in, recovers it (dr 1) and may not walk on with it. Dropping it
+    // (no MF) frees the squad to go on; the Gun stays in K5.
+    for (const def of ['br.AT57L', 'br.AA40L']) {
+      const { engine, state } = makeEngine({
+        scenario: GE_VS_BR,
+        extra,
+        startPhase: 'MPh',
+        dice: [1],
+        pieces: [
+          { id: 'sq', def: 'ge.467', side: 'ge', hex: 'yK4' },
+          { id: 'gun', def, side: 'br', hex: 'yK5' },
+          { id: 'b1', def: 'br.457', side: 'br', hex: 'yA1' },
+        ],
+      });
+      let s = act(engine, state, { type: 'move.start', units: ['sq'] }).state;
+      s = settle(engine, act(engine, s, { type: 'move.step', to: 'yK5' }).state);
+      s = settle(engine, act(engine, s, { type: 'move.recover', unit: 'sq', sw: 'gun' }).state);
+      expect(s.pieces['gun']!.loc).toEqual({ kind: 'held', by: 'sq' });
+      expect(() => act(engine, s, { type: 'move.step', to: 'yL5' })).toThrow(/moves only by manhandling/);
+      expect(engine.legalActions(s, 'ge').some((a) => a.type === 'move.step')).toBe(false);
+      s = act(engine, s, { type: 'move.drop', sw: 'gun' }).state;
+      s = settle(engine, act(engine, s, { type: 'move.step', to: 'yL5' }).state);
+      expect(s.pieces['sq']!.loc).toEqual({ kind: 'hex', hex: 'yL5' });
+      expect(s.pieces['gun']!.loc).toEqual({ kind: 'hex', hex: 'yK5' });
+    }
+  });
+
+  it('a unit that keeps a Gun it picked up may still end its move there holding it (SK4 4.0)', () => {
+    const { engine, state } = makeEngine({
+      scenario: GE_VS_BR,
+      extra,
+      startPhase: 'MPh',
+      dice: [1],
+      pieces: [
+        { id: 'sq', def: 'ge.467', side: 'ge', hex: 'yK4' },
+        { id: 'gun', def: 'br.AT57L', side: 'br', hex: 'yK5' },
+        { id: 'b1', def: 'br.457', side: 'br', hex: 'yA1' },
+      ],
+    });
+    let s = act(engine, state, { type: 'move.start', units: ['sq'] }).state;
+    s = settle(engine, act(engine, s, { type: 'move.step', to: 'yK5' }).state);
+    s = settle(engine, act(engine, s, { type: 'move.recover', unit: 'sq', sw: 'gun' }).state);
+    s = settle(engine, act(engine, s, { type: 'move.end' }).state);
+    expect(engine.currentDecision(s)).toMatchObject({ kind: 'phase', owner: 'ge' });
+    expect(s.pieces['gun']!.loc).toEqual({ kind: 'held', by: 'sq' });
+    expect(s.pieces['sq']!.loc).toEqual({ kind: 'hex', hex: 'yK5' });
   });
 });

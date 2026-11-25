@@ -81,6 +81,8 @@ function seamSafeGeoJSON(collection: FeatureCollection): FeatureCollection {
 
 const COUNTRY_GEOJSON = seamSafeGeoJSON(feature(countries, countries.objects['countries']!) as unknown as FeatureCollection);
 const LAND_GEOJSON = seamSafeGeoJSON(feature(countries, countries.objects['land']!) as unknown as FeatureCollection);
+/** Steps a second of the scenario pins' pulse (each one repaints the map). */
+const PULSE_FPS = 15;
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WWII_YEARS = Array.from({ length: 7 }, (_, index) => 1939 + index);
 
@@ -369,7 +371,7 @@ export function ScenarioExplorer() {
       });
       // A slow pulse ring under every cluster, at every zoom, so the groups read as things to click (a scenario's own
       // pin is its matchup badge, which needs no help to be seen).
-      map.addLayer({ id: 'scenario-pulse', type: 'circle', source: 'scenarios', filter: ['has', 'point_count'], paint: { 'circle-color': '#f0cf72', 'circle-radius': 9, 'circle-opacity': 0.4, 'circle-stroke-color': '#f0cf72', 'circle-stroke-width': 1.5, 'circle-stroke-opacity': 0.6 } });
+      map.addLayer({ id: 'scenario-pulse', type: 'circle', source: 'scenarios', filter: ['has', 'point_count'], paint: { 'circle-color': '#f0cf72', 'circle-radius': 9, 'circle-opacity': 0.4, 'circle-stroke-color': '#f0cf72', 'circle-stroke-width': 1.5, 'circle-stroke-opacity': 0.6, 'circle-radius-transition': { duration: 0 }, 'circle-opacity-transition': { duration: 0 }, 'circle-stroke-opacity-transition': { duration: 0 } } });
       map.addLayer({ id: 'scenario-halos', type: 'circle', source: 'scenarios', minzoom: 4.5, filter: ['!', ['has', 'point_count']], paint: { 'circle-color': '#c9a24a', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 4.5, 10, 9, 25], 'circle-opacity': ['interpolate', ['linear'], ['zoom'], 4.5, 0, 5.3, 0.14], 'circle-stroke-color': '#c9a24a', 'circle-stroke-width': 1, 'circle-stroke-opacity': 0.35 } });
       const clusterHovered: ExpressionSpecification = ['boolean', ['feature-state', 'hover'], false];
       map.addLayer({ id: 'scenario-clusters', type: 'circle', source: 'scenarios', filter: ['has', 'point_count'], paint: { 'circle-color': ['case', clusterHovered, '#e2bd63', '#c9a24a'], 'circle-radius': ['+', ['step', ['get', 'point_count'], 18, 8, 22, 25, 28], ['case', clusterHovered, 4, 0]], 'circle-stroke-color': '#f0cf72', 'circle-stroke-width': ['case', clusterHovered, 3, 2], 'circle-opacity': 0.94, 'circle-radius-transition': { duration: 120 } } });
@@ -419,11 +421,14 @@ export function ScenarioExplorer() {
       map.on('mousemove', 'scenario-clusters', hoverLayer);
       map.on('mouseleave', 'scenario-pins', unhover);
       map.on('mouseleave', 'scenario-clusters', unhover);
-      // The pulse: radius and fade loop every 2.4 s, cheap enough to run on one small layer.
+      // The pulse: radius and fade loop every 2.4 s. Each change repaints the whole map, so it steps PULSE_FPS times a
+      // second rather than every frame: at 60 fps the atlas kept the GPU busy the whole time it was open.
       let pulseFrame = 0;
+      let pulsed = -Infinity;
       const pulse = (t: number) => {
         const k = (t % 2400) / 2400;
-        if (map.getLayer('scenario-pulse')) {
+        if (t - pulsed >= 1000 / PULSE_FPS && map.getLayer('scenario-pulse')) {
+          pulsed = t;
           map.setPaintProperty('scenario-pulse', 'circle-radius', ['+', ['case', ['has', 'point_count'], ['step', ['get', 'point_count'], 18, 8, 22, 25, 28], 9], 14 * k]);
           map.setPaintProperty('scenario-pulse', 'circle-opacity', 0.35 * (1 - k));
           map.setPaintProperty('scenario-pulse', 'circle-stroke-opacity', 0.7 * (1 - k));

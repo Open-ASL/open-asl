@@ -128,6 +128,8 @@ export const COUNTERS: Record<string, CounterDef> = {
   'ru.T34M43': { id: 'ru.T34M43', nationality: 'ru', name: 'T-34 M43', kind: 'vehicle', tracked: true, mp: 16, groundPressure: 'normal', af: { hull: { front: 11, side: 6, rear: 6 }, turret: { front: 11, side: 6, rear: 6 } }, turret: 'RST', targetSize: 'normal', ma: { type: 'AT', caliber: 76, barrel: 'L', rof: 1, ammo: { he: true, ap: true } }, mg: { bmg: 2, cmg: 4 }, ceDrm: 2, crewMorale: 8, cvp: 0 },
   'ru.T34M41': { id: 'ru.T34M41', nationality: 'ru', name: 'T-34 M41', kind: 'vehicle', tracked: true, mp: 17, redMp: true, stallOn11: true, groundPressure: 'low', af: { hull: { front: 11, side: 6, rear: 6 }, turret: { front: 8, side: 6, rear: 6 } }, turret: 'RST', targetSize: 'normal', ma: { type: 'AT', caliber: 76, barrel: 'L', ammo: { he: true, ap: true } }, mg: { bmg: 2, cmg: 4 }, ceDrm: 2, crewMorale: 8, cvp: 0 },
   'ge.pzivf2': { id: 'ge.pzivf2', nationality: 'ge', name: 'PzKw IVF2', kind: 'vehicle', tracked: true, mp: 14, groundPressure: 'normal', af: { hull: { front: 6, side: 3, rear: 3 }, turret: { front: 6, side: 4, rear: 4 } }, turret: 'T', targetSize: 'normal', ma: { type: 'AT', caliber: 75, barrel: 'L', rof: 1, ammo: { he: true, ap: true }, specialAmmo: [{ kind: 'SMOKE', steps: [{ n: 8 }] }, { kind: 'APCR', steps: [{ n: 5, from: { year: 1942 } }, { n: 4, from: { year: 1943 } }] }] }, mg: { bmg: 3, cmg: 5 }, smoke: [{ kind: 'sD', n: 6 }], ceDrm: 2, crewMorale: 8, cvp: 0 },
+  // A Lend-Lease Sherman III(a) (SK3 Russian Vehicle Note 50): "*75", its counter back "Red TH#s (Pre44)".
+  'ru.ShermanIII': { id: 'ru.ShermanIII', nationality: 'ru', name: 'Sherman III(a)', kind: 'vehicle', tracked: true, mp: 14, groundPressure: 'normal', af: { hull: { front: 8, side: 4, rear: 4 }, turret: { front: 8, side: 6, rear: 6 } }, turret: 'T', targetSize: 'large', ma: { type: 'AT', caliber: 75, rof: 1, ammo: { he: true, ap: true } }, redThBefore: 1944, mg: { bmg: 2, cmg: 4 }, ceDrm: 2, crewMorale: 8, cvp: 0 },
   // An unarmed, unarmored truck (ASLRB A7.212's exception); no such counter is in the real set yet.
   'ge.truck': { id: 'ge.truck', nationality: 'ge', name: 'Opel Blitz', kind: 'vehicle', tracked: false, mp: 20, groundPressure: 'normal', unarmored: true, af: { hull: { front: 0, side: 0, rear: 0 }, turret: { front: 0, side: 0, rear: 0 } }, turret: 'NT', targetSize: 'normal', mg: {}, ceDrm: 0, crewMorale: 7, cvp: 0 },
   'ge.stug3g': { id: 'ge.stug3g', nationality: 'ge', name: 'StuG IIIG', kind: 'vehicle', tracked: true, mp: 14, groundPressure: 'normal', af: { hull: { front: 6, side: 3, rear: 3 }, turret: { front: 6, side: 4, rear: 4 } }, turret: 'NT', targetSize: 'normal', ma: { type: 'AT', caliber: 75, barrel: 'L', rof: 1, ammo: { he: true, ap: true }, specialAmmo: [{ kind: 'SMOKE', steps: [{ n: 8 }] }, { kind: 'APCR', steps: [{ n: 5, from: { year: 1942 } }, { n: 4, from: { year: 1943 } }] }] }, mg: { bmg: 3 }, smoke: [{ kind: 'sD', n: 6 }], ceDrm: 2, crewMorale: 8, cvp: 0 },
@@ -139,6 +141,15 @@ export const COUNTERS: Record<string, CounterDef> = {
   'ge.pzivf2.bmg': { id: 'ge.pzivf2.bmg', nationality: 'ge', kind: 'sw', type: 'BMG', fp: 3, range: 8, pp: 0, fixed: true, b: 12, repair: 1 },
   'ge.pzivf2.cmg': { id: 'ge.pzivf2.cmg', nationality: 'ge', kind: 'sw', type: 'CMG', fp: 5, range: 12, pp: 0, fixed: true, b: 12, repair: 1 },
   'ge.otv': { id: 'ge.otv', nationality: 'ge', name: 'OT test AFV', openTopped: true, kind: 'vehicle', tracked: true, mp: 14, groundPressure: 'normal', af: { hull: { front: 6, side: 3, rear: 3 }, turret: { front: 6, side: 4, rear: 4 } }, turret: 'T', targetSize: 'normal', ma: { type: 'AT', caliber: 75, barrel: 'L', rof: 1, ammo: { he: true, ap: true }, specialAmmo: [{ kind: 'SMOKE', steps: [{ n: 8 }] }] }, mg: { bmg: 3, cmg: 5 }, smoke: [{ kind: 'sD', n: 6 }], ceDrm: 2, crewMorale: 8, cvp: 0 },
+  // As imported: the KV-2 (2/4 R2, no turret frame on its counter) and the StuG IIIG (L), whose CMG fires through its
+  // VCA only ("MG:VCA only" on the counter back).
+  'ru.KV2': { id: 'ru.KV2', nationality: 'ru', name: 'KV-2', kind: 'vehicle', tracked: true, mp: 9, redMp: true, groundPressure: 'normal', af: { hull: { front: 8, side: 8, rear: 8 }, turret: { front: 11, side: 8, rear: 8 } }, turret: 'NT', targetSize: 'veryLarge', ma: { type: 'AT', caliber: 152, barrel: '*', ammo: { he: true, ap: true } }, mg: { bmg: 2, cmg: 4, rmg: 2 }, cs: 7, ceDrm: 2, crewMorale: 8, cvp: 0 },
+  'ru.KV2.bmg': { id: 'ru.KV2.bmg', nationality: 'ru', kind: 'sw', type: 'BMG', fp: 2, range: 8, pp: 0, fixed: true, b: 12, repair: 1 },
+  'ru.KV2.cmg': { id: 'ru.KV2.cmg', nationality: 'ru', kind: 'sw', type: 'CMG', fp: 4, range: 12, pp: 0, fixed: true, b: 12, repair: 1 },
+  'ru.KV2.rmg': { id: 'ru.KV2.rmg', nationality: 'ru', kind: 'sw', type: 'RMG', fp: 2, range: 8, pp: 0, fixed: true, b: 12, repair: 1 },
+  'ge.stgiiigl': { id: 'ge.stgiiigl', nationality: 'ge', name: 'StuG IIIG (L)', kind: 'vehicle', tracked: true, mp: 13, groundPressure: 'normal', af: { hull: { front: 8, side: 3, rear: 3 }, turret: { front: 8, side: 3, rear: 3 } }, turret: 'NT', targetSize: 'small', ma: { type: 'AT', caliber: 75, barrel: 'L', rof: 1, ammo: { he: true, ap: true } }, mg: { cmg: 4, aamg: 1 }, cmgVcaOnly: true, cs: 4, ceDrm: 2, crewMorale: 8, cvp: 0 },
+  'ge.stgiiigl.cmg': { id: 'ge.stgiiigl.cmg', nationality: 'ge', kind: 'sw', type: 'CMG', fp: 4, range: 12, pp: 0, fixed: true, b: 12, repair: 1 },
+  'ge.stgiiigl.aamg': { id: 'ge.stgiiigl.aamg', nationality: 'ge', kind: 'sw', type: 'AAMG', fp: 1, range: 8, pp: 0, fixed: true, b: 12, repair: 1 },
   'ge.otv.bmg': { id: 'ge.otv.bmg', nationality: 'ge', kind: 'sw', type: 'BMG', fp: 3, range: 8, pp: 0, fixed: true, b: 12, repair: 1 },
   'ge.otv.cmg': { id: 'ge.otv.cmg', nationality: 'ge', kind: 'sw', type: 'CMG', fp: 5, range: 12, pp: 0, fixed: true, b: 12, repair: 1 },
 };
@@ -281,10 +292,14 @@ export function makeEngine(opts: {
   tables?: Partial<Tables>;
   /** Hex markers in place at the start (e.g. `{ zQ3: { smoke: true } }`). */
   hexMarkers?: Record<string, Record<string, unknown>>;
+  /** The game's dice seed (the rolls when no `dice` are forced). */
+  seed?: string;
+  /** More counters, or real values for fixture ones (e.g. the A25 counters a test needs). */
+  counters?: Record<string, CounterDef>;
 }) {
   const statics: Statics = {
     map: testMap(opts.terrain, opts.board, opts.roadHexsides, opts.pathHexsides),
-    counters: COUNTERS,
+    counters: opts.counters ? { ...COUNTERS, ...opts.counters } : COUNTERS,
     // Every Starter Kit terrain (the PTO's included), so a fixture may lay out jungle or huts.
     terrain: SK4_TERRAIN,
     tables: { ...TABLES, ...opts.tables },
@@ -297,7 +312,7 @@ export function makeEngine(opts: {
     opts.dice ? { forcedDice: opts.dice } : {},
   );
   const sc = statics.scenario;
-  const { state } = engine.createGame({ scenarioId: 'test', sides: sc.sides.map((x) => x.side), attacker: sc.firstSide, seed: 'test' });
+  const { state } = engine.createGame({ scenarioId: 'test', sides: sc.sides.map((x) => x.side), attacker: sc.firstSide, seed: opts.seed ?? 'test' });
   return { engine, state };
 }
 

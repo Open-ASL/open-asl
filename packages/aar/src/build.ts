@@ -1,8 +1,8 @@
 import { COUNTERS, newGame } from '@asl/content';
 import type { Action, GameEvent, GameState, Piece, QueryEnv } from '@asl/engine';
-import { PHASE_NAME, achieved, hasUnitsLeft, casualtyVp, controlState, defLabel, defOf, exitVp, hexLabel, hexOfLoc, humanize, isWeaponDef, pieceLabel, statics, vpTally, type Casualty, type ScenarioDef, type VictoryCondition } from '@asl/rules';
+import { casualtyVp, controlState, defLabel, defOf, exitVp, hexLabel, hexOfLoc, humanize, isWeaponDef, pieceLabel, statics, vpTally, type Casualty, type ScenarioDef, type VictoryCondition } from '@asl/rules';
 import { AAR_VERSION, type AarCasualty, type AarControl, type AarDice, type AarDoc, type AarFire, type AarRollKind, type AarHighlight, type AarLuck, type AarPlayer, type AarRace, type AarStrength, type AarVictory, type Competition, type MatchMode, type Timestamp } from '@asl/platform';
-import { buildingLabel, conditionText, leaves, list, plural, sideName, victoryStandings, winningClause } from './vc';
+import { buildingLabel, conditionText, gameDecision, leaves, list, metLeaves, plural, sideName, victoryStandings } from './vc';
 
 /** What the recording cannot tell: who played, how the match was classified, and a server-side ending. */
 export interface AarMeta {
@@ -550,44 +550,14 @@ export function buildAar(scenario: ScenarioDef, seed: string, actions: Action[],
   const reason = engineResult ? engineResult.reason : meta.result.reason;
   const loser = winner ? other(winner) : null;
   const loserNick = loser ? (meta.players[loser]?.nickname ?? name(loser)) : '';
-  const phaseName = PHASE_NAME[state.phase] ?? state.phase;
-  const met = leaves(scenario.victory).filter((vc) => vc.side === winner && achieved(env, vc));
-  const offensive = leaves(scenario.victory).filter((vc) => vc.side === loser);
-  let how: string;
-  switch (reason) {
-    case 'scenario end':
-      if (!winner) how = 'Neither side met its victory conditions';
-      else if (met[0]) how = `${winningClause(env, scenario, met[0], true)}${met[0].kind === 'controlBuildings' || met[0].kind === 'controlHexes' ? ` at the end of Turn ${state.turn}` : ''}`;
-      else if (offensive[0] && loser) how = `The ${plural(name(loser))} never ${winningClause(env, scenario, offensive[0], false)}`;
-      else how = `${plural(name(winner))} held on to the end of Turn ${state.turn}`;
-      break;
-    case 'sudden death':
-      how = `Won immediately in Turn ${state.turn} ${phaseName}${met[0] ? `: ${winningClause(env, scenario, met[0], true).replace(/^./, (c) => c.toLowerCase())}` : ''}`;
-      if (met[0]) hl(winner, m, 'Sudden death', `${conditionText(env, scenario, met[0])}: the game ends at once.`, 10);
-      break;
-    case 'annihilation':
-      {
-        // The side wiped out, which the VC then settled may still favour (the game ends only where they are settled).
-        const gone = scenario.sides.map((x) => x.side).find((x) => !hasUnitsLeft(env, x));
-        how = gone ? `The last ${name(gone)} unit died in Turn ${state.turn}` : `Both sides were wiped out in Turn ${state.turn}`;
-      }
-      if (casualties.length) {
-        const last = casualties[casualties.length - 1]!;
-        hl(winner, m, 'Annihilation', `${name(last.side)} ${last.label} in ${last.hex ?? '?'} was the last unit standing: ${last.cause}.`, 10);
-      }
-      break;
-    case 'nothing left to play':
-      // One side's units had all exited or died with the result settled (sk1.vc.nothing-left): the VC decided it there.
-      how = `${winner ? (met[0] ? winningClause(env, scenario, met[0], true) : `${plural(name(winner))} held on`) : 'Neither side met its victory conditions'}; with nothing left to play, the game ended in Turn ${state.turn}`;
-      break;
-    case 'concession':
-      how = `${loserNick} conceded in Turn ${state.turn} ${phaseName}`;
-      break;
-    case 'timeout':
-      how = `${loserNick} ran out the clock in Turn ${state.turn}`;
-      break;
-    default:
-      how = reason;
+  const { how } = gameDecision(env, scenario, { winner, reason, turn: state.turn, phase: state.phase, loserName: loserNick });
+  if (reason === 'sudden death') {
+    const met = metLeaves(env, scenario.victory.filter((vc) => vc.side === winner));
+    if (met[0]) hl(winner, m, 'Sudden death', `${conditionText(env, scenario, met[0])}: the game ends at once.`, 10);
+  }
+  if (reason === 'annihilation' && casualties.length) {
+    const last = casualties[casualties.length - 1]!;
+    hl(winner, m, 'Annihilation', `${name(last.side)} ${last.label} in ${last.hex ?? '?'} was the last unit standing: ${last.cause}.`, 10);
   }
 
   for (const s of sides) {

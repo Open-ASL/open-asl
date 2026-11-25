@@ -78,3 +78,4 @@ export const sk1CoreModules: RuleModule[] = [
   closeCombatModule,
   scenarioModule,
 ];
+export * from './shotOdds';

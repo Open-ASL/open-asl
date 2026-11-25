@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { sk2CoreModules, sk3CoreModules } from '@asl/rules';
 import { GE_VS_BR, RU_VS_GE, act, makeEngine, type PieceSpec } from '../../../packages/rules/test/fixtures';
-import { shotOptions } from '../src/game/ordnance';
+import { directedShotOptions, shotOptions } from '../src/game/ordnance';
 
 const extra = [...sk2CoreModules, ...sk3CoreModules];
 const t34 = (tags: Record<string, string | number | boolean> = {}): PieceSpec => ({ id: 't34', def: 'ru.T34M43', side: 'ru', hex: 'yM8', tags: { vca: 0, ca: 0, ...tags } });
@@ -64,6 +64,10 @@ describe('LATW fire options', () => {
     expect(opts.find((o) => o.type === 'VTT')).toMatchObject({ available: true, hint: expect.stringMatching(/HEAT TK 13/) });
   });
 
+  it("each option reads out the counter's own To Hit Table by range (SK4 4.4)", () => {
+    for (const o of baz([t34()])) expect(o.hint).toMatch(/^TH 11\/9\/8\/7\/4 at range 0–4; /);
+  });
+
   it('from a building the vehicle shot also chooses +2 To Hit or the Backblast (SK4 4.4.3)', () => {
     const opts = baz([t34()], { yK5: { terrain: 'building-stone', buildingId: 'b1' } }).filter((o) => o.type === 'VTT');
     expect(opts.map((o) => o.backblast)).toEqual([false, true]);
@@ -86,6 +90,8 @@ describe('LATW fire options', () => {
     const opts = shotOptions(engine.env(state), 'p', 'prep');
     expect(opts.map((o) => [o.type, o.backblast])).toEqual([['ITT', undefined], ['VTT', undefined]]);
     expect(opts.every((o) => !/Backblast/.test(o.label))).toBe(true);
+    // No X#: a PIAT's B10 malfunctions it (SK4 4.4.5).
+    expect(opts.find((o) => o.type === 'ITT')!.hint).toMatch(/^TH 11\/9\/7\/5 at range 0–3; .*B10: malfunctions on an original TH DR ≥ 10$/);
   });
 });
 
@@ -105,5 +111,68 @@ describe('Machine Gun fire options vs AFV (SK4 4.1)', () => {
     expect(opts.map((o) => [o.type, o.ammo])).toEqual([['VTT', undefined]]);
     expect(opts[0]).toMatchObject({ available: true, hint: expect.stringMatching(/normal range \(8 hexes\) and without halved FP .*no Critical Hit/) });
     expect(mg([{ id: 'sq', def: 'ru.458', side: 'ru', hex: 'yM5' }])[0]?.hint).toMatch(/No enemy vehicle/);
+  });
+});
+
+describe('a leader directing ordnance SW from the wheel (SK4 4.5, 4.4; ASLRB A7.531)', () => {
+  const AM_VS_GE = {
+    firstSide: 'am',
+    sides: [
+      { side: 'am', name: 'American', nationality: 'am', elr: 5 },
+      { side: 'ge', name: 'German', nationality: 'ge', elr: 3 },
+    ],
+  } as never;
+
+  it('a Light Mortar lists each shot again directed by the leader in its hex', () => {
+    const { engine, state } = makeEngine({
+      pieces: [
+        { id: 'hs', def: 'am.336', side: 'am', hex: 'yK5' },
+        { id: 'm', def: 'am.MTR', side: 'am', heldBy: 'hs' },
+        { id: 'l', def: 'am.L91', side: 'am', hex: 'yK5' },
+        { id: 'far', def: 'am.L80', side: 'am', hex: 'yK2' },
+        { id: 'g', def: 'ge.467', side: 'ge', hex: 'yK9' },
+      ],
+      scenario: AM_VS_GE,
+      extra,
+      startPhase: 'PFPh',
+    });
+    const env = engine.env(state);
+    const opts = directedShotOptions(env, 'm', shotOptions(env, 'm', 'prep'));
+    const he = opts.filter((o) => o.type === 'ATT' && o.ammo === undefined);
+    expect(he.map((o) => o.director ?? null)).toEqual([null, 'l']);
+    expect(he[1]).toMatchObject({ available: true, label: expect.stringMatching(/directed by 9-1/) });
+    // A leader in another hex is never listed.
+    expect(opts.some((o) => o.director === 'far')).toBe(false);
+  });
+
+  it('a PIAT does too; a broken leader is listed greyed, saying why', () => {
+    const { engine, state } = makeEngine({
+      pieces: [
+        { id: 'u', def: 'br.458', side: 'br', hex: 'yK5' },
+        { id: 'p', def: 'br.PIAT', side: 'br', heldBy: 'u' },
+        { id: 'l', def: 'br.L81', side: 'br', hex: 'yK5' },
+        { id: 'b', def: 'br.L80', side: 'br', hex: 'yK5', tags: { broken: true } },
+        { id: 'g', def: 'ge.467', side: 'ge', hex: 'yM5' },
+      ],
+      scenario: { ...GE_VS_BR, firstSide: 'br' },
+      extra,
+      startPhase: 'PFPh',
+    });
+    const env = engine.env(state);
+    const itt = directedShotOptions(env, 'p', shotOptions(env, 'p', 'prep')).filter((o) => o.type === 'ITT');
+    expect(itt.find((o) => o.director === 'l')).toMatchObject({ available: true, label: expect.stringMatching(/directed by 8-1/) });
+    expect(itt.find((o) => o.director === 'b')).toMatchObject({ available: false, hint: expect.stringMatching(/Good Order/) });
+  });
+
+  it("a Gun gets no directed entries (a leader never modifies a Gun's To Hit DR)", () => {
+    const { engine, state } = makeEngine({
+      pieces: [t34(), { id: 'l', def: 'ru.L81', side: 'ru', hex: 'yM8' }, { id: 'sq', def: 'ge.467', side: 'ge', hex: 'yM5' }],
+      scenario: { ...RU_VS_GE, firstSide: 'ru' },
+      extra,
+      startPhase: 'PFPh',
+    });
+    const env = engine.env(state);
+    const base = shotOptions(env, 't34', 'prep');
+    expect(directedShotOptions(env, 't34', base)).toEqual(base);
   });
 });

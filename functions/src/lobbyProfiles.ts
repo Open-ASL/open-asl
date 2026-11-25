@@ -102,6 +102,20 @@ export const updatePublicProfile = onCall(async (req) => {
   return { profile: (await profileRef.get()).data() as PublicProfileDoc };
 });
 
+/** Set or clear the player's "not available" flag: while set, no one may send them a challenge (`sendInvite`). */
+export const setAvailability = onCall(async (req) => {
+  const { uid } = requireMember(req);
+  if (typeof req.data?.notAvailable !== 'boolean') throw new HttpsError('invalid-argument', 'notAvailable must be true or false.');
+  const notAvailable: boolean = req.data.notAvailable;
+  const profileRef = db.collection(COL.publicProfiles).doc(uid);
+  await db.runTransaction(async (tx) => {
+    const profile = await tx.get(profileRef);
+    tx.update(userRef(uid), { notAvailable, updatedAt: now() });
+    if (profile.exists) tx.update(profileRef, { notAvailable, updatedAt: now() });
+  });
+  return { notAvailable };
+});
+
 /** Keep public earned statistics and avatar in step with the authoritative private account. */
 export const mirrorPublicProfileStats = onDocumentUpdated(`${COL.users}/{uid}`, async (event) => {
   const user = event.data?.after.data() as UserDoc | undefined;

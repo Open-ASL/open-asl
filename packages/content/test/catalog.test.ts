@@ -38,7 +38,7 @@ describe('scenario catalogue', () => {
     expect(ids({ text: 'stalingrad' }).length).toBeGreaterThan(1);
     expect(free({ text: 'stalingrad', playableOnly: true })).toEqual(['sk-s18', 'sk-s35']);
     expect(ids({ text: 'german' })).toEqual(ALL_SCENARIOS.filter((s) => s.sides.some((x) => x.name === 'German')).map((s) => s.id));
-    expect(ids({ text: 'german', product: 'demo' })).toEqual(['demo-crossroads', 'demo-gun-line', 'demo-armor', 'asl-testbed', 'asl-testbed-fire']);
+    expect(ids({ text: 'german', product: 'demo' })).toEqual(['demo-crossroads', 'demo-gun-line', 'demo-armor', 'asl-testbed', 'asl-testbed-fire', 'asl-testbed-mines', 'asl-testbed-pillbox', 'asl-testbed-vehicles', 'asl-testbed-deploy']);
     expect(ids({ text: 'nothing matches this' })).toEqual([]);
   });
 });

@@ -899,6 +899,8 @@ input[type='checkbox'] { accent-color: var(--brass); width: 16px; height: 16px; 
 }
 .cc-overlay.out { opacity: 0; pointer-events: none; }
 .cc-overlay.still, .cc-overlay.still * { animation: none !important; transition: none !important; }
+/* With effects off the pips never animate in, so show them outright. */
+.cc-overlay.still .pip { opacity: 1; transform: none; }
 .board-pane:has(.cc-overlay) .dice-tray { display: none; }
 .hud { z-index: 11; }
 .cc-panel {

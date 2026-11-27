@@ -1,5 +1,9 @@
-import type { RuleModule } from '@asl/engine';
-import { mmc, pieceOf, smc } from '../sk1/status';
+import type { Location, PieceId, QueryEnv, RuleModule } from '@asl/engine';
+import { locOf } from '../common/location';
+import { personnelAt } from '../common/pieces';
+import { stackCap } from '../sk1/movement';
+import { mmc, pieceOf, smc, squadEquivalents } from '../sk1/status';
+import { entrenchmentRoom } from './entrenchments';
 import { createsNoLeader } from './fieldPromotion';
 
 /**
@@ -13,12 +17,40 @@ import { createsNoLeader } from './fieldPromotion';
  * A18.12: the created leader "must add his leadership to the Original 2 CC DR that created him (even if the modifier is
  * a +1)". The shared CC leadership takes only a negative DRM (the SK reading), so a positive one is added here.
  */
+/**
+ * Where a created leader goes (ASLRB A18.1: he is created with the unit): the creating unit's Location, its level or
+ * pillbox included, and beneath its entrenchment while there is room. A pillbox "can never be overstacked" (A5.6,
+ * B30.111): a leader who would overstack it is not created (Q&A to A5.5: "The SMC is not created"). Beneath a full
+ * entrenchment he is created outside it, in the Location (B27.12: "Any overstacking in the hex occurs outside of the
+ * foxhole counter").
+ */
+function createdLeaderAt(env: QueryEnv, unit: PieceId): { loc: Location } | { why: string } | null {
+  const p = env.state.pieces[unit];
+  if (!p || p.loc.kind !== 'hex') return null;
+  const loc = locOf(env.state, p)!;
+  const cap = stackCap(env, loc, p.side);
+  if (cap) {
+    const here = personnelAt(env, loc, p.side);
+    const smcs = here.filter((x) => !!smc(env, x)).length + 1;
+    if (smcs > cap.smc || squadEquivalents(env, here) + 0.5 * Math.floor(smcs / 5) > cap.se) return { why: `the new leader would overstack ${cap.note ?? 'the Location'} (ASLRB A5.6)` };
+  }
+  const { pos, ...at } = p.loc;
+  const room = pos?.ent ? entrenchmentRoom(env, p.loc.hex, p.side) : null;
+  return { loc: room && room.smc >= 1 ? { ...at, pos: { ent: pos!.ent! } } : at };
+}
+
 export const aslLeaderCreationModule: RuleModule = {
   id: 'asl.leaderCreation',
-  ref: 'ASLRB A18.2, A18.12',
+  ref: 'ASLRB A18.1, A18.2, A18.12, A5.6',
   summary: 'Leader Creation in CC is based on the attacking MMC with the highest BPV; the created leader\'s +1 applies to the DR that created him.',
   requires: ['sk1.cc'],
   install(r) {
+    r.contribute({
+      id: 'asl.leaderCreation.location',
+      query: 'rally.createdLeaderAt',
+      ref: 'ASLRB A18.1, A5.6, B30.111, B27.12',
+      apply: (v, { unit }, env) => createdLeaderAt(env, unit) ?? v,
+    });
     r.contribute({
       id: 'asl.leaderCreation.plusOne',
       query: 'cc.createdLeaderDrm',

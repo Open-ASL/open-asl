@@ -20,6 +20,9 @@ export interface RasterOptions {
 export async function rasterizeCounter(svg: string, dir: string, src: SvgSource, scale = 3, opts: RasterOptions = {}): Promise<Buffer> {
   // Drop @font-face rules (fonts are supplied to resvg directly).
   let cleaned = svg.replace(/@font-face\s*\{[^}]*\}/g, '');
+  // The module's fonts have no "✽" glyph (VASL's superscript asterisk, as in the Type 89B CHI-RO's "57*" MA): resvg
+  // would draw nothing, so it is drawn as a plain asterisk, as the counter prints it.
+  cleaned = cleaned.replace(/&#x273D;|✽/g, '&#x002A;');
   if (opts.transformSvg) cleaned = opts.transformSvg(cleaned);
   // Inline the silhouettes. VASL counter SVGs reference them by relative path
   // (`<image href="svg/ge467S.png">`), which resvg cannot resolve from an in-memory

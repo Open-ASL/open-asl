@@ -3,18 +3,28 @@ import type { HexId, QueryEnv } from '@asl/engine';
 import { GEO, hexPixel } from '@asl/rules';
 import { drawPlacementArt, playableRect, type CropPlacement } from './crop';
 import { boardImage } from '../game/assets';
+import { loadArt } from './boardArt';
 
 export type ArtPlacement = CropPlacement;
 
+/**
+ * Board images by URL. Only an image that loaded is kept: a stalled or failed one is asked for again (under a fresh
+ * URL, see boardArt.ts) the next time a hex is shown, instead of every later hex waiting on it for the rest of the page.
+ */
 const images = new Map<string, Promise<HTMLImageElement | null>>();
+const loadImage = (src: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`image failed: ${src}`));
+    img.src = src;
+  });
 const load = (url: string) => {
   let p = images.get(url);
   if (!p) {
-    p = new Promise<HTMLImageElement | null>((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
-      img.src = url;
+    p = loadArt(url, loadImage).then((img) => {
+      if (!img) images.delete(url);
+      return img;
     });
     images.set(url, p);
   }

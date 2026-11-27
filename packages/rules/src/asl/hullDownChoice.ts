@@ -58,7 +58,10 @@ export function hdQuestion(env: QueryEnv, a: Action): HdQuestion | null {
   const targetType = d.shot?.targetType ?? d.pf?.targetType;
   if (targetType !== 'VTT') return null;
   const target = d.shot?.target ?? d.pf!.target;
-  const vehicleId = d.shot ? (d.shot.targetUnit ?? enemyVehicleAt(env, target, d.side)?.id) : (d.pf!.targetUnit ?? enemyVehicleAt(env, target, d.side)?.id);
+  // In Defensive First Fire the vehicle aimed at is the moving one (SK4 3.3.3).
+  const ms = a.type.startsWith('defFire.') ? moveState(env) : null;
+  const moving = ms?.hex ? firstFireTargets(env, firstFireView(env, ms, target) ?? ms) : undefined;
+  const vehicleId = (d.shot?.targetUnit ?? d.pf?.targetUnit) ?? enemyVehicleAt(env, target, d.side, moving)?.id;
   if (!vehicleId) return null;
   const g = d.shot ? env.state.pieces[d.shot.weapon] : undefined;
   const firer = d.shot ? (g?.loc.kind === 'held' ? g.loc.by : d.shot.weapon) : d.pf!.unit;

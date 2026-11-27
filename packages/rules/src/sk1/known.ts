@@ -1,4 +1,4 @@
-import { seedRng, type Engine, type GameState, type HexId, type Piece, type PieceId, type QueryEnv, type SideId } from '@asl/engine';
+import { idPattern, seedRng, type Engine, type GameState, type HexId, type Piece, type PieceId, type QueryEnv, type SideId } from '@asl/engine';
 import { defOf, hexOf, isVehicleDef, otherSide, statics, unitsAt } from '../common/pieces';
 import { isBroken, mmc, smc } from './status';
 import { adjacentFor, adjacentLocs, isGroundLoc, locOf, type LocId } from '../common/location';
@@ -25,6 +25,12 @@ declare module '@asl/engine' {
      */
     'piece.knownTo': { ctx: { piece: PieceId; viewer: SideId | null }; value: boolean };
     /**
+     * Whether `viewer` may aim fire at the Location of an enemy piece: one it sees, and one it does not see but whose
+     * presence is on the board (a concealed stack's "?", attacked as Area Fire, SK4 8.3.2). A unit under Hidden Initial
+     * Placement is not (SK2; ASLRB A12.3). Default: visibility.
+     */
+    'piece.fireTarget': { ctx: { piece: PieceId; viewer: SideId }; value: boolean };
+    /**
      * A visible piece as `viewer` may see it: a module whose secret the piece's own record would give away (a unit
      * beneath a hidden foxhole, one inside a hidden pillbox: full ASL A12.33) returns it with that part of its
      * Location left out. Default: the piece as it is.
@@ -48,6 +54,10 @@ export const knownEnemyAt = (env: QueryEnv, hex: LocId, side: SideId): Piece[] =
 /** Whether `viewer` knows of a piece (SK1 has no concealment: only SK2's HIP hides anything). */
 export const isVisibleTo = (env: QueryEnv, piece: Piece, viewer: SideId | null): boolean =>
   env.query('piece.visibleTo', { piece: piece.id, viewer }, true);
+
+/** Whether `viewer` may fire at the Location holding a piece (`piece.fireTarget`). */
+export const isFireTargetFor = (env: QueryEnv, piece: Piece, viewer: SideId): boolean =>
+  env.query('piece.fireTarget', { piece: piece.id, viewer }, isVisibleTo(env, piece, viewer));
 
 /** Enemy personnel on the map that `side` knows of (hidden Guns and crews are not Known Enemy Units). */
 /** Enemy units on the map the side can see: personnel and non-wreck vehicles (both are Known Enemy Units, SK4 glossary). */
@@ -173,25 +183,31 @@ export function redactState(engine: Engine, state: GameState, viewer: SideId | n
   if (hidden.size > 0) {
     // Last line of defence: a piece id names its counter (`ge.3.0.ge.467.1`), so no hidden id may survive anywhere
     // the viewer can read, whatever slice a module keeps it in (a vehicle's LOS-at-start record, a moving stack's
-    // unit list, a leader's `stackedOn`). Modules that want the viewer to see *something* instead (a stand-in id)
-    // register a redactor, which runs first.
-    ext = scrubIds(ext, hidden) as Record<string, unknown>;
-    decisions = decisions.map((d) => (d.data ? { ...d, data: scrubIds(d.data, hidden) as Record<string, unknown> } : d));
+    // unit list, a leader's `stackedOn`), nor inside a string built from ids (a record keyed by a stack's units). Modules
+    // that want the viewer to see *something* instead (a stand-in id, an opaque key) register a redactor or keep no id
+    // in the string, which this then leaves alone.
+    const re = idPattern(hidden)!;
+    ext = scrubIds(ext, re) as Record<string, unknown>;
+    decisions = decisions.map((d) => (d.data ? { ...d, data: scrubIds(d.data, re) as Record<string, unknown> } : d));
     for (const [id, p] of Object.entries(pieces)) {
-      if (Object.values(p.tags).some((v) => typeof v === 'string' && hidden.has(v))) pieces[id] = { ...p, tags: scrubIds(p.tags, hidden) as Piece['tags'] };
+      if (Object.values(p.tags).some((v) => typeof v === 'string' && re.test(v))) pieces[id] = { ...p, tags: scrubIds(p.tags, re) as Piece['tags'] };
     }
+    return { ...state, pieces, ext, decisions, rng: VIEW_RNG, hexMarkers: scrubIds(state.hexMarkers, re) as GameState['hexMarkers'] };
   }
-  return { ...state, pieces, ext, decisions, rng: VIEW_RNG, hexMarkers: hidden.size > 0 ? (scrubIds(state.hexMarkers, hidden) as GameState['hexMarkers']) : state.hexMarkers };
+  return { ...state, pieces, ext, decisions, rng: VIEW_RNG };
 }
 
-/** `value` without any mention of the ids: keys and string values equal to one are dropped, array elements too. */
-function scrubIds(value: unknown, ids: Set<string>): unknown {
-  if (typeof value === 'string') return ids.has(value) ? undefined : value;
+/**
+ * `value` without any mention of the ids `re` matches (`idPattern`): keys and string values that name one, whole or
+ * inside a string built from ids, are dropped, array elements too.
+ */
+function scrubIds(value: unknown, re: RegExp): unknown {
+  if (typeof value === 'string') return re.test(value) ? undefined : value;
   if (Array.isArray(value)) {
     let changed = false;
     const out: unknown[] = [];
     for (const v of value) {
-      const r = scrubIds(v, ids);
+      const r = scrubIds(v, re);
       if (r !== v) changed = true;
       if (r !== undefined || (v === undefined)) out.push(r);
     }
@@ -201,11 +217,11 @@ function scrubIds(value: unknown, ids: Set<string>): unknown {
     let changed = false;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (ids.has(k)) {
+      if (re.test(k)) {
         changed = true;
         continue;
       }
-      const r = scrubIds(v, ids);
+      const r = scrubIds(v, re);
       if (r !== v) changed = true;
       if (r !== undefined) out[k] = r;
     }

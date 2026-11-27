@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { deepEqual, type GameState, type LoggedEvent } from '@asl/engine';
-import { beltHexes, breaches, fortCounters, fortifiedKnownTo, fortifiedState, hiddenFrom, redactState, scatterState, shownCounter, statics, type Breach, type FortRecord, type FortifiedState, type ScatterState } from '@asl/rules';
-import { ASL_TESTBED_DEPLOY_SCENARIO, ASL_TESTBED_MINES_SCENARIO, ASL_TESTBED_PILLBOX_SCENARIO, ASL_TESTBED_SCENARIO, ASL_TESTBED_VEHICLES_SCENARIO, FixtureBuilder, fixtureActions, PLAYABLE_SCENARIOS, TESTBED_FORTIFIED, mulberry, newGame, newSk1Game, testbedBreachApproach, testbedForts } from '../src';
+import { beltHexes, breaches, dashOptions, moveState, fortCounters, fortifiedKnownTo, fortifiedState, hiddenFrom, redactState, scatterState, shownCounter, statics, type Breach, type FortRecord, type FortifiedState, type ScatterState } from '@asl/rules';
+import { ASL_TESTBED_DEPLOY_SCENARIO, ASL_TESTBED_MINES_SCENARIO, ASL_TESTBED_MOVEMENT_SCENARIO, ASL_TESTBED_PILLBOX_SCENARIO, ASL_TESTBED_SCENARIO, ASL_TESTBED_VEHICLES_SCENARIO, DEMO_PACIFIC_SCENARIO, FixtureBuilder, fixtureActions, PLAYABLE_SCENARIOS, TESTBED_FORTIFIED, mulberry, newGame, newSk1Game, testbedBreachApproach, testbedForts } from '../src';
+import { mentionOf } from './randomPlayChecks';
 
 /** Strings the viewer must never receive: ids of pieces hidden from them, and the other side's unrevealed secrets. */
 function secretsFrom(engine: ReturnType<typeof newSk1Game>['engine'], state: GameState, viewer: string | null): string[] {
   const env = engine.env(state);
-  const out: string[] = [];
-  for (const id of hiddenFrom(env, state, viewer)) out.push(JSON.stringify(id));
-  return out;
+  return [...hiddenFrom(env, state, viewer)];
 }
 
 /**
@@ -49,7 +48,10 @@ describe('redacted views on random play', () => {
           secretsSeen += secrets.length;
           if (secrets.length) {
             const json = JSON.stringify(snapshot) + JSON.stringify(stream);
-            for (const s of secrets) expect(json, `${scenario.id} seq ${t.state.seq}, viewer ${viewer} sees ${s}`).not.toContain(s);
+            for (const s of secrets) {
+              const at = mentionOf(json, s);
+              if (at !== null) expect.fail(`${scenario.id} seq ${t.state.seq}, viewer ${viewer} sees ${s}: …${at}…`);
+            }
           }
           // Fortified buildings: a building id is public (Control names it), so check the slice itself.
           const fort = snapshot.ext['sk1.fortified'] as FortifiedState | undefined;
@@ -80,9 +82,14 @@ describe('redacted views on random play', () => {
             for (const e of stream) if (e.type === 'asl.fort.placed') expect((e.payload as { counters: FortRecord[] }).counters.every((c) => allowed.some((a) => a.id === c.id))).toBe(true);
             if (realForts.some((c) => c.side !== viewer)) {
               // A Known and a Dummy minefield are alike to the enemy, with no strength; the Dummy Secret dr is its owner's.
-              const theirs = JSON.stringify([forts, stream.filter((e) => e.type.startsWith('asl.fort'))]);
+              // Only the other side's counters: the viewer's own Dummy is his to see (a foxhole he dug makes him an owner too).
+              const othersEv = stream.filter((e) => e.type.startsWith('asl.fort')).map((e) => {
+                const p = e.payload as { side?: string; counters?: FortRecord[]; counter?: FortRecord };
+                return { type: e.type, counters: (p.counters ?? (p.counter ? [p.counter] : [])).filter((c) => c.side !== viewer), ...(p.side && p.side !== viewer ? { side: p.side } : {}) };
+              });
+              const theirs = JSON.stringify([forts.filter((c) => c.side !== viewer), othersEv]);
               expect(theirs, `${viewer} sees a Dummy flag`).not.toContain('"dummy"');
-              for (const c of forts.filter((c) => c.kind === 'mines' && !c.mines?.strengthRevealed)) expect(c.mines, `${viewer} sees a minefield's strength`).not.toHaveProperty('ap');
+              for (const c of forts.filter((c) => c.side !== viewer && c.kind === 'mines' && !c.mines?.strengthRevealed)) expect(c.mines, `${viewer} sees a minefield's strength`).not.toHaveProperty('ap');
               expect(stream.some((e) => e.type === 'asl.fort.dummies'), `${viewer} sees the Dummy Secret dr`).toBe(false);
               secretsSeen++;
             }
@@ -594,5 +601,206 @@ describe('Deploy and Recombine by hidden units (ASLRB A1.31, A1.32, A12.3; T1, T
       for (const id of [...hs, leader]) expect(seen, `${viewer} ${id}`).not.toContain(JSON.stringify(id));
       expect(redactState(engine, after, viewer).pieces[hs[0]!]?.defId, `${viewer}`).toBe('ru.426');
     }
+  });
+});
+
+/*
+ * The movement options and hidden units (ASLRB A4.63, A4.15, A12.15): what the mover is offered never depends on a unit
+ * he cannot see, and the moves fold into every viewer's snapshot without naming one.
+ */
+describe('Dash and Infantry OVR beside hidden units: two seats and a spectator', () => {
+  const VIEWERS = ['ge', 'ru', null] as const;
+  /** The fixture, then `steps` (as the decision owner each time): every transition folds for every viewer. */
+  function play(fixture: string, steps: ((f: FixtureBuilder) => void)[], build?: (f: FixtureBuilder) => void) {
+    const g = newGame(ASL_TESTBED_MOVEMENT_SCENARIO, 'movement-redact');
+    const f = new FixtureBuilder(g.engine, g.state);
+    if (build) build(f);
+    else for (const a of fixtureActions(g.engine, g.state, fixture)) f.state = g.engine.submit(f.state, a).state;
+    const states = [f.state];
+    for (const step of steps) {
+      const before = f.state;
+      const n = f.actions.length;
+      step(f);
+      let s = before;
+      for (const a of f.actions.slice(n)) {
+        const t = g.engine.submit(s, a);
+        for (const viewer of VIEWERS) {
+          const redact = (x: GameState) => redactState(g.engine, x, viewer);
+          const stream = g.engine.redactTransition(viewer, redact, s, t.events as LoggedEvent[]);
+          expect(deepEqual(g.engine.applyEvents(redact(s), stream), redact(t.state)), `${viewer} ${a.type}`).toBe(true);
+          if (viewer !== 'ru') for (const id of [...hiddenFrom(g.engine.env(s), s, viewer)].filter((x) => [...hiddenFrom(g.engine.env(t.state), t.state, viewer)].includes(x))) expect(JSON.stringify(stream), `${viewer} ${a.type}`).not.toContain(JSON.stringify(id));
+        }
+        s = t.state;
+      }
+      states.push(f.state);
+    }
+    return { engine: g.engine, f, states };
+  }
+
+  it('a Dash past a hidden squad: the offered end hexes are the same on the German view, and the declaration names nothing hidden', () => {
+    const { engine, f, states } = play('dash-hidden', [
+      (b) => b.act({ type: 'move.start', units: [b.unit('ge', 'ge.447', 1), b.unit('ge', 'ge.L80')].sort() }),
+      (b) => b.act({ type: 'move.dash', road: 'uN8', to: 'uM9' }),
+    ]);
+    const moving = states[1]!;
+    const hidden = f.unit('ru', 'ru.426', 1);
+    expect(moving.pieces[hidden]!.tags['hip']).toBe(true);
+    const seen = redactState(engine, moving, 'ge');
+    expect(JSON.stringify(seen)).not.toContain(JSON.stringify(hidden));
+    expect(dashOptions(engine.env(seen))).toEqual(dashOptions(engine.env(moving)));
+    for (const viewer of ['ge', null] as const) expect(JSON.stringify(redactState(engine, states[2]!, viewer)), `${viewer}`).not.toContain(JSON.stringify(hidden));
+  });
+
+  it('a hidden squad behind the lone 7-0: the OVR step is offered as on a Location of one SMC, and the German view shows the same (A4.15, A12.15)', () => {
+    let hidden = '';
+    const units: string[] = [];
+    const { engine, states } = play(
+      '',
+      [(b) => b.act({ type: 'move.start', units })],
+      (b) => {
+        b.fortify(TESTBED_FORTIFIED);
+        const ru = (def: string, n = 1) => b.unit('ru', def, n);
+        hidden = ru('ru.426', 1);
+        b.setup('ru', { [ru('ru.L70')]: 'uN10', [hidden]: 'uN10' }, {}, { hidden: [hidden] });
+        const ge = (def: string, n = 1) => b.unit('ge', def, n);
+        units.push(...[ge('ge.L92'), ge('ge.838'), ge('ge.548')].sort());
+        b.setup('ge', Object.fromEntries(units.map((u) => [u, 'uS8'])));
+        b.until('MPh', { turn: 1, attacker: 'ge' });
+        b.move(units, ['uR7', 'uQ8', 'uP8', 'uO9', 'uO10']);
+        b.until('MPh', { turn: 2, attacker: 'ge' });
+      },
+    );
+    const s = states[1]!;
+    const seen = redactState(engine, s, 'ge');
+    expect(JSON.stringify(seen)).not.toContain(JSON.stringify(hidden));
+    const steps = (x: GameState) => engine.legalActions(x, 'ge').filter((a) => a.type === 'move.step' && a['to'] === 'uN10').map((a) => a['ovr'] ?? 'leader');
+    expect(steps(s)).toEqual(['leader', 'each']);
+    expect(steps(seen)).toEqual(steps(s));
+  });
+});
+
+/*
+ * Overstacking and hidden units (ASLRB A12.14, A12.3, A5.11): a hidden unit is revealed by becoming overstacked in the LOS
+ * of a Good Order enemy ground unit, and by nothing else; the move that overstacks it out of such LOS folds into every
+ * viewer's snapshot without naming it.
+ */
+describe('A hidden squad overstacked by its own side: two seats and a spectator', () => {
+  const VIEWERS = ['ge', 'ru', null] as const;
+  function play(fixture: string) {
+    const g = newGame(ASL_TESTBED_SCENARIO, 'stacking-redact');
+    const f = new FixtureBuilder(g.engine, g.state);
+    for (const a of fixtureActions(g.engine, g.state, fixture)) f.state = g.engine.submit(f.state, a).state;
+    const hidden = f.unit('ru', 'ru.447', 1);
+    const mover = f.unit('ru', 'ru.447', 3);
+    const to = fixture === 'overstack-hidden' ? 'uP5' : 'uK4';
+    const n = f.actions.length;
+    const before = f.state;
+    f.act({ type: 'move.start', units: [mover] });
+    f.act({ type: 'move.step', to });
+    let s = before;
+    const streams: Record<string, string> = {};
+    for (const a of f.actions.slice(n)) {
+      const t = g.engine.submit(s, a);
+      for (const viewer of VIEWERS) {
+        const redact = (x: GameState) => redactState(g.engine, x, viewer);
+        const stream = g.engine.redactTransition(viewer, redact, s, t.events as LoggedEvent[]);
+        expect(deepEqual(g.engine.applyEvents(redact(s), stream), redact(t.state)), `${viewer} ${a.type}`).toBe(true);
+        streams[String(viewer)] = (streams[String(viewer)] ?? '') + JSON.stringify(stream);
+      }
+      s = t.state;
+    }
+    return { engine: g.engine, state: f.state, hidden, streams };
+  }
+
+  it('out of German view it stays hidden: neither the German seat nor a spectator receives it', () => {
+    const { engine, state, hidden, streams } = play('overstack-hidden-unseen');
+    expect(state.pieces[hidden]!.tags['hip']).toBe(true);
+    for (const viewer of ['ge', null] as const) {
+      expect(streams[String(viewer)], `${viewer}`).not.toContain(JSON.stringify(hidden));
+      expect(JSON.stringify(redactState(engine, state, viewer)), `${viewer}`).not.toContain(JSON.stringify(hidden));
+    }
+    expect(JSON.stringify(redactState(engine, state, 'ru'))).toContain(JSON.stringify(hidden));
+  });
+
+  it('in German view it is revealed to every viewer by the step that overstacks it', () => {
+    const { engine, state, hidden, streams } = play('overstack-hidden');
+    expect(state.pieces[hidden]!.tags['hip']).toBeUndefined();
+    for (const viewer of VIEWERS) {
+      expect(streams[String(viewer)], `${viewer}`).toContain(JSON.stringify(hidden));
+      expect(JSON.stringify(redactState(engine, state, viewer)), `${viewer}`).toContain(JSON.stringify(hidden));
+    }
+  });
+});
+
+/**
+ * Defensive First Fire at a stack moving under a "?" (SK4 8.3), on random play of the Pacific demo weighted toward moving
+ * and First Fire: at every First Fire decision the defender's own view offers exactly the shots the full state offers and
+ * judges each shot, and each unit of it alone (a late joiner), as the full state does (the Mandatory Fire Group rule per MF
+ * expenditure, ASLRB A7.55, SK1 1.2.4); and no view names a hidden piece anywhere, inside strings built from ids too.
+ */
+describe('Defensive First Fire at concealed movers, as the defender sees it', () => {
+  it('demo-pacific: the defender’s view agrees with the full state on every First Fire shot and leaks no hidden id', { timeout: 180_000 }, () => {
+    let compared = 0;
+    let concealedTargets = 0;
+    for (let game = 0; game < 10; game++) {
+    const { engine, state: s0 } = newSk1Game(DEMO_PACIFIC_SCENARIO, `redact-first-fire-${game}`, { los: 'grid' });
+    const rand = mulberry(8302 + game);
+    let state = s0;
+    for (let i = 0; i < 900 && !state.result; i++) {
+      const d = engine.currentDecision(state)!;
+      if (d.kind === 'firstFire') {
+        const view = redactState(engine, state, d.owner);
+        const ms = moveState(engine.env(state));
+        const underCover = !!ms?.units.some((id) => !view.pieces[id]);
+        if (underCover) concealedTargets++;
+        const shots = (x: GameState) => engine.legalActions(x, d.owner).filter((a) => a.type === 'defFire').map((a) => JSON.stringify(a['decl'])).sort();
+        const full = shots(state);
+        expect(shots(view), `seq ${state.seq}`).toEqual(full);
+        // Every shot offered, and every one of the defender's units on the map firing alone at the stack (one that sat out
+        // an earlier shot from its Location on this expenditure is a late joiner, refused alike in both).
+        const alone = ms?.hex ? Object.values(state.pieces).filter((p) => p.side === d.owner && p.loc.kind === 'hex').map((p) => ({ units: [p.id], sw: [] as string[], target: ms.hex! })) : [];
+        for (const decl of [...full.map((j) => JSON.parse(j) as { units: string[]; sw: string[]; target: string }), ...alone]) {
+          for (const tryDecl of [decl, ...decl.units.map((u) => ({ ...decl, units: [u], sw: [] }))]) {
+            const a = { type: 'defFire', decl: tryDecl, side: d.owner, decisionId: d.id } as never;
+            const why = engine.validate(state, a);
+            expect(engine.validate(view, a), `seq ${state.seq} ${JSON.stringify(tryDecl)}`).toBe(why);
+            if (underCover) compared++;
+          }
+        }
+      }
+      const legal = engine.legalActions(state, d.owner);
+      // Keep the "?" on: little fire but at a stack moving under one, concealed units Assault Moving one hex at a time.
+      const ms = moveState(engine.env(state));
+      const coveredMove = !!ms?.units.some((u) => state.pieces[u]?.tags['concealed']);
+      const concealedUnits = (a: { [k: string]: unknown }) => ((a['units'] as string[] | undefined) ?? []).some((u) => state.pieces[u]?.tags['concealed']);
+      const w = legal.map((a) =>
+        a.type === 'defFire' ? (coveredMove ? (((a['decl'] as { units: string[]; sw: string[] }).units.length + (a['decl'] as { units: string[]; sw: string[] }).sw.length === 1 ? 30 : 4)) : 0.02)
+        : /fire|Fire|ordnance/.test(a.type) ? 0.02
+        : a.type === 'move.start' ? (concealedUnits(a) ? 60 : 0.5)
+        : a.type === 'move.step' ? 4
+        : a.type === 'endPhase' || a.type === 'defPass' || a.type === 'move.end' ? 1
+        : 0.5,
+      );
+      let r = rand() * w.reduce((x, y) => x + y, 0);
+      let pick = legal[legal.length - 1]!;
+      for (let k = 0; k < legal.length; k++) if ((r -= w[k]!) <= 0) { pick = legal[k]!; break; }
+      // The Starter Kit lists no Assault Movement start (the player declares it as he starts): declare it for a "?" stack.
+      if (pick.type === 'move.start' && concealedUnits(pick) && !pick['doubleTime'] && !engine.validate(state, { ...pick, assault: true } as never)) pick = { ...pick, assault: true };
+      const t = engine.submit(state, pick);
+      for (const viewer of [...s0.sides, null]) {
+        const after = hiddenFrom(engine.env(t.state), t.state, viewer);
+        const hidden = [...hiddenFrom(engine.env(state), state, viewer)].filter((id) => after.has(id));
+        if (!hidden.length) continue;
+        const json = JSON.stringify(redactState(engine, t.state, viewer)) + JSON.stringify(engine.redactTransition(viewer, (x) => redactState(engine, x, viewer), state, t.events as LoggedEvent[]));
+        for (const id of hidden) {
+          const at = mentionOf(json, id);
+          if (at !== null) expect.fail(`seq ${t.state.seq}, viewer ${viewer} sees ${id}: …${at}…`);
+        }
+      }
+      state = t.state;
+    }
+    }
+    expect(concealedTargets).toBeGreaterThan(0);
+    expect(compared).toBeGreaterThan(0);
   });
 });

@@ -3,6 +3,7 @@ import type { Action, GameState, HexId, Piece, PieceId, QueryEnv, SideId } from 
 import { fixtureActions } from '@asl/content';
 import {
   adjacentLocs,
+  overstackEntryMf,
   scenarioRuleset,
   sideToward,
   attackFp,
@@ -129,6 +130,7 @@ import {
   gun as gunDef,
   gunIdent,
   vehicle as vehicleDef,
+  smokeDispenser,
   vehicleEntryTerrain,
   vehicleIfe,
   turretTurnFor,
@@ -171,11 +173,14 @@ import { screenViewer } from './game/visibility';
 import { advanceTos, clickLoc } from './game/clickLoc';
 import { DirectorPicker, GunComposer } from './panels/GunComposer';
 import type { SmokeThrow } from '@asl/rules';
-import { maBffRefusal, vehicleMgUnavailable, entrenchDrm, entrenchHexIllegal, entrenchers, entrenchmentKnownTo, entrenchmentMf, entrenchmentName, entrenchmentRoom, isEntrenched, smc, stackEntrenchment, mineStepChoices, mineTbThrough, removeMinesIllegal, sideToward as mineSideToward, lastMineAttacks } from '@asl/rules';
+import { maBffRefusal, maRmgRefusal, vehicleMgUnavailable, entrenchDrm, entrenchHexIllegal, entrenchers, entrenchmentKnownTo, entrenchmentMf, entrenchmentName, entrenchmentRoom, isEntrenched, smc, stackEntrenchment, mineStepChoices, mineTbThrough, removeMinesIllegal, sideToward as mineSideToward, lastMineAttacks } from '@asl/rules';
 import { WIRE_DROP_DECISION, HD_CHOICE_DECISION, hullDownLabel, shotHullDown, WA_RPH_DECISION, CLEARANCE_RULE, clearanceSideFor, defaultTbHexsides, roadblockBetween, clearanceCandidates, clearanceTargets, clearanceUnitIllegal, hasWa, lastWireExit, roadblockObstacles, stackWire, taskDrm, wallSidesOf, type ClearanceKind, type WireExitResult } from '@asl/rules';
 import { enemyVehicleAt, shotContext } from '@asl/rules';
 import { ACQ_CHOICE_DECISION, CONCEAL_RTPH_DECISION, backblastFrom, mmc, squadEquivalents, LEADER_PTC_DECISION, ONCE_DR_DECISION, actionIllegal, onceDrRules, ordnanceWeaponIllegal, banzaiSteps, banzaiState, banzaiWindowsPending, concealRtphUnits, concealmentActive, declareIllegal as banzaiIllegal, dcChargeOptions, isJapanese, obConcealment, redactState } from '@asl/rules';
 import { counterTerrainIllegal, defaultFortPlacement, fortArea, fortCounters, fortKindName, fortPlaceIllegal, fortPools, fortSetupIllegal, fortificationView, fortificationsParams, hipIllegal, isPillboxLoc, roadblockExtension, type FortPlacement } from '@asl/rules';
+import { MANDATORY_TPBF, OVR_EVADE, OVR_PLACE } from '@asl/rules';
+import { dashEntry, dashTargets, evadeEntries, lateDoubleTimeEntries, minimumMoveNote, ovrStep, shortName as moveShortName, tpbfPanel } from './game/movementEntries';
+import { advanceNote, overstackBadges, overstackStepNote, vehicleTargets } from './game/overstacking';
 import { ccStateOf, isGroundLoc, arcSpine, bunkerTrenches, inPillboxCa, pillboxCcUnits, pillboxKnownToSide, pillboxLoc, pillboxMf, possiblePillbox } from '@asl/rules';
 import { BoardView, type BoardOverlay, type FireHex, type FortHex, type FortifiedHex, type HexBadge, type HexControl, type Placement, type RubbleHex } from './board/BoardView';
 import { ActionWheel, action, group, type WheelItem } from './board/ActionWheel';
@@ -185,6 +190,9 @@ import { targetOwnDrms } from './game/targetDrm';
 import { LogSections } from './game/LogEntries';
 import { pillboxRoutMarks } from './game/pillboxRout';
 import { RofChoice, type RofChoiceItem } from './panels/RofChoice';
+import { dcPlacement as dcPlacementOf, dcTargets as dcTargetsOf } from './game/dcTargets';
+import { bffWheelKind } from './game/bffWheel';
+import { setupHip } from './game/gunHip';
 import { dmChoices, type DmChoice } from './game/dmChoice';
 import { wreckChoices } from './game/wreckChoice';
 import { SMOKE_DISPENSER_MPH_ONLY, turnAndFireHint, turnWithoutFiringLabel } from './game/vehicleEntries';
@@ -194,6 +202,7 @@ import { ftAfvTargets } from './game/ftTarget';
 import { passRefusal } from './game/passRefusal';
 import { recoverRefusal } from './game/recoverRefusal';
 import { routWaitHint } from './game/routWait';
+import { groupRallyRefusals, rallyRefusals } from './game/rallyRefusal';
 import { appearMix, appearWords } from './game/appear';
 import { moverHex, turnSpineToward } from './game/vehicleTurn';
 import { staleFire, weaponHolder } from './game/staleFire';
@@ -661,7 +670,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   const [declared, setDeclared] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lowCrawl, setLowCrawl] = useState(false);
-  const [mode, setMode] = useState<'normal' | 'smoke' | 'dc' | 'bffMg'>('normal');
+  const [mode, setMode] = useState<'normal' | 'smoke' | 'dc' | 'bffMg' | 'dash'>('normal');
   /** A Kindling attempt being composed (full ASL B25.11): the Location, the MMC attempting, and a SMC attempting alone. */
   const [kindle, setKindle] = useState<{ loc: string; picks: string[]; self: string | null } | null>(null);
   /** A Flame clearance being composed (full ASL B24.72): the Location and the units joining the one DR. */
@@ -685,7 +694,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   }, [mode]);
   // Esc leaves picking a Smoke or DC target for ordinary moving.
   useEffect(() => {
-    if (mode !== 'smoke' && mode !== 'dc') return;
+    if (mode !== 'smoke' && mode !== 'dc' && mode !== 'dash') return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setMode('normal');
     };
@@ -695,7 +704,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   // Vehicular MGs lined up for Bounding First Fire (SK3): the next enemy hex clicked is their target.
   const [bffMgs, setBffMgs] = useState<PieceId[]>([]);
   /** A Gun lined up to fire: which, how (target type) and whether as Intensive Fire; the next enemy hex clicked is shot at. */
-  const [gunShot, setGunShot] = useState<{ gun: PieceId; holder: PieceId | null; targetType: TargetType; intensive: boolean; ammo?: AmmoKind; backblast?: boolean; director?: PieceId } | null>(null);
+  const [gunShot, setGunShot] = useState<{ gun: PieceId; holder: PieceId | null; targetType: TargetType; intensive: boolean; ammo?: AmmoKind; backblast?: boolean; director?: PieceId; targetUnit?: PieceId } | null>(null);
   /** A Panzerfaust try lined up (SK4 4.4.2): the unit and what it aims at, waiting for the target hex. */
   const [pfShot, setPfShot] = useState<{ unit: PieceId; targetType: 'VTT' | 'ITT'; backblast?: boolean; director?: PieceId } | null>(null);
   const [weatherFx, setWeatherFx] = useWeatherFx();
@@ -735,18 +744,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     const left = smokeThrowers();
     return smokeNext && left.includes(smokeNext) ? smokeNext : left[0];
   };
-  /**
-   * Placing a DC into `hex` (SK4 4.3, ASLRB A23.3): the action, or null when the moving stack carries none. An enemy AFV
-   * there is the target (a PAATC first); right-click the hex to place it in the hex instead.
-   */
-  const dcPlacement = (target: string): (Omit<Action, 'side' | 'decisionId'> & { vehicle?: PieceId }) | null => {
-    if (!ms) return null;
-    const dc = ms.units.flatMap((u) => swHeldBy(state, u)).find((s) => (defOf(env, s) as { type?: string }).type === 'DC');
-    if (!dc) return null;
-    const hex = hexOfLoc(target);
-    const afv = Object.values(state.pieces).find((p) => p.side !== owner && p.loc.kind === 'hex' && p.loc.hex === hex && vehicleDef(env, p) && !p.tags['wreck']);
-    return { type: 'move.placeDc', dc: dc.id, target, ...(afv ? { vehicle: afv.id } : {}) };
-  };
+  const dcPlacement = (target: string) => dcPlacementOf(env, owner, target);
   /**
    * Full ASL: what the CC of the current hex is across a pillbox (ASLRB B30.6): the units inside against those outside, with
    * no Melee; or a pillbox whose units are screened by a friendly unit outside and take no part.
@@ -767,6 +765,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     const dc = ms?.units.flatMap((u) => swHeldBy(state, u)).find((s) => (defOf(env, s) as { type?: string }).type === 'DC');
     return dc && dc.loc.kind === 'held' ? dc.loc.by : undefined;
   };
+  const dcTargets = () => dcTargetsOf(env, owner, (a) => session.check(a), fullAslRules);
   const throwSmoke = (plan: SmokeThrow[]) => {
     setMode('normal');
     run(plan.length === 1 ? { type: 'move.smoke', ...plan[0]! } : { type: 'move.smoke', throws: plan }, true);
@@ -864,10 +863,10 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   const [picked, setPicked] = useState<PieceId | null>(null);
   // Which unit carries each placed weapon (SW id → unit), confirmed with the placements.
   const [swAssign, setSwAssign] = useState<Record<PieceId, PieceId>>({});
-  // Guns being set up: the Covered Arc chosen for each (hexspine 0–5), which are hidden (HIP),
-  // and the Gun (or vehicle) whose six hexspine handles are shown on the map to face it.
+  // Guns being set up: the Covered Arc chosen for each (hexspine 0–5), which were put in the open rather than
+  // hidden (HIP), and the Gun (or vehicle) whose six hexspine handles are shown on the map to face it.
   const [pendingCa, setPendingCa] = useState<Record<PieceId, number>>({});
-  const [pendingHip, setPendingHip] = useState<Set<PieceId>>(new Set());
+  const [openGuns, setOpenGuns] = useState<Set<PieceId>>(new Set());
   const [caFor, setCaFor] = useState<PieceId | null>(null);
   /** The ring open on `caFor` points a turreted vehicle's turret, not its hull (setup, SK4 3.2.4: TCA and VCA may differ). */
   const [caTurret, setCaTurret] = useState(false);
@@ -937,12 +936,15 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     setPicked(null);
     setSwAssign({});
     setPendingCa({});
-    setPendingHip(new Set());
+    setOpenGuns(new Set());
     setPendingHidden(new Set());
     setPendingConcealed(new Set());
     setPendingCe(new Set());
     setPendingDugIn(new Set());
     setCaFor(null);
+    // The counters to set up are listed in the orders panel: a panel folded away earlier would hide them.
+    if (placing) setSideCollapsed(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placing?.id]);
   /** The fortification counters this setup places (the `fortifications` special rule), and whether they are already with the engine. */
   const fortRule = placing?.kind === 'setup' ? fortificationsParams(env, placing.owner) : null;
@@ -1121,13 +1123,14 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     setPendingDugIn(next);
   };
   const toggleHip = (gunId: PieceId) => {
-    const next = new Set(pendingHip);
+    const next = new Set(openGuns);
     if (next.has(gunId)) next.delete(gunId);
     else next.add(gunId);
-    setPendingHip(next);
+    setOpenGuns(next);
   };
   /** Whether a placed Gun may set up hidden where it stands (SSR and terrain permitting). */
   const hipAllowed = (gunId: PieceId) => !!swHexes[gunId] && env.query('hip.allowed', { gun: gunId, hex: swHexes[gunId]! }, false);
+  const pendingHip = setupHip(env, gunTodo.map((g) => g.id), swHexes, openGuns);
   // The other player's setup as they lay it out (online): shown as it changes, translucent until confirmed.
   const theirPlacing = waitingOn && (decision?.kind === 'setup' || decision?.kind === 'offboardSetup') ? decision : null;
   const theirTodo = useMemo(() => (theirPlacing ? piecesToPlace(env, theirPlacing) : []), [theirPlacing, env]);
@@ -1168,7 +1171,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     const shownSw = Object.fromEntries(Object.entries(swHexes).filter(([sw]) => !hipGuns.has(sw) && !secret.has(swAssign[sw]!)));
     session.publishDraft(placing ? { decisionId: placing.id, placements: { ...shownPending, ...shownSw } } : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placing?.id, pending, pendingHip, pendingHidden, pendingConcealed, swAssign, swHexes]);
+  }, [placing?.id, pending, openGuns, pendingHidden, pendingConcealed, swAssign, swHexes]);
   /** Who this screen shows the game to (`screenViewer`): 'all' shows everything, hidden units included. */
   const seenBy = screenViewer(session, decision?.owner, !!state.result);
   const seeAll = seenBy === 'all';
@@ -1535,7 +1538,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
   const routRefusals = (unit: PieceId, only?: HexId): string[] => {
     const p = state.pieces[unit];
     if (p?.loc.kind !== 'hex') return [];
-    const near = statics.map.neighbors(p.loc.hex).filter((h) => !only || h === only);
+    // The off-board hex beyond an edge hex too: the rules say why it may not be entered (ASLRB A2.6).
+    const offEdge = only && statics.map.offboardHex(only) && statics.map.offboardNeighbors(only).onboard.includes(p.loc.hex) ? [only] : [];
+    const near = [...statics.map.neighbors(p.loc.hex), ...offEdge].filter((h) => !only || h === only);
     return [...new Set(near.map((to) => plain(session.check({ type: 'rout.step', unit, to }))).filter((m): m is string => !!m))];
   };
   /** Whether the routing unit may end its rout where it stands (a legal building or woods hex, SK1 3.6). */
@@ -2174,9 +2179,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     return plain(env.query('fire.illegal', { decl, mode: fireModeFor(decl), side: owner, ...(moving ? { moving } : {}) }, null));
   };
   /** The Panzerfaust lined up (`pfShot`) fired at `at` (SK4 4.4.2): its PF check, then the shot; refused, says why. */
-  const firePf = (at: HexId) => {
+  const firePf = (at: HexId, targetUnit?: PieceId) => {
     if (!owner || !decision || !pfShot) return;
-    const pf = { ...pfShot, target: at };
+    const pf = { ...pfShot, target: at, ...(targetUnit ? { targetUnit } : {}) };
     const why = plain(pfIllegal(env, owner, pf, decision.kind === 'firstFire' ? 'first' : FIRE_MODE[phase]!, decision.kind === 'firstFire' ? ms?.units : undefined));
     if (why) {
       setTarget(at);
@@ -2290,13 +2295,16 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         ? 'bounding'
         : FIRE_MODE[phase]!;
   /** The shot the lined-up Gun would take at `at` (turning first when the target is outside its arc). */
-  const buildShot = (at: HexId): OrdnanceShot | null => {
+  const buildShot = (at: HexId, targetUnit?: PieceId): OrdnanceShot | null => {
     if (!gunShot) return null;
     const ca = caChangeFor(env, gunShot.gun, at);
+    // Full ASL: the vehicle named among several enemy vehicles in the Location (ASLRB A5.2), when it is there.
+    const named = targetUnit ?? (gunShot.targetUnit && locOf(state, state.pieces[gunShot.targetUnit] ?? ({} as Piece)) === at ? gunShot.targetUnit : undefined);
     return {
       weapon: gunShot.gun,
       target: at,
       targetType: gunShot.targetType,
+      ...(gunShot.targetType === 'VTT' && named ? { targetUnit: named } : {}),
       ...(ca !== null ? { ca } : {}),
       ...(gunShot.intensive ? { intensive: true } : {}),
       ...(gunShot.ammo ? { ammo: gunShot.ammo } : {}),
@@ -2333,9 +2341,25 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     setDeclared(true);
     setError(null);
   };
-  const fireGunAt = (at: HexId) => {
+  /** The moving vehicle's MGs picked for Bounding First Fire fire at `at` (SK4 3.3.2.2). */
+  const fireBffMgsAt = (at: HexId) => {
+    if (!owner) return;
+    const illegal = (sw: PieceId[]) => plain(env.query('fire.illegal', { decl: { units: [], sw, target: at }, mode: 'bounding', side: owner }, null));
+    // MGs picked together fire with those that bear on the target (a BMG outside the hull's arc
+    // need not stop the CMG): each MG has its own Covered Arc (SK4 7.8).
+    const bearing = bffMgs.filter((id) => !illegal([id]));
+    const sw = illegal(bffMgs) && bearing.length && !illegal(bearing) ? bearing : bffMgs;
+    const err = illegal(sw);
+    if (err) setError(err);
+    else {
+      run({ type: 'vmove.bffMg', decl: { units: [], sw, target: at } }, true);
+      setMode('normal');
+      setBffMgs([]);
+    }
+  };
+  const fireGunAt = (at: HexId, targetUnit?: PieceId) => {
     if (!owner || !decision || !gunShot) return;
-    const shot = buildShot(at);
+    const shot = buildShot(at, targetUnit);
     if (!shot) return;
     const bounding = gunMode() === 'bounding';
     const illegal = plain(env.query('ordnance.illegal', { shot, mode: gunMode(), side: owner, ...(ms && !bounding ? { moving: firstFireTargets(env, ms) } : {}) }, null));
@@ -2503,9 +2527,18 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     // Full ASL: a pillbox in the hex, a building for rout (B30.5): its MF, or why the rout may not end in it.
     const mark = pbRoutMarks?.get(hoverHex);
     if (mark) return { text: mark.text, barred: mark.barred };
-    if (!at || hoverHex === at || !statics.map.neighbors(at).includes(hoverHex)) return end ? { text: end, barred: false } : null;
     const step = { type: 'rout.step', unit: routShown.unit, to: hoverHex, ...(lowCrawl && !routing ? { lowCrawl: true } : {}) };
+    // The off-board hex beyond the router's edge hex: the rules' refusal (ASLRB A2.6: no exit in the RtPh).
+    const offEdge = !!at && !!statics.map.offboardHex(hoverHex) && statics.map.offboardNeighbors(hoverHex).onboard.includes(at);
+    if (offEdge) {
+      const err = session.check(step);
+      if (err) return { text: plain(err) ?? err, barred: true };
+    }
+    if (!at || hoverHex === at || !statics.map.neighbors(at).includes(hoverHex)) return end ? { text: end, barred: false } : null;
     const err = session.check(step);
+    // Full ASL: a rout step into an overstacked Location pays its MF (ASLRB A5.11; A10.51 "even if overstacked").
+    const over = !err && statics.scenario.ruleset === 'full-asl' ? overstackEntryMf(env, hoverHex, [routShown.unit], state.pieces[routShown.unit]!.side) : 0;
+    if (over > 0) return { text: `${end ? `${end}; ` : ''}+${over} MF overstacked (ASLRB A5.11; a shelter even if overstacked, A10.51)`, barred: false };
     if (!err || !session.check({ ...step, woods: true })) return end ? { text: end, barred: false } : null;
     const text = plain(err) ?? err;
     const ends = [...(routShown.ends ?? [])].map(hexLabel).sort();
@@ -2537,6 +2570,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       return { text: `Place the DC here: ${cost} MF${afv ? `, against the ${pieceLabel(env, afv).replace(/^\S+ /, '')} (a PAATC first)` : ''}`, barred: false };
     }
     const err = session.check({ type: 'move.step', to: hoverHex });
+    // Full ASL: a step into an overstacked Location names its extra MF and what overstacking brings (ASLRB A5.11, A5.12, A5.131).
+    const over = !err && statics.scenario.ruleset === 'full-asl' ? overstackStepNote(env, ms, hoverHex) : null;
+    if (over) return { text: `${hexLabel(hoverHex)}: ${over.badge}. ${over.warning}`, barred: false };
     if (!err || !session.check({ type: 'move.step', to: hoverHex, woods: true })) return null;
     return { text: plain(err) ?? err, barred: true };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2883,18 +2919,20 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     if (mode === 'smoke') for (const t of smokePlan) badges.push({ hex: t.target, text: `smoke: ${pieceLabel(env, state.pieces[t.unit]).replace(/^\S+ /, '')}` });
     // Choosing a DC target: the adjacent hexes the DC may be placed in (amber), enemy-held ones included (SK4 4.3), and
     // not the steps, as for Smoke.
-    if (mode === 'dc' && ms?.hex) {
-      // Every Location of the hex the stack is ADJACENT to counts (a Cave as well as its hill, S70 SSR 2).
-      const near = adjacentLocs(env, moveLoc(ms)!);
-      for (const h of statics.map.neighbors(ms.hex)) {
-        const locs = near.filter((l) => hexOfLoc(l) === h);
-        if ((locs.length ? locs : [h]).some((l) => { const place = dcPlacement(l); return !!place && !session.check(place); })) highlights.set(h, AMBER);
+    if (mode === 'dc') for (const h of dcTargets().hexes) highlights.set(h, AMBER);
+    // Full ASL Dash (ASLRB A4.63): the end hexes it may be declared to, with the two-hex cost.
+    if (ms?.dash && !ms.dash.void && ms.hex === ms.dash.road) badges.push({ hex: ms.hex as HexId, text: `Dashing → ${hexLabel(ms.dash.to)}` });
+    if (mode === 'dash' && ms?.hex)
+      for (const t of dashTargets(env)) {
+        highlights.set(t.to as HexId, AMBER);
+        badges.push({ hex: t.to as HexId, text: t.badge });
       }
-    }
+    // Full ASL Infantry OVR (ASLRB A4.151): the hexes the ATTACKER may put the slipping SMC in.
+    if (decision?.kind === OVR_PLACE && decision.owner === owner) for (const h of (decision.data?.['hexes'] as string[] | undefined) ?? []) highlights.set(h as HexId, AMBER);
     for (const a of legal) {
       // Full ASL: the stairs of the stack's own hex are a wheel entry, not a green hex (ASLRB B23.4).
       // A Bypass is a corner handle, not a green hex; the obstacle a stack in Bypass may enter is green (full ASL).
-      if ((a.type === 'move.step' || a.type === 'move.manhandle') && mode !== 'smoke' && mode !== 'dc' && !a['bypass'] && (hexOfLoc(a['to'] as string) !== ms?.hex || (ms?.bypass && a['to'] === ms.bypass.hex))) highlights.set(hexOfLoc(a['to'] as string), GREEN);
+      if ((a.type === 'move.step' || a.type === 'move.manhandle') && mode !== 'smoke' && mode !== 'dc' && mode !== 'dash' && !a['bypass'] && (hexOfLoc(a['to'] as string) !== ms?.hex || (ms?.bypass && a['to'] === ms.bypass.hex))) highlights.set(hexOfLoc(a['to'] as string), GREEN);
       // Rally Phase: every hex holding a broken unit that may attempt to rally right now.
       if (a.type === 'rally.selfRally' || a.type === 'rally.rally') {
         const h = hexOfId(state, a['unit'] as string);
@@ -2911,6 +2949,23 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       // Close Combat order: every hex still to be fought.
       if (a.type === 'cc.chooseHex') highlights.set(a['hex'] as HexId, RED);
     }
+    // Full ASL: an advance whose cost overstacking raises, or that makes a unit CX, says so on its hex (ASLRB A5.11, A4.72).
+    if (fullAslRules && phase === 'APh' && decision?.kind === 'phase' && selected.size > 0) {
+      const sel = [...selected].filter((u) => state.pieces[u]?.side === state.attacker);
+      const tos = new Set(legal.filter((a) => a.type === 'advance' && (a['units'] as PieceId[]).some((u) => selected.has(u)) && !a['beneath']).map((a) => a['to'] as string));
+      for (const to of tos) {
+        if (!sel.length || hexOfLoc(to) === hexOfId(state, sel[0]!)) continue;
+        const note = advanceNote(env, sel, to);
+        if (note) badges.push({ hex: hexOfLoc(to), text: note });
+      }
+    }
+    // Full ASL: every overstacked Location wears its attack penalty (ASLRB A5.12), for every viewer as far as each knows.
+    if (fullAslRules)
+      for (const b of overstackBadges(shownEnv, owner ?? null)) {
+        const same = badges.find((x) => x.hex === b.hex && !x.at);
+        if (same) same.text = `${same.text} · ${b.text}`;
+        else badges.push({ hex: b.hex, text: b.text });
+      }
     if (target) highlights.set(hexOfLoc(target), RED);
     const declaredMarkers = new Map<string, string>();
     if (declared) for (const id of selected) {
@@ -2953,7 +3008,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     const snapPreview = snapAim && target && ms && decision?.kind === 'firstFire' && target === moveLoc(ms) ? snapAt(target) : null;
     const snap = snapShown ? { hex: snapShown.hex, from: snapShown.from, units: new Set<PieceId>(snapShown.units) } : snapPreview && ms ? { hex: snapPreview[0], from: snapPreview[1], units: new Set<PieceId>(firstFireTargets(env, ms)) } : null;
     return { controls, badges, ...(arrows.length ? { arrows } : {}), selectedHex, highlights, selectedPieces: selected, los, ...(declaredFire ? { declaredFire } : {}), ...(spent.size ? { spent } : {}), ...(ghost.size ? { ghost } : {}), ...(onRoad ? { onRoad } : {}), ...(smokeTried?.size ? { smokeTried } : {}), ...(amUnits?.size ? { assaultMoving: amUnits } : {}), ...(bypass ? { bypass, inBypass: inBypass! } : {}), ...(snap ? { snap } : {}) };
-  }, [snapAim, snapShown, ms, legal, selected, lowCrawl, target, selectedHex, isFireDecision, state, env, placing, picked, pending, todo, phase, routs, routing, routShown, theirDraft, fortifying, fortifiable, fortPicks, ssrMarks, caFor, caTurret, pendingCa, pendingTca, swHexes, ring, owner, decision, session, turnable, mode, anchors, obaShown, banzaiDraft, banzaiUnit, bypassControls, smokePlan, smokeNext]);
+  }, [snapAim, snapShown, ms, legal, selected, lowCrawl, target, selectedHex, isFireDecision, state, env, placing, picked, pending, todo, phase, routs, routing, routShown, theirDraft, fortifying, fortifiable, fortPicks, ssrMarks, caFor, caTurret, pendingCa, pendingTca, swHexes, ring, owner, decision, session, turnable, mode, anchors, obaShown, banzaiDraft, banzaiUnit, bypassControls, smokePlan, smokeNext, shownEnv]);
 
   // ------------------------------------------------------------------ board clicks
   const onHexClick = (hex: HexId, e: { shift: boolean; ctrl: boolean; at: MapPoint; screen?: { x: number; y: number } }) => {
@@ -2969,6 +3024,13 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     if (!owner) return;
     // Scatter setup / entry groups (SSR): a click picks a rendezvous or entry hex.
     if (scatterUi.onHexClick(hex) || entryUi.onHexClick(hex) || stretchUi.onHexClick(hex)) return;
+    // Full ASL Infantry OVR: the ATTACKER puts the slipping SMC in one of the amber hexes (ASLRB A4.151).
+    if (decision?.kind === OVR_PLACE && decision.owner === owner) {
+      const put = legal.find((a) => a.type === 'ovr.place' && a['hex'] === hex);
+      if (put) run(put);
+      else setError('Put him in one of the amber hexes: an adjacent Accessible Location free of your units, not a minefield, Wire or Open Ground while another is left (ASLRB A4.151)');
+      return;
+    }
     // A scattered acquired stack: clicking one of the amber hexes keeps the Acquired counter there (SK4 6.10).
     if (decision?.kind === ACQ_CHOICE_DECISION) {
       const keep = legal.find((a) => a.type === 'acq.choose' && a['hex'] === hex);
@@ -3070,19 +3132,16 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         return;
       }
       if (mode === 'bffMg' && ms.vehicle) {
-        const illegal = (sw: PieceId[]) => plain(env.query('fire.illegal', { decl: { units: [], sw, target: hex }, mode: 'bounding', side: owner }, null));
-        // MGs picked together fire with those that bear on the target (a BMG outside the hull's arc
-        // need not stop the CMG): each MG has its own Covered Arc (SK4 7.8).
-        const bearing = bffMgs.filter((id) => !illegal([id]));
-        const sw = illegal(bffMgs) && bearing.length && !illegal(bearing) ? bearing : bffMgs;
-        const decl = { units: [], sw, target: hex };
-        const err = illegal(sw);
-        if (err) setError(err);
-        else {
-          run({ type: 'vmove.bffMg', decl }, true);
+        fireBffMgsAt(hex);
+        return;
+      }
+      if (mode === 'dash') {
+        const t = dashTargets(env).find((x) => x.to === hex);
+        if (t) {
+          run({ type: 'move.dash', road: t.road, to: t.to }, true);
           setMode('normal');
-          setBffMgs([]);
-        }
+          if (t.warning) setError(t.warning);
+        } else setError('Click an amber hex beyond the road to Dash there (ASLRB A4.63)');
         return;
       }
       if (mode === 'smoke') {
@@ -3200,7 +3259,27 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         run({ type: 'move.step', to: stepTo }, true);
         return;
       }
+      // Full ASL Infantry OVR (ASLRB A4.15): into a lone Known enemy SMC's Location, the NTC chosen on the wheel.
+      const ovr = fullAslRules && !ms.vehicle && ms.hex !== hex ? ovrStep(env, ms, hex, (a) => plain(session.check(a))) : null;
+      if (ovr) {
+        if (ovr.refusal || !ovr.options.length) setError(ovr.refusal ?? 'No Infantry OVR there');
+        else if (ovr.options.length === 1 || !e.screen) run(ovr.options[0]!.action, true);
+        else {
+          setPeek(null);
+          setSelectedHex(hex);
+          setWheel({ hex, at: e.screen, title: `Into ${hexLabel(hex)}`, items: ovr.options.map((o) => action(o.label, () => run(o.action, true), { icon: '⚔', hint: o.hint })) });
+        }
+        return;
+      }
       if (legal.some((a) => a.type === 'move.step' && a['to'] === hex && !a['bypass'])) {
+        // Full ASL Minimum Move (ASLRB A4.134): the step says so, and who ends pinned and CX, before it is made.
+        const minNote = fullAslRules && !ms.vehicle ? minimumMoveNote(env, ms, hex) : null;
+        if (minNote && e.screen) {
+          setPeek(null);
+          setSelectedHex(hex);
+          setWheel({ hex, at: e.screen, title: `Into ${hexLabel(hex)}`, items: [action(minNote, () => run({ type: 'move.step', to: hex }, true), { icon: '➜', hint: 'One hex as the whole MPh, at any cost; it counts the full cost as spent (ASLRB A4.134)' })] });
+          return;
+        }
         // Along the road into a Woods-Road hex: the road or its woods (SK1 1.1.1).
         if (askRoadOrWoods(woodsRoadEntry(hex), hex, e.screen)) return;
         // Full ASL: straight beneath the foxhole or trench of the hex (Assault Movement, B27.4; connecting trenches, B27.54).
@@ -3329,6 +3408,15 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           return;
         }
         const at = firstFireLoc ?? locs[0] ?? hex;
+        // Full ASL: several enemy vehicles in the Location: a Vehicle Target Type shot names one, on the wheel (ASLRB A5.2).
+        const aimVehicles = (gunShot ?? pfShot)?.targetType === 'VTT' ? vehicleTargets(shownEnv, at, owner!) : [];
+        if (aimVehicles.length > 1 && !(gunShot?.targetUnit && aimVehicles.some((v) => v.id === gunShot.targetUnit))) {
+          setPeek(null);
+          setSelectedHex(hex);
+          if (e.screen) setWheel({ hex, at: e.screen });
+          else setError('Several enemy vehicles here: right-click the hex to choose which one to aim at');
+          return;
+        }
         if (gunShot) {
           if (declared) fireGunAt(at);
           else setTarget(at);
@@ -3741,6 +3829,21 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
     for (const c of [scatterUi.confirm, entryUi.confirm, turnsUi.confirm, lengthUi.confirm, stretchUi.confirm]) {
       if (c) items.push(action(c.label, c.onClick, { icon: c.icon, disabled: !!c.blocked, hint: c.blocked ?? c.hint ?? c.label }));
     }
+    // A moving vehicle lined up for Bounding First Fire (SK4 3.3.2.2): a right-click on another hex offers the shot
+    // at it, not the mover's own orders.
+    const bffKind = bffWheelKind({ decisionKind: decision.kind, phase, moverHex: ms?.hex, vehicle: !!ms?.vehicle, hex, gunLinedUp: !!gunShot, mgMode: mode === 'bffMg' });
+    if (bffKind) {
+      if (bffKind === 'gun' && gunShot) {
+        const turn = caChangeFor(env, gunShot.gun, hex);
+        items.push(action(turn !== null ? 'Turn the turret and fire at this hex' : 'Fire at this hex', () => fireGunAt(hex), { icon: '✦', hint: turn !== null ? 'The target is outside the Turret Covered Arc: the turret turns first (To Hit DRM)' : 'Roll To Hit against this hex' }));
+        items.push(action('Preview shot', () => setTarget(hex), { icon: '◎', active: target === hex, hint: 'Show the To Hit number and DRM in the panel first' }));
+        items.push(action('Cancel shot', () => { setDeclared(false); setTarget(null); setGunShot(null); setSelected(new Set()); }, { icon: '✕' }));
+      } else {
+        items.push(action('Fire MGs at this hex', () => fireBffMgsAt(hex), { icon: '✦', hint: 'Half FP in the MPh, a quarter while not stopped; any MG whose arc misses the target stays silent (SK4 3.3.2.2, 7.8)' }));
+        items.push(action('Cancel MG fire', () => { setMode('normal'); setBffMgs([]); }, { icon: '✕' }));
+      }
+      return items;
+    }
     if (fortifying && confirmFortify) {
       items.push(action(confirmFortify.label, confirmFortify.onClick, { icon: '✔', disabled: !!confirmFortify.blocked, hint: confirmFortify.blocked ?? (fortOpen ? 'Lock in the fortified building' : 'Lock in the fortified buildings (secret)') }));
     }
@@ -3808,12 +3911,12 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
               else next.add(p.id);
             }
             setPendingHidden(next);
-            const hip = new Set(pendingHip);
+            const open = new Set(openGuns);
             for (const g of hipGunsHere) {
-              if (all) hip.delete(g.id);
-              else hip.add(g.id);
+              if (all) open.add(g.id);
+              else open.delete(g.id);
             }
-            setPendingHip(hip);
+            setOpenGuns(open);
           }, {
             icon: '?',
             active: all,
@@ -3942,7 +4045,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
       // A Smoke Mortar fires into a hex 1 to 3 hexes from the moving AFV, in its LOS and TCA (SK4 7.5): offered on that hex.
       if (ms?.vehicle && ms.hex && hex !== ms.hex && statics.map.hex(hex) && statics.map.distance(ms.hex, hex) <= 3) {
         const mv = state.pieces[ms.units[0]!];
-        const disp = mv ? vehicleDef(env, mv)?.smoke?.[0] : undefined;
+        const mvd = mv ? vehicleDef(env, mv) : null;
+        const disp = mvd ? smokeDispenser(env, mvd) : undefined;
         if (disp?.kind === 'sM') {
           const err = plain(session.check({ type: 'vmove.smoke', target: hex }));
           items.push(
@@ -4060,8 +4164,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           if (bffErr) bff.push(action(ma, () => {}, { disabled: true, hint: bffErr }));
           else bff.push(...opts.map((o) => action(`${ma} · ${o.label}`, () => declareGun(v.id, o.type, false, o.ammo), { hint: o.hint, disabled: !o.available })));
         }
-        if (ms.hex && vd.smoke?.length) {
-          const disp = vd.smoke[0]!;
+        const vdDisp = smokeDispenser(env, vd);
+        if (ms.hex && vdDisp) {
+          const disp = vdDisp;
           if (disp.kind === 'sM') {
             // A Smoke Mortar never smokes its own hex: the entry is on the target hex (above).
             const anyErr = plain(session.check({ type: 'vmove.smoke', target: '' }));
@@ -4167,6 +4272,14 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
             group('Move as…', [
               action('Double Time (CX)', () => start(true, false), { disabled: !!haltedMove || (!!dtErr && !moveErr), hint: haltedMove ?? (dtErr && !moveErr ? dtErr : 'Extra MF; the units become CX') }),
               action('Assault Move', () => start(false, true), { disabled: !!haltedMove, hint: haltedMove ?? 'One hex only; no Defensive First Fire bonus against it' }),
+              // Full ASL Dash (ASLRB A4.63): start the move, then pick the end hex beyond the road.
+              ...(fullAslRules
+                ? (() => {
+                    const road = statics.map.neighbors(hex).some((h) => (statics.map.hex(h)?.features ?? []).some((f) => f === 'road' || f.startsWith('road:')));
+                    const why = haltedMove ?? moveErr ?? (road ? null : 'No road hex beside this stack (ASLRB A4.63)');
+                    return [action('Dash…', () => { start(false, false); setMode('dash'); }, { disabled: !!why, hint: why ?? 'Across the road to a Location on its far side, both two-hex entries within the MF: then click an amber end hex. First Fire at the stack in the road is Area Fire, ordnance +2 (Case J), for each firer to which both ends are non-Open Ground (ASLRB A4.63)' })];
+                  })()
+                : []),
             ], { icon: '⚑' }),
           );
           if (own.length > 1) items.push(selectAll);
@@ -4215,6 +4328,15 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
               hint: sw.refusal ?? `Each unit on top rolls one die and spends that many MF to get beneath (no leadership DRM); a dr above its MF left hangs it up on top for this MPh. The DEFENDER sees the dr before he fires (ASLRB B26.4)`,
             }),
           );
+        }
+        // Full ASL: Double Time declared during the move (ASLRB A4.5 EXC), and a Dash across the road (A4.63).
+        if (!elsewhere && fullAslRules && !ms.vehicle) {
+          const dts = lateDoubleTimeEntries(env);
+          const dtItem = (d: (typeof dts)[number]) => action(d.label, () => run({ type: 'move.doubleTime', units: d.units }, true), { icon: '»', disabled: !!d.disabled, hint: d.disabled ?? 'One MF more, and a CX counter at once (its IPC one lower) for the rest of the move (ASLRB A4.5)' });
+          if (dts.length === 1) items.push(dtItem(dts[0]!));
+          else if (dts.length) items.push(group('Double Time now…', dts.map(dtItem), { icon: '»' }));
+          const de = dashEntry(env);
+          if (de) items.push(action(de.label, () => setMode(mode === 'dash' ? 'normal' : 'dash'), { icon: '⇢', active: mode === 'dash', disabled: !!de.disabled, hint: de.disabled ?? de.hint }));
         }
         if (elsewhere && idle.length) {
           items.push(action('Move', () => {}, { icon: '➜', disabled: true, hint: `${names(ms.units)}${there} ${ms.units.length > 1 ? 'are' : 'is'} still moving: end that move first` }));
@@ -4305,8 +4427,12 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
               }),
             );
         }
-        if (movers.flatMap((u) => swHeldBy(state, u.id)).some((s) => (defOf(env, s) as { type?: string }).type === 'DC'))
-          items.push(action('Place DC…', () => setMode(mode === 'dc' ? 'normal' : 'dc'), { icon: '✸', active: mode === 'dc', hint: 'Then click an amber hex: an adjacent hex, enemy-held ones included, for the MF entering it would cost (an enemy AFV there is the target: a PAATC first, SK4 4.3)' }));
+        if (movers.flatMap((u) => swHeldBy(state, u.id)).some((s) => (defOf(env, s) as { type?: string }).type === 'DC')) {
+          // Greyed with the reason once no adjacent hex will take it (its MF spent on Smoke, say).
+          const dcNow = dcTargets();
+          const dcWhy = dcNow.hexes.length || mode === 'dc' ? null : (plain(dcNow.why) ?? 'No adjacent hex the DC may be placed in');
+          items.push(action('Place DC…', () => setMode(mode === 'dc' ? 'normal' : 'dc'), { icon: '✸', active: mode === 'dc', disabled: !!dcWhy, hint: dcWhy ?? 'Then click an amber hex: an adjacent hex, enemy-held ones included. Placing costs the MF entering it would, spent in this hex, so place it before the stack\'s MF run out or it ends its move (SK1 4.3; an enemy AFV there is the target: a PAATC first, SK4 4.3)' }));
+        }
         if (ms.hex) {
           // Recovery (and so capture of an enemy weapon, SK1 5.5 / ASLRB A21.1) by a moving unit of the player's choosing
           // (ticking a mover here means leaving it behind, so there is no shortcut by selection).
@@ -4442,6 +4568,20 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
             () => run(a),
           ),
         ),
+        // A leader who may not rally a broken unit here (in Melee he is not in Good Order, SK1 3.1 f): greyed, with why.
+        ...(owner
+          ? groupRallyRefusals(
+              rallyRefusals(
+                env,
+                owner,
+                unitsHere,
+                (leader, unit) => rallies.some((a) => a.type === 'rally.rally' && a['leader'] === leader && a['unit'] === unit),
+                (leader, unit) => plain(session.check({ type: 'rally.rally', leader, unit })),
+              ),
+            ).map((r) =>
+              action(`${pieceLabel(env, state.pieces[r.leader])} rallies ${r.units.length === 1 ? pieceLabel(env, state.pieces[r.units[0]!]) : `${r.units.length} broken units`}`, () => {}, { disabled: true, hint: r.reason }),
+            )
+          : []),
       ];
       if (rallyItems.length === 1) items.push({ ...rallyItems[0]!, icon: '♥' } as WheelItem);
       else if (rallyItems.length > 1) items.push(group('Rally', rallyItems, { icon: '♥' }));
@@ -4478,21 +4618,30 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         items.push(action('Fire at this Banzai hex now', () => toBanzaiWindow(hex, null), { icon: '✦', hint: `Turn to this Banzai hex first, then pick the firers; ${hexLabel(ms?.hex ?? '')} comes up again after it (SK4 8.1.8.6)` }));
         items.push(...previewItems(hex, selected.size === 0));
       } else if (enemyHere && declared && pfShot) {
-        const pf = { ...pfShot, target: hex };
-        const why = plain(pfIllegal(env, owner!, pf, decision.kind === 'firstFire' ? 'first' : FIRE_MODE[phase]!, decision.kind === 'firstFire' ? ms?.units : undefined));
         const { drm, notes } = pfCheckDrm(env, pfShot.unit, pfShot.targetType === 'VTT');
-        items.push(
-          action('Fire Panzerfaust at this hex', () => firePf(hex), {
-            icon: '✦',
-            disabled: !!why,
-            hint: why ?? `PF check: needs ${pfCheckNeedText(drm, notes)}, a final 1-3: then To Hit ${[10, 8, 6, 4].slice(0, pfMaxRange(env) + 1).map((th, r) => `${th} at ${r}`).join(', ')}; HEAT To Kill 31, or 16 FP on one unit in a building; an original 6 pins`,
-          }),
-        );
+        const pfHint = `PF check: needs ${pfCheckNeedText(drm, notes)}, a final 1-3: then To Hit ${[10, 8, 6, 4].slice(0, pfMaxRange(env) + 1).map((th, r) => `${th} at ${r}`).join(', ')}; HEAT To Kill 31, or 16 FP on one unit in a building; an original 6 pins`;
+        // Full ASL: several enemy vehicles in the hex: one entry per vehicle, the PF aims at the one named (ASLRB A5.2).
+        const named = pfShot.targetType === 'VTT' ? vehicleTargets(shownEnv, hex, owner!) : [];
+        for (const v of named.length > 1 ? named : [null]) {
+          const pf = { ...pfShot, target: hex, ...(v ? { targetUnit: v.id } : {}) };
+          const why = plain(pfIllegal(env, owner!, pf, decision.kind === 'firstFire' ? 'first' : FIRE_MODE[phase]!, decision.kind === 'firstFire' ? ms?.units : undefined));
+          items.push(action(v ? `Fire Panzerfaust at the ${v.label}` : 'Fire Panzerfaust at this hex', () => firePf(hex, v?.id), { icon: '✦', disabled: !!why, hint: why ?? pfHint }));
+        }
         items.push(action('Cancel Panzerfaust', () => { setPfShot(null); setDeclared(false); setSelected(new Set()); }, { icon: '✕' }));
       } else if ((enemyHere || gunShot?.targetType === 'ATT') && declared && gunShot) {
         const turn = caChangeFor(env, gunShot.gun, hex);
-        items.push(action(turn !== null ? 'Turn the Gun and fire at this hex' : 'Fire at this hex', () => fireGunAt(hex), { icon: '✦', hint: turn !== null ? 'The target is outside the Covered Arc: the Gun turns first (To Hit DRM)' : 'Roll To Hit against this hex' }));
-        items.push(action('Preview shot', () => setTarget(hex), { icon: '◎', active: target === hex, hint: 'Show the To Hit number and DRM in the panel first' }));
+        // Full ASL: several enemy vehicles in the hex: the Vehicle Target Type shot names one (ASLRB A5.2); a miss by less
+        // than the vehicles there may still hit another (A5.132).
+        const named = gunShot.targetType === 'VTT' ? vehicleTargets(shownEnv, hex, owner!) : [];
+        if (named.length > 1)
+          for (const v of named) {
+            items.push(action(`${turn !== null ? 'Turn the Gun and fire' : 'Fire'} at the ${v.label}`, () => fireGunAt(hex, v.id), { icon: '✦', hint: `Roll To Hit against the ${v.label}; a miss by less than ${named.length} may still hit another vehicle in the hex (ASLRB A5.132)` }));
+            items.push(action(`Preview shot at the ${v.label}`, () => { setGunShot({ ...gunShot, targetUnit: v.id }); setTarget(hex); }, { icon: '◎', active: target === hex && gunShot.targetUnit === v.id, hint: 'Show the To Hit number and DRM in the panel first' }));
+          }
+        else {
+          items.push(action(turn !== null ? 'Turn the Gun and fire at this hex' : 'Fire at this hex', () => fireGunAt(hex), { icon: '✦', hint: turn !== null ? 'The target is outside the Covered Arc: the Gun turns first (To Hit DRM)' : 'Roll To Hit against this hex' }));
+          items.push(action('Preview shot', () => setTarget(hex), { icon: '◎', active: target === hex, hint: 'Show the To Hit number and DRM in the panel first' }));
+        }
       } else if (declared && !enemyHere && !gunShot && !pfShot && maybePillbox) {
         items.push(possiblePillboxItem());
         if (decision.kind === 'phase' && (phase === 'PFPh' || phase === 'DFPh' || phase === 'AFPh') && blindFireOffered(shownEnv, hex, owner))
@@ -4592,7 +4741,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           };
           // A weapon that cannot fire at all now (a Mortar or Gun that moved, in the AFPh; malfunctioned; its crew broken):
           // the entry is greyed with the reason, rather than leading through the shot to a refusal.
-          const cannot = owner ? plain(ordnanceWeaponIllegal(env, g.id, mode, owner)) : null;
+          // A turreted MA whose turret Rear MG fired this phase (ASLRB D1.82) is greyed the same way.
+          const cannot = owner ? plain(ordnanceWeaponIllegal(env, g.id, mode, owner) ?? (vehicleDef(env, g) ? maRmgRefusal(env, g.id) : null)) : null;
           // Intensive Fire is a Gun's or vehicle's (SK4 3.2.4); a SW that has fired (BAZ, PSK, PIAT, ATR, Light Mortar) is
           // done for the phase, and its holder's own FP is offered by the stack's Fire (SK4 4.4 LATW To Hit Example).
           const holder = g.loc.kind === 'held' ? state.pieces[g.loc.by] : undefined;
@@ -4651,9 +4801,10 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
           const mpSeen = env.query('vehicle.motionMp', { vehicle: v.id }, 0);
           items.push(action(vehicleEntry(v, pile, 'Motion attempt'), () => run({ type: 'defMotion', vehicle: v.id }), { icon: '➜', disabled: !!mErr, hint: mErr ?? `dr ≤ ${mpSeen} (the MP/MF the mover has spent in this vehicle's LOS); success puts it in Motion${v.tags['motion'] ? '' : ' (no fire marker needed)'} and it may then change its VCA/TCA freely` }));
           const vd = vehicleDef(env, v)!;
-          if (vd.smoke?.length && vd.smoke[0]!.kind !== 'sM') {
+          const dDisp = smokeDispenser(env, vd);
+          if (dDisp && dDisp.kind !== 'sM') {
             const sErr = plain(session.check({ type: 'defSmoke', vehicle: v.id }));
-            items.push(action(vehicleEntry(v, pile, `smoke dispenser (${vd.smoke[0]!.kind}${vd.smoke[0]!.n})`), () => run({ type: 'defSmoke', vehicle: v.id }), { icon: '☁', disabled: !!sErr, hint: sErr ?? 'Dispersed Smoke in its own hex on a DR ≤ its number (+1 BU); not a weapon, it may still fire' }));
+            items.push(action(vehicleEntry(v, pile, `smoke dispenser (${dDisp.kind}${dDisp.n})`), () => run({ type: 'defSmoke', vehicle: v.id }), { icon: '☁', disabled: !!sErr, hint: sErr ?? 'Dispersed Smoke in its own hex on a DR ≤ its number (+1 BU); not a weapon, it may still fire' }));
           }
         }
       // The end-of-phase turn without MP (SK4 3.3.2): hull and turret each pick a hexspine on the map; the vehicle then fires
@@ -4713,15 +4864,21 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
             );
           }
           // A smoke dispenser is used only in a Movement Phase (SK4 7.5): greyed here with the reason.
-          const disp = vehicleDef(env, v)!.smoke?.[0];
+          const disp = smokeDispenser(env, vehicleDef(env, v)!);
           if (disp) items.push(action(vehicleEntry(v, pile, `smoke dispenser (${disp.kind}${disp.n})`), () => {}, { icon: '☁', disabled: true, hint: SMOKE_DISPENSER_MPH_ONLY }));
         }
       // A vehicle's machine guns fire together, on the IFT (SK4 7.8).
       if (!declared)
         for (const v of unitsHere.filter((p) => p.side === owner && vehicleDef(env, p) && !p.tags['wreck'])) {
           const mgs = vehicleMgsReady(v);
-          if (!mgs.length) continue;
           const pile = unitsHere.filter((p) => p.side === owner && vehicleDef(env, p) && !p.tags['wreck']).length > 1;
+          // An MG barred whatever the target (a turret Rear MG in the phase its MA fired, ASLRB D1.82; a Buttoned Up
+          // AAMG) stays on the menu, greyed with the reason.
+          for (const w of vehicleMgsUnfired(v)) {
+            const why = vehicleMgUnavailable(env, w.id);
+            if (why) items.push(action(vehicleEntry(v, pile, `fire ${mgLabel([w])}`), () => {}, { icon: '✦', disabled: true, hint: why }));
+          }
+          if (!mgs.length) continue;
           const err = plain(env.query('fire.illegal', { decl: { units: [], sw: mgs.map((w) => w.id), target: hex }, mode: decision.kind === 'firstFire' ? 'first' : FIRE_MODE[phase]!, side: owner }, null));
           // The vehicle's own hex stands in for a target here: only what stops the MGs at any target greys the entry out
           // (it read "Cannot fire into own hex", which disabled the entry for every vehicle).
@@ -5126,6 +5283,9 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
         const rallies = legal.filter((a) => (a.type === 'rally.selfRally' || a.type === 'rally.rally') && a['unit'] === p.id);
         for (const a of rallies)
           items.push(action(a.type === 'rally.selfRally' ? 'Self-rally' : `Rallied by ${pieceLabel(env, state.pieces[a['leader'] as string]).replace(/^\S+ /, '')}`, () => run(a), { icon: '♥' }));
+        // A leader here who may not rally it (in Melee he is not in Good Order, SK1 3.1 f): greyed, with why.
+        for (const r of rallyRefusals(env, owner, unitsHere.filter((u) => u.id === p.id || !!smc(env, u)), (leader) => rallies.some((a) => a['leader'] === leader), (leader, unit) => plain(session.check({ type: 'rally.rally', leader, unit }))))
+          items.push(action(`Rallied by ${pieceLabel(env, state.pieces[r.leader]).replace(/^\S+ /, '')}`, () => {}, { icon: '♥', disabled: true, hint: r.reason }));
         // DM (SK1 3.1 g): out of woods and buildings a broken unit keeps it unless its owner has it removed.
         for (const c of dmChoices(env, owner!, [p])) items.push(dmItem(c));
         if (isVehiclePiece(p.id)) for (const it of vehicleRepairItems(p)) items.push({ ...it, label: it.label.replace(pieceLabel(env, p), 'Repair').trim() });
@@ -5452,6 +5612,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                   actionCount: session.actionCount,
                   ...(session.mySide !== undefined ? { mySide: session.mySide } : {}),
                   ruleset: engine.ruleset.versionHash,
+                  ui: { decision: decision?.kind ?? null, resolving, wheel: !!wheel || !!chitWheel, phaseWheel: showingWheel, sideCollapsed },
                 }}
               />
             }
@@ -6204,6 +6365,40 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                   </div>
                 </div>
               )}
+              {decision.kind === OVR_EVADE && decision.owner === owner && (() => {
+                // Full ASL Infantry OVR (ASLRB A4.151): the SMC stays (mandatory TPBF if armed, then CC) or slips away.
+                const smcId = decision.data?.['smc'] as string;
+                const ev = evadeEntries(env, smcId);
+                return (
+                  <div className="composer">
+                    <p className="hint">{`The ${moveShortName(env, smcId)} in ${hexLabel(String(decision.data?.['hex'] ?? ''))} is being overrun by ${((decision.data?.['units'] as string[] | undefined) ?? []).map((u) => moveShortName(env, u)).join(', ')}: stay and fight (CC at once after the First Fire), or slip away, free of fire, to a hex the ATTACKER picks (ASLRB A4.151).`}</p>
+                    <div className="buttons">
+                      <button className="primary" onClick={() => run({ type: 'ovr.stay' })}>{ev.stay}</button>
+                      <button disabled={!!ev.slipDisabled} title={ev.slipDisabled ?? undefined} onClick={() => run({ type: 'ovr.slip' })}>{ev.slip}</button>
+                    </div>
+                  </div>
+                );
+              })()}
+              {decision.kind === OVR_PLACE && decision.owner === owner && (
+                <p className="hint wheel-hint">{`Put the ${moveShortName(env, decision.data?.['smc'] as string)} in one of the amber hexes (ASLRB A4.151).`}</p>
+              )}
+              {decision.kind === MANDATORY_TPBF && decision.owner === owner && (() => {
+                const panel = tpbfPanel(env, String(decision.data?.['hex'] ?? ''));
+                const shots = legal.filter((a) => a.type === 'tpbf.fire');
+                return (
+                  <div className="composer">
+                    <p className="hint">{panel?.text ?? 'Mandatory TPBF (A8.312)'}</p>
+                    <div className="buttons">
+                      {shots.map((a, i) => (
+                        <button key={i} className={i === 0 ? 'primary' : undefined} onClick={() => run({ type: 'tpbf.fire', decl: a['decl'] })}>
+                          {i === 0 ? 'Fire (required, A8.312)' : `Fire with every SW (${((a['decl'] as { sw: string[] }).sw).map((w) => moveShortName(env, w)).join(', ')})`}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="hint">The units in the entered Location must fire first (ASLRB A8.312): no other First Fire, and no Pass, until they have.</p>
+                  </div>
+                );
+              })()}
               {decision.kind === WIRE_DROP_DECISION && (
                 // A unit that started the turn on the Wire rolled more than its MF: it may leave excess PP on top (ASLRB B26.4).
                 <div className="composer">
@@ -6811,6 +7006,8 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
                             return standing.length || roadblock ? <> Every push here: {standing.length ? standing.join(', ') : 'no Labor or CX'}.{roadblock}</> : null;
                           })()}
                         </p>
+                      ) : mode === 'dash' ? (
+                        <p className="hint wheel-hint">Dash (ASLRB A4.63): click an amber hex beyond the road to declare the Dash there; the stack steps into the road at once, and its next step can only be that hex. Esc to cancel.</p>
                       ) : mode === 'normal' ? (
                         <p className="hint wheel-hint">Click green hexes to move{owner && exitHexes(env, owner)?.size ? '; from a violet hex the stack can leave the map (Exit the map, above)' : ''}. Right-click the stack to <b>end its move</b>{ms.units.length > 1 ? ', leave some units behind (tick them first)' : ''}, fire Smoke, place a DC, recover a SW or exit the map.</p>
                       ) : mode === 'smoke' ? (
@@ -6978,6 +7175,7 @@ function GameScreenView({ scenario, session, matchId, viewKey, onQuit, onResolvi
 
               {decision.kind === 'ccDeclare' && (
                 <p className="hint wheel-hint">
+                  {ccStateOf(env)?.mph ? <><b>Infantry Overrun CC (A4.152)</b>, in the MPh: </> : null}
                   Drag your units and their targets into attack groups in the panel, then lock them in. Each unit attacks once and is attacked once (SK1 3.8).
                   {pillboxCcNote() && <> {pillboxCcNote()}</>}
                 </p>
@@ -7078,6 +7276,12 @@ function decisionTitle(kind: string, phase: string, fortifyOpen = false, endingM
       return 'Breach: which hexside?';
     case WIRE_DROP_DECISION:
       return 'Wire: leave PP on top?';
+    case OVR_EVADE:
+      return 'Overrun: stay or slip away?';
+    case OVR_PLACE:
+      return 'Overrun: where does the SMC go?';
+    case MANDATORY_TPBF:
+      return 'Mandatory TPBF (A8.312)';
     case BLAZE_ESCAPE_DECISION:
       return 'Blaze: leave or stay?';
     case 'scatterPlan':
@@ -7271,7 +7475,11 @@ function SetupRules({ env, todo, rulesShownInTray, anchors = [] }: { env: QueryE
           </li>
         );
       })}
-      <li className="muted">Stacking: 3 squad-equivalents and 4 leaders per hex</li>
+      <li className="muted">
+        {sc.ruleset === 'full-asl'
+          ? 'Stacking: 3 squad-equivalents (five SMC = a HS) and 4 SMC per Location; none may set up overstacked, in play more is allowed with penalties (ASLRB A2.9, A5)'
+          : 'Stacking: 3 squad-equivalents and 4 leaders per hex'}
+      </li>
     </ul>
   );
 }

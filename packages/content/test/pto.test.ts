@@ -103,6 +103,15 @@ describe('PTO Terrain pixel LOS on board o', () => {
     // Ground-level terrain alone is overlooked: L2 and R5 on the hill see over the level-0 jungle of M3 to Q5.
     expect(los(light, 'oL2', 'oR5').clear).toBe(true);
   });
+  it('ground-level jungle is overlooked between hill hexes where its art is drawn over ground at the lower end\'s level (SK4 1.1.1)', () => {
+    // K3, R5 and R6 are on the level-1 hill. L3's jungle (centre dot at level 0) is drawn up onto the hill ground beside
+    // K3, where the R5–K3 line crosses it: a level-0 obstacle, below both ends, so it is no obstacle to them.
+    const light = buildMap([{ board: 'o', x: 0, y: 0 }], { pto: { light: true } });
+    expect([pto.hex('oK3')!.elevation, pto.hex('oR5')!.elevation, pto.hex('oR6')!.elevation, pto.hex('oL3')!.elevation ?? 0]).toEqual([1, 1, 1, 0]);
+    for (const map of [pto, light, plain]) {
+      for (const [a, b] of [['oR5', 'oK3'], ['oK3', 'oR5'], ['oK3', 'oR6'], ['oR6', 'oK3']] as const) expect(los(map, a, b).clear, `${a}-${b}`).toBe(true);
+    }
+  });
   it('palm trees hinder on the level like an orchard; kunai hinders like grain', () => {
     const palmHex = 'oDD4';
     const a = pto.neighbors(palmHex)[0]!;

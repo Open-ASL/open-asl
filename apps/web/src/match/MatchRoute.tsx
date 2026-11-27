@@ -190,6 +190,8 @@ function ComputerMatch({ matchId, match, scenario, actions, onReload }: { matchI
   });
   const mySide = Object.keys(match.seats).find((s) => s !== ai?.side) ?? null;
   const [revealing, setRevealing] = useState(false);
+  const [conceding, setConceding] = useState<'ask' | 'busy' | null>(null);
+  const [concedeError, setConcedeError] = useState<string | null>(null);
   const [speed, setSpeed] = useState<ComputerSpeed>(() => {
     try {
       return (localStorage.getItem('asl.computerSpeed') as ComputerSpeed | null) ?? 'normal';
@@ -210,6 +212,17 @@ function ComputerMatch({ matchId, match, scenario, actions, onReload }: { matchI
   if (session.replayError) return <OutdatedGate matchId={matchId} text={`${session.replayError} ${OLD_RULES}`} canEnd={match.status === 'active'} />;
   const sideName = (s: string | undefined) => (s ? (scenario.sides.find((x) => x.side === s)?.name ?? s) : '');
   const theirTurn = session.engine.currentDecision(session.state)?.owner === ai?.side;
+  // A computer game is not scored, so conceding one abandons it, as the lobby's Abandon does.
+  const concede = async () => {
+    setConceding('busy');
+    try {
+      await api('leaveMatch', { matchId });
+      navigate('/app');
+    } catch (e) {
+      setConcedeError(errorOf(e).message);
+      setConceding('ask');
+    }
+  };
   return (
     <>
       <GameScreen scenario={scenario} players={seatNames(match)} session={session} matchId={matchId} onQuit={() => navigate('/app')} onResolvingChange={setRevealing} slow={speed === 'slow'} aar={aarCue(matchId, match, scored === 'done' || match.status === 'complete', scoreFailure(scored))} awards={myAwards(match, user.uid)} />
@@ -228,7 +241,26 @@ function ComputerMatch({ matchId, match, scenario, actions, onReload }: { matchI
               </button>
             ))}
           </span>
+          {match.status === 'active' && (
+            <button className="ghost small" onClick={() => setConceding('ask')}>
+              Concede
+            </button>
+          )}
         </div>
+      )}
+      {conceding && (
+        <Modal title="Concede the game?" kicker="Surrender" onClose={conceding === 'ask' ? () => setConceding(null) : undefined}>
+          <p>The game ends here and cannot be resumed. A game against {COMPUTER_NAME} is not scored, so nothing is recorded either way.</p>
+          {concedeError && <p className="warn">{concedeError}</p>}
+          <div className="buttons">
+            <button className="ghost" disabled={conceding === 'busy'} onClick={() => setConceding(null)}>
+              Keep fighting
+            </button>
+            <button className="primary" disabled={conceding === 'busy'} onClick={concede}>
+              Concede
+            </button>
+          </div>
+        </Modal>
       )}
       {lock && <LockedBoard lock={lock} onReload={lock === 'moved' || match.result ? onReload : null} />}
       {!lock && computer.stalled && (

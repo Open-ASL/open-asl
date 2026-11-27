@@ -205,6 +205,11 @@ declare module '@asl/engine' {
      * hidden); fire at it claims the pillbox's TEM. The declared Location in the Starter Kit.
      */
     'fire.targetAs': { ctx: { target: LocId; side: SideId }; value: LocId };
+    /**
+     * More candidate declarations for `simpleDeclarations`: weapons among `sw` whose Covered Arc misses `target` but that
+     * may turn to fire (a vehicle's turret or bow MG, SK4 3.2.4, 7.8), each with its turn. None in the Starter Kit's SK1 rules.
+     */
+    'fire.turnVariants': { ctx: { sw: PieceId[]; target: LocId; mode: FireMode; side: SideId }; value: FireDeclaration[] };
     /** Reason a declaration is illegal, or null. Contributions return the first problem found. */
     'fire.illegal': { ctx: { decl: FireDeclaration; mode: FireMode; side: SideId; moving?: PieceId[] }; value: string | null };
     /** The LOS of a firing Location to a declaration's target (see `firerLos`); the default is the centre-to-centre trace. */
@@ -221,6 +226,12 @@ declare module '@asl/engine' {
      * (ASLRB A7.21 TPBF, A8.4, A12.151). The Starter Kit allows it only at a vehicle (`fire.ownHexAllowed`).
      */
     'fire.ownLocation': { ctx: { target: LocId; side: SideId; firer?: PieceId }; value: boolean };
+    /**
+     * Whether weapon `sw` held by `holder` (itself when unpossessed) "moved" for the AFPh limits: no MMG, HMG, mortar or Gun
+     * that moved fires in the AFPh (SK1 3.5, SK4 3.5; ASLRB A4.41). The Starter Kit: the weapon or its holder moved this
+     * MPh. Full ASL counts only MF spent while the weapon was possessed, so one Recovered where it lay may fire (A4.41).
+     */
+    'fire.weaponMovedForAfph': { ctx: { sw: PieceId; holder: PieceId }; value: boolean };
     /**
      * Full ASL: the points other than the centre a firer may trace its LOS to in a target Location (ASLRB A4.34: the corners
      * of the hexsides a stack in Bypass went along there), as `FireDeclaration.at` values. None in the Starter Kit.
@@ -434,6 +445,12 @@ export function iftColumn(env: QueryEnv, fp: number, shift = 0): number | null {
 const severity = (r: IftResult) =>
   r.kind === 'KIA' ? 5 : r.kind === 'K' ? 4 : r.kind === 'NMC' || r.kind === 'MC' ? 3 : r.kind === 'PTC' ? 1 : 0;
 
+/** The Inexperienced MMC among an attack's firers (SK1 5.4: they cower two columns), as an event field when any. */
+function cowerInexperienced(env: QueryEnv, attack: FireAttackCtx): { inexperienced?: PieceId[] } {
+  const ids = [...new Set(attack.parts.map((p) => p.firer))].filter((id) => mmc(env, pieceOf(env, id)) && env.query('unit.inexperienced', { unit: id }, false));
+  return ids.length ? { inexperienced: ids } : {};
+}
+
 /**
  * Whether an attack of `fp` at `drm` could inflict at least a NMC, Cowering taken into account (SK1 3.2.1): the best DR is
  * snake eyes, which cowers `cowerShift` columns (0 when a leader directs it or the firers never cower), or a 3 on the full
@@ -631,6 +648,29 @@ export function fpNotes(env: QueryEnv, a: FireAttackCtx): DrmNote[] {
   return out;
 }
 
+/** One firing part's share of an attack's FP: its printed FP, the FP it adds, and the modifiers it took. */
+export interface FpPart {
+  piece: PieceId;
+  base: number;
+  fp: number;
+  explain: DrmNote[];
+}
+
+/** Each part's FP and what changed it (½ long range, +1 Assault Fire ...), for the log of a Fire Group. */
+export function fpBreakdown(env: QueryEnv, a: FireAttackCtx): FpPart[] {
+  return firerFpParts(a).map((part) => {
+    const base = partBaseFp(env, part);
+    const res = env.explain('fire.partFp', { attack: a, part }, base);
+    return { piece: part.piece, base, fp: res.value, explain: drmNotes(res) };
+  });
+}
+
+/** The `fpParts` of a Fire Group's attack event: only with two or more parts adding FP (a leader among the firers adds none). */
+function fgBreakdown(env: QueryEnv, a: FireAttackCtx): { fpParts?: FpPart[] } {
+  const parts = fpBreakdown(env, a).filter((p) => p.base !== 0 || p.fp !== 0);
+  return parts.length > 1 ? { fpParts: parts } : {};
+}
+
 /** Leadership DRM of the directing leaders: that of the lowest quality one (SK1 3.2), or null if undirected. */
 export function directionDrm(env: QueryEnv, a: FireAttackCtx): number | null {
   // The FG gets the least favourable DRM a director gives any of its firing units.
@@ -705,6 +745,11 @@ export const fireModule: RuleModule = {
       dr: [number, number];
       drm: number;
       cowered: boolean;
+      /** When it cowered: the columns shifted (SK1 3.2), and the Inexperienced MMC firers behind a two-column shift (5.4). */
+      /** A Fire Group's FP unit by unit: each part's printed FP, what it fires at, and what changed it (SK1 3.2, 3.5). */
+      fpParts?: FpPart[];
+      cowerShift?: number;
+      inexperienced?: PieceId[];
       explain: { label?: string; id: string }[];
     }>({ type: 'sk1.fire.attack', apply() {} });
     /** A declared attack (or part of one) whose LOS turned out blocked: the firers have still fired. */
@@ -1143,7 +1188,7 @@ function basicIllegal(env: QueryEnv, decl: FireDeclaration, mode: FireMode, side
       const at = pieceOf(env, id).loc;
       const holder = at.kind === 'held' ? pieceOf(env, at.by) : pieceOf(env, id);
       const heavy = d?.kind === 'gun' || d?.type === 'MMG' || d?.type === 'HMG';
-      if (heavy && (holder.tags[T.moved] || pieceOf(env, id).tags[T.moved])) {
+      if (heavy && env.query('fire.weaponMovedForAfph', { sw: id, holder: holder.id }, !!(holder.tags[T.moved] || pieceOf(env, id).tags[T.moved]))) {
         return `${id}: a ${d?.kind === 'gun' ? 'Gun' : 'MMG/HMG'} that moved cannot fire in the AFPh`;
       }
     }
@@ -1324,11 +1369,14 @@ function resolveFire(
     from: [...new Set(attack.parts.map((p) => partLoc(ctx, p)))].sort(),
     fp,
     fpExplain: fpNotes(ctx, attack),
+    ...fgBreakdown(ctx, attack),
     ...(areaTargets.length ? { area: { targets: areaTargets, fp: attackFp(ctx, vsArea), column: areaFireColumn(ctx, attack, column!), fpExplain: fpNotes(ctx, vsArea) } } : {}),
     column,
     dr: [white, colored],
     drm,
     cowered,
+    // How far it cowered, and the Inexperienced firers that made it two columns (SK1 3.2, 5.4), for the log.
+    ...(cowered ? { cowerShift, ...cowerInexperienced(ctx, attack) } : {}),
     explain: drmNotes(drmRes),
   });
   if (desperate.length) ctx.emit('sk1.fire.dm', { units: desperate });
@@ -1770,6 +1818,9 @@ export function simpleDeclarations(env: QueryEnv, side: SideId, targets: LocId[]
       const variants: FireDeclaration[] = fts.flatMap((ft) => [{ units: [], sw: [ft], target: t }, ...enemyVehicles.map((v) => ({ units: [], sw: [ft], target: t, vsVehicle: v.id }))]);
       variants.push(base);
       if (leader) variants.push({ ...base, directors: [leader.id] });
+      // A weapon whose arc misses the target that may turn to fire at it: offered with its turn (a vehicle's MGs).
+      const missing = sws.filter((id) => !iftSw.includes(id));
+      if (missing.length) variants.push(...env.query('fire.turnVariants', { sw: missing, target: t, mode, side }, []));
       // A SW that kept ROF fires again on its own (SK1 1.2.4): its holder, having fired, may not join it anew.
       const rof = base.sw.filter((id) => pieceOf(env, id).tags[T.rofFired] !== undefined);
       if (rof.length && base.units.length) {

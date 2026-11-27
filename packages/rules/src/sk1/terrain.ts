@@ -15,7 +15,7 @@ declare module '@asl/engine' {
     /** Infantry MF to enter `to` from `from`. */
     /** `loc`: the Location entered in `to` when it is not the ground level (an upper floor, a cave). */
     /** `off`: the offboard hex a step onto the map comes from (`from` is null then), for terrain that extends offboard (a path). */
-    'move.cost': { ctx: { unit: PieceId; from: HexId | null; to: HexId; viaRoad: boolean; loc?: LocId; off?: HexId; /** Full ASL: decline a Trail Break's reduced cost (ASLRB B13.4212). */ noTb?: boolean }; value: number };
+    'move.cost': { ctx: { unit: PieceId; from: HexId | null; to: HexId; viaRoad: boolean; loc?: LocId; off?: HexId; /** Full ASL: decline a Trail Break's reduced cost (ASLRB B13.4212). */ noTb?: boolean; /** Full ASL: the cost without what SMOKE adds (ASLRB A4.72 "MF cost (excluding SMOKE)"). */ noSmoke?: boolean }; value: number };
     /**
      * Whether roads give their road movement rate (the Infantry road bonus, a vehicle's road MP): true unless a rule
      * treats them as Open Ground (LMA5 SSR 3: snow-covered roads).

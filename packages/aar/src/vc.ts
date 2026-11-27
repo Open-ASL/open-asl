@@ -50,7 +50,9 @@ export function standing(env: QueryEnv, scenario: ScenarioDef, vc: VictoryCondit
   switch (vc.kind) {
     case 'controlBuildings': {
       const items = vc.buildings.map((b) => ({ label: buildingLabel(env, scenario, b), holder: ctl.buildings[b] ?? null }));
-      return { have: items.filter((i) => i.holder === vc.side).length, need: vc.atLeast, items };
+      // A majority ("Controlling more buildings … than the enemy"): one more than the enemy holds.
+      const theirs = items.filter((i) => i.holder !== null && i.holder !== vc.side).length;
+      return { have: items.filter((i) => i.holder === vc.side).length, need: vc.moreThanEnemy ? Math.max(vc.atLeast, theirs + 1) : vc.atLeast, items };
     }
     case 'controlHexes': {
       const held = vc.hexes.filter((h) => ctl.hexes[map.hex(h)?.id ?? h] === vc.side);
@@ -88,6 +90,7 @@ export function conditionText(env: QueryEnv, scenario: ScenarioDef, vc: VictoryC
   switch (vc.kind) {
     case 'controlBuildings': {
       const names = vc.buildings.map((b) => buildingLabel(env, scenario, b));
+      if (vc.moreThanEnemy) return `Control more of the ${names.length} ${vc.buildingsLabel ?? 'buildings'} than the ${plural(sideName(scenario, other))}${vc.immediate ? '' : ' at game end'}`;
       return `Control ${vc.atLeast >= names.length ? `buildings ${list(names)}` : `${vc.atLeast} of buildings ${list(names)}`}${vc.immediate ? '' : ' at game end'}`;
     }
     case 'controlHexes':
@@ -199,6 +202,8 @@ export function gameDecision(env: QueryEnv, scenario: ScenarioDef, end: GameEndi
     case 'scenario end':
       if (!winner) how = 'Neither side met its victory conditions';
       else if (met[0]) how = `${winningClause(env, scenario, met[0], true)}${met[0].kind === 'controlBuildings' || met[0].kind === 'controlHexes' ? ` at the end of Turn ${turn}` : ''}`;
+      // A majority at game end is lost at the end, not never had: "did not hold more … at game end".
+      else if (offensive[0]?.kind === 'controlBuildings' && offensive[0].moreThanEnemy && loser) how = `The ${plural(name(loser))} did not ${winningClause(env, scenario, offensive[0], false)}`;
       else if (offensive[0] && loser) how = `The ${plural(name(loser))} never ${winningClause(env, scenario, offensive[0], false)}`;
       else how = `${plural(name(winner))} held on to the end of Turn ${turn}`;
       break;
@@ -227,7 +232,7 @@ export function gameDecision(env: QueryEnv, scenario: ScenarioDef, end: GameEndi
   return { how, decidedBy };
 }
 
-/** The clause after "Held …" / "never …" for a condition the winner met (or the loser failed). */
+/** The clause after "Held …" / "never …" (or "did not …") for a condition the winner met (or the loser failed). */
 export function winningClause(env: QueryEnv, scenario: ScenarioDef, vc: VictoryCondition, met: boolean): string {
   const s = standing(env, scenario, vc);
   const other = scenario.sides.find((x) => x.side !== vc.side)?.side ?? vc.side;
@@ -235,6 +240,11 @@ export function winningClause(env: QueryEnv, scenario: ScenarioDef, vc: VictoryC
     case 'controlBuildings': {
       const held = s.items.filter((i) => i.holder === vc.side).map((i) => i.label);
       const all = s.items.map((i) => i.label);
+      if (vc.moreThanEnemy) {
+        const theirs = s.items.filter((i) => i.holder === other).length;
+        const what = `of the ${all.length} ${vc.buildingsLabel ?? 'buildings'}`;
+        return met ? `Held ${held.length} ${what} to the ${plural(sideName(scenario, other))}' ${theirs}` : `hold more ${what} than the ${plural(sideName(scenario, other))} at game end (${held.length} to ${theirs})`;
+      }
       if (met) return vc.atLeast >= all.length ? `Held ${list(held)}` : `Held ${held.length} of the ${all.length} buildings (${list(held)})`;
       return vc.atLeast >= all.length ? `took ${list(all)}` : `took ${vc.atLeast} of the ${all.length} buildings`;
     }

@@ -6,12 +6,13 @@ import { FP, firedAt, isRofShot, type FireAttackCtx, type FireDeclaration, type 
 import { moveState, movingInfo, moveInternals } from '../sk1/movement';
 import { fireMarker, pieceOf, setTags, sw, vehicleIfe } from '../sk1/status';
 import { isWoodsRoad, terrainOf } from '../sk1/terrain';
-import { caChangeDrm, inCoveredArc, nearestSpine, spineChange } from '../sk2/arc';
+import { SPINES, caChangeDrm, inCoveredArc, nearestSpine, spineChange } from '../sk2/arc';
 import { OP, woodsBuildingOrRubble, type OrdnanceFireFn, type ShotCtx } from '../sk2/ordnance';
 import { ACQ_CLEAR, T2, caTurnedIllegal, coveredArc, ordnanceOf } from '../sk2/status';
-import { BOW_TURN, T3, crewCanAct, inMotion, isCe, isWreck, stunWord, tcaOf, vcaOf, vehicle, type VehicleMgKind } from './status';
+import type { VehicleDef } from '../common/statics';
+import { BOW_TURN, FIRED_PHASE, T3, crewCanAct, firePhaseKeyOf, firedThisPhase, inMotion, isCe, isWreck, stunWord, tcaOf, vcaOf, vehicle, type VehicleMgKind } from './status';
 import { hullTurnRefusal, movingVehicle, turnRiskingBog, closeTerrain } from './vehicleMove';
-import { firerNonStoppedVehicle } from './vehicleFire';
+import { firerNonStoppedVehicle, maRmgRefusal } from './vehicleFire';
 
 /*
  * Vehicular machine guns (SK4 7.8): each is a piece held by its vehicle and fires on the IFT like
@@ -23,6 +24,20 @@ import { firerNonStoppedVehicle } from './vehicleFire';
  */
 
 const MG_KIND: Record<string, VehicleMgKind> = { BMG: 'bmg', CMG: 'cmg', AAMG: 'aamg', RMG: 'rmg' };
+
+/**
+ * The hexspine at the centre of a vehicle's turret Rear MG Covered Arc while its turret points at `tca`: the rear of the
+ * turret (ASLRB D1.82 "its rear turret Target Facing"), or where the counter puts it. SK4 Japanese Vehicle Notes: the
+ * Type 95 HA-GO's is "the second hexspine clockwise from the center hexspine of the current TCA" ("4:00 from MA"), the
+ * Type 89B CHI-RO's the second counterclockwise ("8:00 from MA"); a hexspine is two hours of the clock.
+ */
+export function rmgSpine(d: Pick<VehicleDef, 'mg'>, tca: number): number {
+  return (((tca + Math.round((d.mg.rmgClock ?? 6) / 2)) % SPINES) + SPINES) % SPINES;
+}
+
+/** "the Turret Covered Arc" for the CMG, or the RMG's own, named by its clock position when the counter gives one. */
+const turretArcName = (d: Pick<VehicleDef, 'mg'> | undefined, kind: VehicleMgKind) =>
+  kind === 'rmg' && d?.mg.rmgClock !== undefined ? `its own Covered Arc (${d.mg.rmgClock}:00 from the MA)` : 'the Turret Covered Arc';
 
 /** The vehicle a MG piece belongs to, and its kind, or null for any other piece. */
 export function vehicleMgOf(env: QueryEnv, id: PieceId): { vehicle: PieceId; kind: VehicleMgKind } | null {
@@ -143,13 +158,15 @@ export function turretTurnFor(env: QueryEnv, decl: Pick<FireDeclaration, 'sw' | 
   const me = at ? map.hex(at) : undefined;
   const target = map.hex(hexOfLoc(decl.target));
   if (!me || !target || at === decl.target) return undefined;
-  const rearOnly = tw.ids.every((id) => vehicleMgOf(env, id)?.kind === 'rmg');
+  const d = vehicle(env, tw.v)!;
   const tca = tcaOf(env, tw.v);
-  const facing = rearOnly ? (tca + 3) % 6 : tca;
-  if (inCoveredArc(me.cube, facing, target.cube)) return undefined;
-  const spine = nearestSpine(me.cube, facing, target.cube);
-  if (spine === null) return undefined;
-  return rearOnly ? (spine + 3) % 6 : spine;
+  // Each weapon through its own arc: the CMG and the MA's IFE the TCA, the RMG its own (`rmgSpine`); the turret turns to
+  // the nearest TCA at which every one of them bears, if any.
+  const bears = (t: number) => tw.ids.every((id) => inCoveredArc(me.cube, vehicleMgOf(env, id)?.kind === 'rmg' ? rmgSpine(d, t) : t, target.cube));
+  if (bears(tca)) return undefined;
+  let best: number | undefined;
+  for (let t = 0; t < SPINES; t++) if (bears(t) && (best === undefined || spineChange(tca, t) < spineChange(tca, best))) best = t;
+  return best;
 }
 
 /**
@@ -182,6 +199,8 @@ export function vehicleMgUnavailable(env: QueryEnv, id: PieceId): string | null 
   if (kind === 'aamg' && !isCe(v)) return 'The AAMG fires only while Crew Exposed';
   if (d?.openTopped && !isCe(v) && kind !== 'bmg') return 'A Buttoned Up Open-Topped AFV fires only its bow MG';
   if (kind === 'cmg' && isCe(v) && (d?.turret === 'RST' || d?.turret === '1MT')) return 'A Restricted Slow Traverse or One Man Turret cannot fire its CMG while Crew Exposed';
+  // ASLRB D1.82 (`FIRED_PHASE`): never in the phase the MA fired; a hull RMG (D1.81) is not bound.
+  if (kind === 'rmg' && turreted(env, v) && firedThisPhase(env, v, 'ma')) return 'The Main Armament fired this phase: a turret Rear MG may not fire in the same phase (ASLRB D1.82)';
   return null;
 }
 
@@ -191,7 +210,7 @@ export function vehicleMgIllegal(env: QueryEnv, decl: FireDeclaration, mode: Fir
   const ife = decl.sw.filter((id) => ifeOf(env, id));
   // The MA's IFE alone: the ordnance rules judge it, but for the Fire Group it may owe the MGs.
   if (mgs.length === 0 && decl.vca !== undefined) return 'The Main Armament turns the hull as it fires its own shot';
-  if (mgs.length === 0) return ife.length === 1 && decl.sw.length === 1 && decl.units.length === 0 ? armamentFgIllegal(env, ife[0]!, decl, mode, !!moving) : null;
+  if (mgs.length === 0) return ife.length === 1 && decl.sw.length === 1 && decl.units.length === 0 ? (maRmgRefusal(env, ife[0]!) ?? armamentFgIllegal(env, ife[0]!, decl, mode, !!moving)) : null;
   const vehicles = new Set([...mgs.map((x) => x.mg!.vehicle), ...ife]);
   if (vehicles.size > 1 || decl.units.length > 0 || decl.sw.length !== mgs.length + ife.length) return "A vehicle's MGs form a Fire Group only with each other and its MA's IFE";
   if (decl.directors?.length) return 'Leadership never directs vehicle fire';
@@ -205,6 +224,8 @@ export function vehicleMgIllegal(env: QueryEnv, decl: FireDeclaration, mode: Fir
   // Turned without MP at the end of this phase (SK4 3.3.2): it fires no more in it.
   const turned = caTurnedIllegal(env, v);
   if (turned) return turned;
+  // ASLRB D1.82: the MA (its IFE) and the turret RMG never fire in one phase, so never in one attack.
+  if (ife.length && turreted(env, v) && mgs.some((x) => x.mg!.kind === 'rmg')) return 'The turret Rear MG may not fire in the phase the Main Armament fires, so not with its IFE (ASLRB D1.82)';
   const at = hexOf(env.state, v)!;
   const map = statics(env).map;
   const target = map.hex(hexOfLoc(decl.target));
@@ -240,8 +261,9 @@ export function vehicleMgIllegal(env: QueryEnv, decl: FireDeclaration, mode: Fir
     const unavailable = vehicleMgUnavailable(env, id);
     if (unavailable) return unavailable;
     if (decl.target !== at && kind !== 'aamg') {
-      const spine = kind === 'bmg' ? vca : kind === 'rmg' ? (tca + 3) % 6 : tca;
-      if (!inCoveredArc(me.cube, spine, target.cube)) return `The ${kind.toUpperCase()} fires through the ${kind === 'bmg' ? 'Vehicle' : 'Turret'} Covered Arc: turn first`;
+      const spine = kind === 'bmg' ? vca : kind === 'rmg' ? rmgSpine(d, tca) : tca;
+      if (!inCoveredArc(me.cube, spine, target.cube))
+        return kind === 'bmg' ? 'The BMG fires through the Vehicle Covered Arc: turn first' : `The ${kind.toUpperCase()} fires through ${turretArcName(d, kind)}: turn the turret first`;
     }
   }
   // Same fire phase as the Main Armament (MPh and DFPh counting as one), either way round (7.8).
@@ -271,6 +293,27 @@ export const vehicleMgModule: RuleModule = {
   requires: ['sk1.fire', 'sk2.ordnance', 'sk3.vehicleMove'],
   install(r) {
     r.contribute({ id: 'sk3.fire.illegal.vehicle-mg', query: 'fire.illegal', apply: (v, { decl, mode, side, moving }, env) => v ?? vehicleMgIllegal(env, decl, mode, side, moving) });
+    // A vehicle MG whose arc misses the target is offered with the turn that brings it to bear: the turret for a CMG or
+    // RMG, the hull for the BMG (SK4 3.2.4: it "may ... change its CA prior to firing"; 7.8), never in its own MPh
+    // (3.3.2). The availability of Defensive First Fire and every candidate list are built from these.
+    r.contribute({
+      id: 'sk3.fire.turnVariants.vehicle-mg',
+      query: 'fire.turnVariants',
+      apply: (v, { sw, target, mode }, env) => {
+        if (mode === 'bounding') return v;
+        const out = [...v];
+        for (const id of sw) {
+          const kind = vehicleMgOf(env, id)?.kind;
+          if (!kind || kind === 'aamg') continue;
+          const decl = { sw: [id], target };
+          const tca = kind === 'bmg' ? undefined : turretTurnFor(env, decl);
+          const vca = kind === 'bmg' ? hullTurnFor(env, decl) : undefined;
+          if (tca !== undefined) out.push({ units: [], sw: [id], target, tca });
+          if (vca !== undefined) out.push({ units: [], sw: [id], target, vca });
+        }
+        return out;
+      },
+    });
     // A bow weapon's attack turned the hull first (SK4 7.8): where it reached, and whether a Bog Check stopped it.
     r.event<{ vehicle: PieceId; from: number; to: number; spines: number; bogged: boolean }>({ type: 'sk3.vehicle.hullTurnToFire', apply() {} });
     // The MA's IFE in the MGs' Fire Group has fired its MA, as a lone IFE shot does (SK4 6.8, 6.10): it loses any
@@ -305,6 +348,12 @@ export const vehicleMgModule: RuleModule = {
         decl = { ...rest, caChange: { weapon: tw.v.id, spines, mount: vehicle(ctx, tw.v)!.turret } };
       }
       const out = next!(ctx, decl, mode, opts);
+      // ASLRB D1.82 (`FIRED_PHASE`): the phase the MA's IFE or a turret RMG fired in.
+      for (const id of decl.sw) {
+        const mg = vehicleMgOf(ctx, id);
+        const v = ifeOf(ctx, id) ?? (mg?.kind === 'rmg' ? ctx.state.pieces[mg.vehicle] : undefined);
+        if (v && turreted(ctx, v) && ctx.state.pieces[v.id]?.loc.kind === 'hex') setTags(ctx, v.id, { [ifeOf(ctx, id) ? FIRED_PHASE.ma : FIRED_PHASE.rmg]: firePhaseKeyOf(ctx) });
+      }
       if (decl.sw.some((id) => vehicleMgOf(ctx, id)))
         for (const id of decl.sw) if (ifeOf(ctx, id)) setTags(ctx, id, { ...ACQ_CLEAR, [T2.firedNonSmoke]: true });
       // A CMG fired at a different hex loses its MA's Acquisition (SK4 6.10; ASLRB C6.5 "or its CMG"); the BMG, AAMG
@@ -335,9 +384,14 @@ export const vehicleMgModule: RuleModule = {
       handler(ctx, ev) {
         if (ev.payload.phase !== 'CCPh') return;
         for (const p of Object.values(ctx.state.pieces).sort((a, b) => (a.id < b.id ? -1 : 1)))
-          // One change for both records, so a piece's tags come off together.
-          if (p.tags[TURN.phase] !== undefined || p.tags[BOW.phase] !== undefined)
-            setTags(ctx, p.id, { ...(p.tags[TURN.phase] !== undefined ? { [TURN.phase]: null, [TURN.spines]: null, [TURN.paid]: null } : {}), ...(p.tags[BOW.phase] !== undefined ? { [BOW.phase]: null, [BOW.spines]: null, [BOW.paid]: null } : {}) });
+          // One change for all the records, so a piece's tags come off together.
+          if (p.tags[TURN.phase] !== undefined || p.tags[BOW.phase] !== undefined || p.tags[FIRED_PHASE.ma] !== undefined || p.tags[FIRED_PHASE.rmg] !== undefined)
+            setTags(ctx, p.id, {
+              ...(p.tags[TURN.phase] !== undefined ? { [TURN.phase]: null, [TURN.spines]: null, [TURN.paid]: null } : {}),
+              ...(p.tags[BOW.phase] !== undefined ? { [BOW.phase]: null, [BOW.spines]: null, [BOW.paid]: null } : {}),
+              ...(p.tags[FIRED_PHASE.ma] !== undefined ? { [FIRED_PHASE.ma]: null } : {}),
+              ...(p.tags[FIRED_PHASE.rmg] !== undefined ? { [FIRED_PHASE.rmg]: null } : {}),
+            });
       },
     });
     // The MA's To Hit shots: a turn records it; a shot without one pays for an earlier turn by another weapon in that arc
@@ -347,6 +401,9 @@ export const vehicleMgModule: RuleModule = {
       const v = g && ordnanceOf(ctx, g)?.vehicle && mode !== 'bounding' && shot.targetType !== 'IFE' ? g : null;
       const spines = v && shot.ca !== undefined ? spineChange(coveredArc(v), shot.ca) : 0;
       const out = next!(ctx, shot, mode, opts);
+      // ASLRB D1.82 (`FIRED_PHASE`): the phase a turreted vehicle's MA fired in (Bounding First Fire too).
+      const ma = g && ordnanceOf(ctx, g)?.vehicle ? ctx.state.pieces[g.id] : undefined;
+      if (ma && ma.loc.kind === 'hex' && turreted(ctx, ma)) setTags(ctx, ma.id, { [FIRED_PHASE.ma]: firePhaseKeyOf(ctx) });
       // An NT MA's own turn was recorded with its VCA (`sk3.vehicleFire.nt-vca`); without one it pays for the BMG's.
       if (v && ctx.state.pieces[v.id]?.loc.kind === 'hex') {
         if (turreted(ctx, v)) recordTurn(ctx, v.id, TURN, [v.id], spines);

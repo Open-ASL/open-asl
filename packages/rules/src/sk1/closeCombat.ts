@@ -97,6 +97,8 @@ export interface CcAttackPlan {
   fp?: CcFpBreakdown;
   /** Targets with a DRM of their own on top of `drm` (`cc.targetDrm`); absent when there is none. */
   targetDrm?: Record<PieceId, number>;
+  /** What makes up `drm` ("+1 CX attacker", "leadership"), for the log; absent when nothing is labelled. */
+  drmLabels?: string[];
 }
 
 /** The `cc.targetDrm` of each target of an attack that has one. */
@@ -129,6 +131,8 @@ interface CcState {
   turn?: SideId;
   passed?: SideId[];
   attacked?: PieceId[];
+  /** Full ASL: a CC in the MPh after an Infantry OVR (ASLRB A4.152): one Location, no Ambush; `CC_MPH_DONE` follows. */
+  mph?: true;
 }
 /** One side's Ambush dr in a new CC (SK1 3.8): the roll, its drm with what makes it up, and the final dr. */
 export interface AmbushRoll {
@@ -274,12 +278,15 @@ export function declarationOptions(env: QueryEnv, hex: HexId, side: SideId): CcA
   const mine = ccUnits(env, hex, side).filter((p) => !isBroken(p) && !st?.attacked?.includes(p.id));
   const theirs = ccUnits(env, hex, otherSide(env.state, side));
   const ablePersonnel = mine.filter(isPersonnel);
-  // Everyone able attacks together, except a leader whose own MMC cannot attack (SK1 3.8).
-  const group = ablePersonnel.filter((p) => !smc(env, p) || !stackedOn(env, p) || ablePersonnel.some((m) => m.id === stackedOn(env, p))).map((p) => p.id).sort();
+  // Everyone able attacks together, except a leader whose own MMC cannot attack (he defends with it, SK1 3.8).
+  const withOwnMmc = (p: Piece) => !smc(env, p) || !stackedOn(env, p) || ablePersonnel.some((m) => m.id === stackedOn(env, p));
+  const group = ablePersonnel.filter(withOwnMmc).map((p) => p.id).sort();
   const enemyPersonnel = theirs.filter(isPersonnel).map((p) => p.id).sort();
   const enemyVehicles = theirs.filter((p) => !isPersonnel(p));
   const out: CcAttack[] = [];
   if (group.length && enemyPersonnel.length) out.push({ attackers: group, targets: enemyPersonnel });
+  // Such a leader may still attack alone (SK1 3.8: "A SMC may attack alone, but if it does, it must also defend alone").
+  if (enemyPersonnel.length) for (const l of ablePersonnel.filter((p) => !withOwnMmc(p))) out.push({ attackers: [l.id], targets: enemyPersonnel });
   // Against a vehicle: one unit, or an MMC with a SMC (SK4 3.8).
   for (const v of enemyVehicles) {
     for (const m of ablePersonnel.filter((p) => mmc(env, p))) {
@@ -330,12 +337,15 @@ export const closeCombatModule: RuleModule = {
       },
     });
     // `fp`: each attacker's and target's CC FP as the odds were worked out (a pinned unit's halved, SK1 3.2.3), for the log.
-    r.event<{ hex: HexId; side: SideId; attack: CcAttack; odds: string; drm: number; dr: number; kill: number; result: string; fp?: CcFpBreakdown; targetDrm?: Record<PieceId, number> }>({
+    // `drmLabels`: what makes up `drm` ("+1 CX attacker"), for the log. `killLabels`: what set the kill number other than
+    // the Close Combat Chart ("Hand-to-Hand").
+    r.event<{ hex: HexId; side: SideId; attack: CcAttack; odds: string; drm: number; dr: number; kill: number; result: string; fp?: CcFpBreakdown; targetDrm?: Record<PieceId, number>; drmLabels?: string[]; killLabels?: string[] }>({
       type: 'sk1.cc.attack',
       apply() {},
     });
 
     r.procedure<ResolveCcAttackFn>(CCP.resolveAttack, () => (ctx, side, at, plan) => resolveAttackBase(ctx, side, at, plan));
+    r.procedure<CcMphDoneFn>(CC_MPH_DONE, () => () => {});
     // Melee holds while both sides still have Infantry there and someone is unbroken (SK1 3.8).
     r.contribute({
       id: 'sk1.cc.melee-holds',
@@ -353,7 +363,8 @@ export const closeCombatModule: RuleModule = {
       query: 'cc.attackFp',
       layer: 200,
       label: '½ pinned',
-      when: ({ unit }, env) => isPinned(pieceOf(env, unit)) && !!mmc(env, pieceOf(env, unit)),
+      // A SMC's CC strength of one is its inherent FP (ASLRB A11.14): pinned, it is halved too (A7.8).
+      when: ({ unit }, env) => isPinned(pieceOf(env, unit)),
       apply: (v) => v / 2,
     });
     // Said where the strength is shown: a pinned unit's FP is halved (SK1 3.2.3), in its CC attack only (ASLRB A7.8).
@@ -361,7 +372,7 @@ export const closeCombatModule: RuleModule = {
       id: 'sk1.cc.pinned-note',
       query: 'cc.fpNote',
       ref: 'SK1 3.2.3',
-      when: ({ unit, attacking }, env) => attacking && isPinned(pieceOf(env, unit)) && !!mmc(env, pieceOf(env, unit)),
+      when: ({ unit, attacking }, env) => attacking && isPinned(pieceOf(env, unit)),
       apply: (v) => (v ? `${v}; pinned: FP halved` : 'pinned: FP halved'),
     });
     r.contribute({
@@ -683,7 +694,26 @@ function continueHex(ctx: Ctx) {
     }
   }
   finishHex(ctx);
+  if (st.mph) {
+    ctx.emit('sk1.cc.state', { state: null });
+    ctx.proc<CcMphDoneFn>(CC_MPH_DONE)(ctx, st.hex!);
+    return;
+  }
   nextHex(ctx);
+}
+
+/** Procedure run when a CC in the MPh is over (full ASL, ASLRB A4.152): (ctx, Location). */
+export const CC_MPH_DONE = 'sk1.cc.mphDone';
+export type CcMphDoneFn = (ctx: Ctx, hex: HexId) => void;
+
+/**
+ * Full ASL: CC in the MPh in one Location (ASLRB A4.152, A11.1 EXC), simultaneous, with no Ambush (A11.4: the units did
+ * not advance into CC). `barred`: units that may not attack in it (a SMC already attacked in CC this MPh, A4.152; units
+ * other than the ones newly arrived). The declarations follow the CCPh's; `CC_MPH_DONE` is run at the end.
+ */
+export function beginMphCc(ctx: Ctx, hex: LocId, barred: PieceId[]) {
+  ctx.emit('sk1.cc.state', { state: { pending: [], hex, declared: {}, ambusher: null, step: 'simultaneous-attacker', passed: [], attacked: [...barred].sort(), mph: true } });
+  askDeclare(ctx, ctx.state.attacker);
 }
 
 function resolveAttacks(ctx: Ctx, side: SideId, attacks: CcAttack[]) {
@@ -708,7 +738,9 @@ export function planAttack(env: QueryEnv, side: SideId, at: CcAttack): CcAttackP
   const odds = ccOdds(env, attackFp, defenseFp);
   if (!odds) return null;
   const targetDrm = targetDrms(env, hex, side, attackers, targets);
-  return { attackers, targets, attackFp, defenseFp, odds, drm: env.query('cc.drm', { hex, attackers, targets, side }, 0), fp, ...(targetDrm ? { targetDrm } : {}) };
+  const drm = env.explain('cc.drm', { hex, attackers, targets, side }, 0);
+  const drmLabels = drmNotes(drm).flatMap((n) => (n.label ? [n.label] : []));
+  return { attackers, targets, attackFp, defenseFp, odds, drm: drm.value, fp, ...(targetDrm ? { targetDrm } : {}), ...(drmLabels.length ? { drmLabels } : {}) };
 }
 
 /** One declared CC attack, planned and rolled, waiting for its result to be applied. */
@@ -779,9 +811,13 @@ function applyAttack(ctx: Ctx, { side, plan, roll }: CcAttackRoll) {
   const { attackers, odds, drm } = plan;
   const targets = plan.targets.filter((t) => ctx.state.pieces[t]?.loc.kind === 'hex');
   if (targets.length === 0) return;
-  const kill = ctx.query('cc.kill', { hex, side, attackers, targets, odds }, statics(ctx).tables.ccKill(odds));
+  // The chart the kill number comes from, where not the Close Combat Chart ("Hand-to-Hand", SK4 8.1.8.4), for the log.
+  const killRes = ctx.explain('cc.kill', { hex, side, attackers, targets, odds }, statics(ctx).tables.ccKill(odds));
+  const kill = killRes.value;
+  const killLabels = drmNotes(killRes).flatMap((n) => (n.label ? [n.label] : []));
+  const extra = { ...(plan.fp ? { fp: plan.fp } : {}), ...(plan.drmLabels ? { drmLabels: plan.drmLabels } : {}), ...(killLabels.length ? { killLabels } : {}) };
   const final = roll.total + drm;
-  if (plan.targetDrm) return applyPerTarget(ctx, plan, roll.total, kill, targets, side);
+  if (plan.targetDrm) return applyPerTarget(ctx, plan, roll.total, kill, targets, side, extra);
   let result = 'no effect';
   if (final < kill) {
     result = 'eliminated';
@@ -793,7 +829,7 @@ function applyAttack(ctx: Ctx, { side, plan, roll }: CcAttackRoll) {
       ctx.proc<CasualtyFn>(MP.casualtyReduce)(ctx, victim, 'Close Combat');
     }
   }
-  ctx.emit('sk1.cc.attack', { hex, side, attack: { attackers, targets }, odds, drm, dr: roll.total, kill, result, ...(plan.fp ? { fp: plan.fp } : {}) });
+  ctx.emit('sk1.cc.attack', { hex, side, attack: { attackers, targets }, odds, drm, dr: roll.total, kill, result, ...extra });
 }
 
 /**
@@ -801,7 +837,7 @@ function applyAttack(ctx: Ctx, { side, plan, roll }: CcAttackRoll) {
  * "applies only to the TI units"): each target's Final DR is the DR + the attack's DRM + its own. Those below the kill
  * number are eliminated; Casualty Reduction (A11.11) falls by Random Selection on one of those whose Final DR equals it.
  */
-function applyPerTarget(ctx: Ctx, plan: CcAttackPlan, dr: number, kill: number, targets: PieceId[], side: SideId) {
+function applyPerTarget(ctx: Ctx, plan: CcAttackPlan, dr: number, kill: number, targets: PieceId[], side: SideId, extra: object) {
   const hex = ccState(ctx)!.hex!;
   const finalOf = (t: PieceId) => dr + plan.drm + (plan.targetDrm?.[t] ?? 0);
   const killed = targets.filter((t) => finalOf(t) < kill);
@@ -812,7 +848,7 @@ function applyPerTarget(ctx: Ctx, plan: CcAttackPlan, dr: number, kill: number, 
   }
   const result = killed.length === targets.length ? 'eliminated' : [...(killed.length ? [`${killed.length} of ${targets.length} eliminated`] : []), ...(reduced.length ? ['casualty reduction'] : [])].join('; ') || 'no effect';
   const { attackers, odds, drm } = plan;
-  ctx.emit('sk1.cc.attack', { hex, side, attack: { attackers, targets }, odds, drm, dr, kill, result, targetDrm: plan.targetDrm, ...(plan.fp ? { fp: plan.fp } : {}) });
+  ctx.emit('sk1.cc.attack', { hex, side, attack: { attackers, targets }, odds, drm, dr, kill, result, targetDrm: plan.targetDrm, ...extra });
 }
 
 /** CC strength: SMC = 1; MMC = FP (halved if pinned, via query). */
@@ -857,6 +893,8 @@ export interface CcAttackPreview {
   fpNotes: { unit: PieceId; note: string }[];
   /** An attack on a vehicle: the CCV a final DR must be under to eliminate it (equal Immobilizes), in place of odds. */
   ccv?: { value: number; notes: string[] };
+  /** What set `kill` other than the Close Combat Chart ("Hand-to-Hand", SK4 8.1.8.4). */
+  killNotes: string[];
 }
 
 /** What one prospective CC attack would be: strengths, odds column, DRM and legality. Pure; for the interface. */
@@ -869,12 +907,14 @@ export function ccAttackPreview(env: QueryEnv, hex: HexId, side: SideId, attack:
   const d = vsVehicle ? 0 : defenseFp(env, targets, attackers);
   const odds = attackers.length && targets.length && !vsVehicle ? ccOdds(env, a, d) : null;
   const res = attackers.length && targets.length ? env.explain('cc.drm', { hex, attackers, targets, side }, 0) : null;
+  const killRes = !vsVehicle && odds ? env.explain('cc.kill', { hex, side, attackers, targets, odds }, statics(env).tables.ccKill(odds)) : null;
   return {
     attackFp: a,
     defenseFp: d,
     odds,
     ...(vsVehicle ? { ccv: { value: vsVehicle.ccv, notes: vsVehicle.notes } } : {}),
-    kill: vsVehicle ? vsVehicle.ccv - 1 : odds ? env.query('cc.kill', { hex, side, attackers, targets, odds }, statics(env).tables.ccKill(odds)) : 0,
+    kill: vsVehicle ? vsVehicle.ccv - 1 : (killRes?.value ?? 0),
+    killNotes: killRes ? drmNotes(killRes).flatMap((n) => (n.label ? [n.label] : [])) : [],
     drm: res?.value ?? 0,
     drmNotes: res ? [...drmNotes(res), ...targetDrmNotes(env, hex, side, attackers, targets)] : [],
     illegal: declarationIllegal(env, side, hex, [attack]),

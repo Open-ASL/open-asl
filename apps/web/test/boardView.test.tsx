@@ -95,7 +95,9 @@ vi.mock('pixi.js', () => {
   return { UPDATE_PRIORITY: { UTILITY: -50 }, Application, Assets: { load: vi.fn(async () => node()), unload: async () => {} }, Container: plain, Graphics, Sprite: plain, Text: plain, Texture: plain, Rectangle: plain };
 });
 
-const { BoardView } = await import('../src/board/BoardView');
+const { BoardView, showUnitLayers } = await import('../src/board/BoardView');
+const { boardImage, counterImage } = await import('../src/game/assets');
+const { resetArtLoads } = await import('../src/board/boardArt');
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -121,6 +123,7 @@ afterEach(() => {
   pixi.inits = pixi.destroys = 0;
   pixi.tickers.length = pixi.graphics.length = pixi.apps.length = 0;
   vi.restoreAllMocks();
+  resetArtLoads();
 });
 
 async function mount(props: Partial<Parameters<typeof BoardView>[0]> = {}) {
@@ -216,4 +219,60 @@ it('shows the classic TCA when the rotating marker fails to load (SK4 3.2.4)', a
   await mount({ statics: game.engine.statics as Statics, state: { ...game.state, pieces: { tank } } });
   expect(load).toHaveBeenCalledWith(expect.stringContaining('tca-bu.svg'));
   expect(pixi.graphics.some(g => g.calls.join(',').includes('moveTo,lineTo,stroke,moveTo,lineTo,stroke,circle,fill,stroke'))).toBe(true);
+});
+
+describe('hiding the counters to see the terrain', () => {
+  it('hides what is drawn for the units but keeps the Control chits, which say who holds each building', () => {
+    const L = { highlights: { visible: true }, control: { visible: true }, ca: { visible: true }, pieces: { visible: true }, fx: { visible: true }, top: { visible: true }, controls: { visible: true } };
+    showUnitLayers(L, false);
+    expect(L).toMatchObject({ pieces: { visible: false }, ca: { visible: false }, highlights: { visible: false }, top: { visible: false }, fx: { visible: false }, controls: { visible: false }, control: { visible: true } });
+    showUnitLayers(L, true);
+    expect(Object.values(L).every((l) => l.visible)).toBe(true);
+  });
+});
+
+describe('board art that never arrives', () => {
+  const isBoard = (u: unknown) => String(u).split('?')[0] === boardImage('y');
+
+  it('draws the map and its counters without the art, and a new mount asks for the art under a fresh URL', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const asked: string[] = [];
+      // The board image request stalls forever (as a dropped request does in Pixi's loader cache); counters load.
+      const load = vi.spyOn(Assets, 'load').mockImplementation(((u: string) => {
+        asked.push(String(u));
+        return isBoard(u) ? new Promise(() => {}) : Promise.resolve(new Texture());
+      }) as never);
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      root = createRoot(host);
+      await act(async () => root!.render(<BoardView state={state} statics={statics} placements={placements} overlay={{}} onHexClick={noop} />));
+      await act(async () => await vi.advanceTimersByTimeAsync(10_000));
+      // The counters were drawn: their art was asked for after the board art stalled.
+      expect(asked).toContain(counterImage('am.747', false)!);
+      // Every attempt stalls: the pane says so and offers a reload.
+      await act(async () => await vi.advanceTimersByTimeAsync(30_000));
+      expect(host.querySelector('.board-art-missing')?.textContent).toContain('Map art did not load');
+      const firstMount = asked.filter(isBoard);
+      expect(new Set(firstMount).size).toBe(firstMount.length);
+
+      // Leaving and coming back: the art is asked for again, under a URL no stalled request holds.
+      act(() => root!.unmount());
+      load.mockImplementation(((u: string) => {
+        asked.push(String(u));
+        return Promise.resolve(new Texture());
+      }) as never);
+      root = createRoot(host);
+      const before = asked.length;
+      await act(async () => root!.render(<BoardView state={state} statics={statics} placements={placements} overlay={{}} onHexClick={noop} />));
+      await act(async () => await vi.advanceTimersByTimeAsync(1000));
+      const again = asked.slice(before).filter(isBoard);
+      expect(again.length).toBe(1);
+      expect(firstMount).not.toContain(again[0]);
+      expect(host.querySelector('.board-art-missing')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

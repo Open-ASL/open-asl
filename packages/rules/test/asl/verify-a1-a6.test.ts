@@ -97,7 +97,7 @@ describe('A4.62 HAZARDOUS MOVEMENT', () => {
   });
 });
 
-describe('A4.72 vs DIFFICULT TERRAIN (◐: the "≥ four MF" clause)', () => {
+describe('A4.72 vs DIFFICULT TERRAIN: the Starter Kit reading', () => {
   // Test-only terrain: yN6 costs 4 MF to enter (a woods hex entered uphill, say).
   const fourMf: RuleModule = {
     id: 'test.fourMf',
@@ -105,7 +105,8 @@ describe('A4.72 vs DIFFICULT TERRAIN (◐: the "≥ four MF" clause)', () => {
       r.contribute({ id: 'test.fourMf', query: 'move.cost', layer: 950, when: ({ to }) => to === 'yN6', apply: () => 4 });
     },
   };
-  it('an advance costing all of a unit\'s MF makes it CX; one costing 4 of 6 MF does not (ASL: CX at ≥ 4 MF too; not yet enforced)', () => {
+  // The full ASL "≥ four MF" clause is `asl/advanceDifficult.ts` (overstacking.test.ts › A4.72: a 9-1 (six MF) advancing into four-MF woods becomes CX ...).
+  it('Starter Kit: an advance costing all of a unit\'s MF makes it CX; one costing 4 of 6 MF does not (SK1 3.7)', () => {
     const alone = makeEngine({
       startPhase: 'APh',
       extra: [fourMf],
@@ -124,7 +125,7 @@ describe('A4.72 vs DIFFICULT TERRAIN (◐: the "≥ four MF" clause)', () => {
         { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yP9' },
       ],
     });
-    // With the leader the squad has 6 MF. Current behaviour: not CX. Under A4.72 a ≥ 4 MF hex makes it CX.
+    // With the leader the squad has 6 MF: not CX in the Starter Kit.
     expect(act(led.engine, led.state, { type: 'advance', units: ['a1', 'aL'], to: 'yN6' }).state.pieces['a1']!.tags['cx']).toBeUndefined();
   });
 });

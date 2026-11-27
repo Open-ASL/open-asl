@@ -1,4 +1,4 @@
-import { stackLimit } from './movement';
+import { stackCap } from './movement';
 import type { Action, Ctx, Decision, HexId, Piece, PieceId, QueryEnv, RuleModule, SideId } from '@asl/engine';
 import { byId, hexOf, otherSide, personnelAt, statics, swHeldBy } from '../common/pieces';
 import { LEVEL_CHANGE_MF, adjacentLocs, hexOfLoc, levelOfLoc, locId, locOf, locationAt, locationsOf, parseLoc, type LocId } from '../common/location';
@@ -88,6 +88,11 @@ declare module '@asl/engine' {
     'rout.extraNeighbours': { ctx: { node: LocId; unit?: PieceId }; value: LocId[] };
     /** The MF to a shelter node that counts for "nearest" (full ASL A10.531: not a Fortification's entry cost); the MF spent by default. */
     'rout.nearestCost': { ctx: { unit: PieceId; node: LocId; cost: number }; value: number };
+    /**
+     * Full ASL: MF a routing unit pays on top of the terrain to enter Location `to` (ASLRB A5.11: an overstacked Location),
+     * counted toward the nearest shelter too (Q&A to A5.11 and A10.51). 0 in the Starter Kit.
+     */
+    'rout.enterMf': { ctx: { unit: PieceId; to: LocId }; value: number };
   }
 }
 
@@ -336,9 +341,9 @@ function endsBesideEnemy(env: QueryEnv, side: SideId, hex: LocId): boolean {
 }
 
 const routStepCost = (env: QueryEnv, unit: PieceId, from: LocId, to: LocId, woods = false) =>
-  special(env, from) || special(env, to)
+  (special(env, from) || special(env, to)
     ? env.query('move.cost', { unit, from: hexOfLoc(from), to: hexOfLoc(to), viaRoad: false, ...(parseLoc(to).sub ? { loc: to } : {}) }, 1)
-    : env.query('move.cost', { unit, from, to, viaRoad: !woods && (statics(env).map.roadHexside?.(from, to) ?? false) }, 1);
+    : env.query('move.cost', { unit, from, to, viaRoad: !woods && (statics(env).map.roadHexside?.(from, to) ?? false) }, 1)) + env.query('rout.enterMf', { unit, to }, 0);
 
 /**
  * A step's cost: beneath the entrenchment of the hex entered (full ASL, ASLRB B27.41: the module's whole cost, or its
@@ -359,18 +364,24 @@ function beneathOrStepCost(env: QueryEnv, unit: PieceId, from: HexId, toLoc: Loc
 function stepIllegal(env: QueryEnv, side: SideId, from: HexId, toLoc: LocId, seen: Set<HexId>, unit: PieceId): string | null {
   const map = statics(env).map;
   const to = hexOfLoc(toLoc);
+  // The imaginary off-board hex beyond an edge hex (ASLRB A2.6) is drawn but is not on the map: "The mapboard cannot
+  // be left during the RtPh."
+  if (!map.hex(to)) return 'The mapboard cannot be left during the RtPh (ASLRB A2.6)';
   if (special(env, from) || special(env, toLoc) ? !routNeighbours(env, from).includes(toLoc) : !map.neighbors(from).includes(to)) return 'Rout must move to adjacent hexes';
   const caves = env.query('rout.stepIllegal', { unit, from, to: toLoc }, null);
   if (caves) return caves;
   // A Location holding only a concealed enemy stack may be *attempted* (SK4 8.3.4: the "?" comes off and the rout ends there).
   if (knownEnemyAt(env, toLoc, side).length > 0) return 'Cannot rout into an enemy-occupied hex';
   // SK1 3.6: a routing unit ignores any building or woods hex "it cannot enter due to stacking limits"
-  // (three squad-equivalents and four SMC per side, SK1 2.0; per Location, ASLRB A5.1).
-  const here = personnelAt(env, toLoc, side).filter((p) => p.id !== unit);
-  const all = [...here, pieceOf(env, unit)];
-  const limit = stackLimit(env, special(env, toLoc) ? toLoc : to, side);
-  if (squadEquivalents(env, all) > limit.se) return `Stacking limit: ${limit.se} squad-equivalents${limit.note ? ` (${limit.note})` : ''}`;
-  if (all.filter((p) => smc(env, p)).length > 4) return 'Stacking limit: 4 SMC';
+  // (three squad-equivalents and four SMC per side, SK1 2.0; per Location, ASLRB A5.1). Full ASL routs there "even if
+  // overstacked" (A10.51): only a capacity refuses it (`stackCap`).
+  const limit = stackCap(env, special(env, toLoc) ? toLoc : to, side);
+  if (limit) {
+    const here = personnelAt(env, toLoc, side).filter((p) => p.id !== unit);
+    const all = [...here, pieceOf(env, unit)];
+    if (squadEquivalents(env, all) > limit.se) return `Stacking limit: ${limit.se} squad-equivalents${limit.note ? ` (${limit.note})` : ''}`;
+    if (all.filter((p) => smc(env, p)).length > limit.smc) return `Stacking limit: ${limit.smc} SMC`;
+  }
   for (const eh of enemyHexes(env, side)) {
     const watching = seen.has(eh) || hasLos(env, from, eh);
     if (watching && nodeDistance(env, to, eh) < nodeDistance(env, from, eh)) return `Cannot rout toward the enemy in ${hexName(env, hexOfLoc(eh))} (SK1 3.6: no step that shortens the range to a Known enemy unit in its LOS, even a broken one)`;
@@ -706,10 +717,13 @@ function stairStepCheck(env: QueryEnv, v: RoutView, toLoc: LocId, lowCrawl: bool
   if (!adjacentLocs(env, locId(v.at, v.level)).includes(toLoc)) return 'There are no stairs to that level here';
   if (lowCrawl || woods) return 'Low Crawl and Woods-Road choices do not apply on the stairs';
   if (knownEnemyAt(env, toLoc, v.side).length > 0) return 'Cannot rout into an enemy-occupied Location';
-  const here = personnelAt(env, toLoc, v.side).filter((p) => p.id !== v.unit);
-  const all = [...here, pieceOf(env, v.unit)];
-  if (squadEquivalents(env, all) > 3) return 'Stacking limit: 3 squad-equivalents';
-  if (all.filter((p) => smc(env, p)).length > 4) return 'Stacking limit: 4 SMC';
+  const limit = stackCap(env, toLoc, v.side);
+  if (limit) {
+    const here = personnelAt(env, toLoc, v.side).filter((p) => p.id !== v.unit);
+    const all = [...here, pieceOf(env, v.unit)];
+    if (squadEquivalents(env, all) > limit.se) return `Stacking limit: ${limit.se} squad-equivalents${limit.note ? ` (${limit.note})` : ''}`;
+    if (all.filter((p) => smc(env, p)).length > limit.smc) return `Stacking limit: ${limit.smc} SMC`;
+  }
   const mf = stairsMf(env, v.unit, toLoc);
   if (v.spent + mf > v.mf) return `Not enough MF (${v.mf}) for that rout path`;
   if (levelOfLoc(toLoc) > v.level) {

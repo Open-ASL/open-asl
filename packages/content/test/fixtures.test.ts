@@ -94,8 +94,10 @@ describe('BPV (A./G. National Capabilities Chart)', () => {
 
 describe('Dev fixtures', () => {
   it('lists the test bed fixtures', () => {
-    expect(fixturesFor('asl-testbed').map((f) => f.id)).toEqual(['kindling', 'start', 'melee', 'building-assault', 'two-story-house', 'los-heights', 'orchard-road', 'bypass', 'fortified-breach', 'breach-unknown', 'fortified-hidden', 'fort-setup', 'fort-owner', 'fort-placed', 'entrench', 'foxhole-fight', 'trench-move', 'foxhole-hidden', 'snap-shot', 'mines-walk', 'mines-leave', 'mines-own', 'mines-advance', 'mines-clear', 'mines-hip', 'pb-hidden', 'deploy-setup', 'deploy-rph', 'deploy-ru']);
+    expect(fixturesFor('asl-testbed').map((f) => f.id)).toEqual(['kindling', 'start', 'melee', 'building-assault', 'two-story-house', 'los-heights', 'orchard-road', 'bypass', 'fortified-breach', 'breach-unknown', 'fortified-hidden', 'fort-setup', 'fort-owner', 'fort-placed', 'entrench', 'foxhole-fight', 'trench-move', 'foxhole-hidden', 'snap-shot', 'mines-walk', 'mines-leave', 'mines-own', 'mines-advance', 'mines-clear', 'mines-hip', 'pb-hidden', 'deploy-setup', 'deploy-rph', 'deploy-ru', 'afph-recover', 'overstack-hidden', 'overstack-hidden-unseen']);
     expect(fixturesFor('asl-testbed-deploy').map((f) => f.id)).toEqual(['recombine-ru', 'recombine-foxhole', 'deploy-offboard']);
+    expect(fixturesFor('asl-testbed-movement').map((f) => f.id)).toEqual(['min-move', 'double-time-late', 'dash', 'dash-hidden', 'ovr-leader', 'ovr-armed', 'ovr-melee']);
+    expect(fixturesFor('asl-testbed-stacking').map((f) => f.id)).toEqual(['overstack-move', 'overstack-five-smc', 'overstack-advance', 'overstack-rout', 'overstack-dm']);
     expect(fixturesFor('asl-testbed-fire').map((f) => f.id)).toEqual(['blaze-spread', 'flame-clearance', 'pb-blaze']);
     expect(fixturesFor('asl-testbed-mines').map((f) => f.id)).toEqual(['mines-tb', 'mines-armor', 'mines-belt', 'booby-traps', 'mines-rout']);
     expect(fixturesFor('asl-testbed-pillbox').map((f) => f.id)).toEqual(['pb-enter', 'pb-assault', 'pb-armor', 'pb-rout', 'pb-cc', 'pb-control', 'pb-bunker', 'pb-gun']);
@@ -533,7 +535,7 @@ describe('vehicle and fortification fixtures (ASLRB B27.43, B27.52, B9.36, C10.3
   const legalOf = (engine: ReturnType<typeof loadOn>['engine'], s: ReturnType<typeof loadOn>['state'], type: string) => engine.legalActions(s, engine.currentDecision(s)!.owner).filter((a) => a.type === type);
 
   it('lists the T5 fixtures', () => {
-    expect(fixturesFor('asl-testbed-vehicles').map((f) => f.id)).toEqual(['trench-tank', 'trench-tank-woods', 'trench-tank-hidden', 'foxhole-car', 'roadblock-armor', 'gun-push', 'wire-armor', 'mortar-armor']);
+    expect(fixturesFor('asl-testbed-vehicles').map((f) => f.id)).toEqual(['trench-tank', 'trench-tank-woods', 'trench-tank-hidden', 'foxhole-car', 'roadblock-armor', 'gun-push', 'wire-armor', 'mortar-armor', 'overstack-vehicles']);
   });
 
   it('trench-tank: the T-34 and a 4-5-8 beneath the P6 trench, HD to the PzKpfw IVF2 in T6; it may not start, turn or fire its BMG at it', () => {

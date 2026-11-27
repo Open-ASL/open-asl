@@ -89,7 +89,7 @@ export const riverModule: RuleModule = {
       layer: Layer.Multiply + 100,
       apply(v, { hex }, env) {
         const q = riverParams(env).find((x) => x.stack && x.crossing.hex === hex);
-        return q ? { se: Math.min(v.se, q.stack!.se), smc: Math.min(v.smc, q.stack!.smc) } : v;
+        return q ? { se: Math.min(v.se, q.stack!.se), smc: Math.min(v.smc, q.stack!.smc), capacity: true } : v;
       },
     });
     r.contribute({

@@ -1,5 +1,5 @@
 import { COUNTERS } from '@asl/content';
-import type { CounterDef, SpecialAmmoDef, VehicleDef } from '@asl/rules';
+import { smokeDispenserLabel, type CounterDef, type SpecialAmmoDef, type VehicleDef } from '@asl/rules';
 import { defLabel } from './describe';
 
 const QUALITY: Record<string, string> = { E: 'Elite', '1': 'First Line', '2': 'Second Line', G: 'Green', C: 'Conscript' };
@@ -110,9 +110,9 @@ function vehicleNotes(d: VehicleDef): string[] {
     n.push(`breakdown B${d.ma.b ?? 12}${d.ma.lowAmmo ? ' (circled: Low Ammo)' : ''}`);
     if (d.ma.noIntensive) n.push('no Intensive Fire');
   }
-  const mgs = [d.mg.bmg !== undefined ? `BMG ${d.mg.bmg}${d.mg.bmgFixed ? ' (fixed mount)' : ''}` : null, d.mg.cmg !== undefined ? `CMG ${d.mg.cmg}` : null, d.mg.aamg !== undefined ? `AAMG ${d.mg.aamg}` : null, d.mg.rmg !== undefined ? `RMG ${d.mg.rmg}` : null].filter(Boolean);
+  const mgs = [d.mg.bmg !== undefined ? `BMG ${d.mg.bmg}${d.mg.bmgFixed ? ' (fixed mount)' : ''}` : null, d.mg.cmg !== undefined ? `CMG ${d.mg.cmg}` : null, d.mg.aamg !== undefined ? `AAMG ${d.mg.aamg}` : null, d.mg.rmg !== undefined ? `RMG ${d.mg.rmg}${d.mg.rmgClock !== undefined ? ` (${d.mg.rmgClock}:00 from MA)` : ''}` : null].filter(Boolean);
   if (mgs.length) n.push(`machine guns ${mgs.join(', ')}`);
-  for (const s of d.smoke ?? []) n.push(`${s.kind}${s.n} smoke dispenser`);
+  for (const s of d.smoke ?? []) n.push(`${smokeDispenserLabel(s)} smoke dispenser`);
   if (d.targetSize !== 'normal') n.push(SIZE_NAME[d.targetSize]);
   if (d.openTopped) n.push('Open-Topped');
   n.push(`crew morale ${d.crewMorale}`, `CE +${d.ceDrm} DRM`);

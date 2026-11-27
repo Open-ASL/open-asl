@@ -243,6 +243,20 @@ describe('Rout Phase', () => {
     expect(why).toMatch(/M5 is a building or woods hex too, but 4 MF away against 3 for N3/);
   });
 
+  it('a rout may not leave the mapboard, and the refusal says so (ASLRB A2.6)', () => {
+    // A1 is a board-edge hex; A0 is the imaginary off-board hex beyond it (A2.6), drawn but not on the map.
+    const { engine, state } = makeEngine({
+      startPhase: 'RtPh',
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yA1', tags: { broken: true, dm: true } },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yC2' },
+      ],
+    });
+    expect(stepTargets(engine, state, 'am', 'a1')).not.toContain('yA0');
+    const why = engine.validate(state, { type: 'rout.step', unit: 'a1', to: 'yA0', side: 'am', decisionId: engine.currentDecision(state)!.id });
+    expect(why).toBe('The mapboard cannot be left during the RtPh (ASLRB A2.6)');
+  });
+
   it('a rout may not enter a hex it would overstack, so a full shelter is ignored (SK1 3.6)', () => {
     const { engine, state } = makeEngine({
       startPhase: 'RtPh',

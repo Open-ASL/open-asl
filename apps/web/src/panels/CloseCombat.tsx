@@ -89,7 +89,7 @@ export interface Card {
   targets: PieceId[];
   preview: CcAttackPreview | null;
   dice?: number[];
-  result?: { odds: string; drm: number; dr: number; kill: number; result: string };
+  result?: { odds: string; drm: number; dr: number; kill: number; result: string; killLabels?: string[] };
   note?: string;
 }
 
@@ -249,7 +249,7 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
   const order: SideId[] = here.ambusher ? [here.ambusher, otherSide(env.state, here.ambusher)] : [attacker, defender];
   for (const side of order) {
     const rolled: { dice: number[]; seq: number }[] = [];
-    const events: { attack: CcAttack; odds: string; drm: number; dr: number; kill: number; result: string }[] = [];
+    const events: { attack: CcAttack; odds: string; drm: number; dr: number; kill: number; result: string; killLabels?: string[] }[] = [];
     const notes = new Map<number, string>();
     for (const e of after) {
       const p = e.payload as Record<string, unknown>;
@@ -286,7 +286,7 @@ function buildView(session: CcSession, here: CcSlice, env: QueryEnv, log: Logged
         targets: group.targets,
         preview: null,
         dice: r.dice,
-        ...(ev ? { result: { odds: ev.odds, drm: ev.drm, dr: ev.dr, kill: ev.kill, result: ev.result } } : {}),
+        ...(ev ? { result: { odds: ev.odds, drm: ev.drm, dr: ev.dr, kill: ev.kill, result: ev.result, ...(ev.killLabels ? { killLabels: ev.killLabels } : {}) } } : {}),
         ...(notes.has(i) ? { note: notes.get(i)! } : {}),
       };
       cards.push(card);
@@ -641,7 +641,7 @@ function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, chec
               </div>
               <div className="cc-math">
                 DR {r.dr}
-                {r.drm ? ` ${signed(r.drm)} = ${final}` : ''} · {r.odds.startsWith('CCV') ? `eliminate ≤ ${r.kill}, immobilize ${r.kill + 1}` : `kill ≤ ${r.kill}`}
+                {r.drm ? ` ${signed(r.drm)} = ${final}` : ''} · {r.odds.startsWith('CCV') ? `eliminate ≤ ${r.kill}, immobilize ${r.kill + 1}` : `${r.killLabels?.length ? `${r.killLabels.join(', ')} ` : ''}kill # ${r.kill}`}
               </div>
               <div className="cc-result">{RESULT_TEXT[r.result] ?? r.result}</div>
               {c.note && <div className="cc-note">{c.note}</div>}
@@ -807,6 +807,12 @@ function Odds({ pv, ready, plain }: { pv: CcAttackPreview | null; ready: boolean
         <div className="cc-math">
           DRM {signed(pv.drm)}
           {notes ? ` (${notes})` : ''}
+        </div>
+      )}
+      {/* A final DR under the kill number eliminates, equal to it is Casualty Reduction (SK1 3.8). */}
+      {pv.odds && (
+        <div className="cc-math">
+          {pv.killNotes.length ? `${pv.killNotes.join(', ')}: ` : ''}final DR &lt; {pv.kill} eliminates, = {pv.kill} Casualty Reduction
         </div>
       )}
       {pv.fpNotes.map((n) => (

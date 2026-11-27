@@ -32,6 +32,7 @@ import { sk2CoreModules } from '../../src/sk2';
 import { sk3CoreModules } from '../../src/sk3';
 import { act, fixtureIft, makeEngine, type PieceSpec } from '../fixtures';
 import { nearestSpine } from '../../src/sk2/arc';
+import { RP, type FieldPromotionFn } from '../../src/sk1/rally';
 
 /*
  * Pillboxes in play (ASLRB B30, with A5.5, A5.6, A7.5, A8.22, A10.5x, A10.6x, A11.15, A12.3x, A26.132, C3.71, C8.31). The ground
@@ -93,6 +94,14 @@ const testModule: RuleModule = {
       decisionKinds: ['phase'],
       resolve(ctx, a) {
         ctx.emit('asl.fire.blaze', { loc: a.loc, blaze: { since: '1:ge:PFPh', kindledBy: null }, source: 'ssr' });
+      },
+    });
+    // Leader Creation by `unit` (the stub table makes a 9-1 on any dr).
+    r.action<Action & { unit: string }>({
+      type: 'test.promote',
+      decisionKinds: ['phase'],
+      resolve(ctx, a) {
+        ctx.proc<FieldPromotionFn>(RP.fieldPromotion)(ctx, a.unit, 7);
       },
     });
     r.action<Action & { id: string; tags: Record<string, unknown> }>({
@@ -196,6 +205,41 @@ describe('the pillbox Location (B30.1, B30.111, B30.2, B30.45, A5.5, A5.6)', () 
     const env = engine.env(s);
     expect(env.query('stack.limit', { hex: 'uO5', side: 'ru' }, { se: 3, smc: 4 }).se).toBe(3);
     expect(env.query('stack.limit', { hex: 'uO5:pb', side: 'ru' }, { se: 3, smc: 4 })).toMatchObject({ se: 1, smc: 4 });
+  });
+
+  it('Leader Creation in a full 1-squad pillbox makes no leader (A5.6; Q&A to A5.5: "The SMC is not created"); with room he is created inside', () => {
+    const tables = { leaderCreation: () => 'ru.L91' };
+    const inside = [ru('a', 'uO5'), ...['l1', 'l2', 'l3', 'l4'].map((id): PieceSpec => ({ id, def: 'ru.L81', side: 'ru', hex: 'uO5' })), ...far];
+    const { engine, state } = game(inside, { first: 'ru', phase: 'RPh', tables, dice: [1] });
+    let s = place(engine, state, 'ru', [pillbox()]);
+    for (const id of ['a', 'l1', 'l2', 'l3', 'l4']) s = tele(engine, s, id, 'uO5', 'pb');
+    const full = act(engine, s, { type: 'test.promote', unit: 'a' });
+    expect(full.events.find((e) => e.type === 'sk1.leaderCreation')?.payload).toMatchObject({ unit: 'a', leader: null, defId: 'ru.L91', why: expect.stringMatching(/overstack the pillbox/) });
+    expect(Object.keys(full.state.pieces).length).toBe(Object.keys(s.pieces).length);
+    const room = game([ru('a', 'uO5'), ...far], { first: 'ru', phase: 'RPh', tables, dice: [1] });
+    let t = place(room.engine, room.state, 'ru', [pillbox()]);
+    t = tele(room.engine, t, 'a', 'uO5', 'pb');
+    const made = act(room.engine, t, { type: 'test.promote', unit: 'a' });
+    const id = (made.events.find((e) => e.type === 'sk1.leaderCreation')!.payload as { leader: string }).leader;
+    expect(made.state.pieces[id]!.loc).toEqual({ kind: 'hex', hex: 'uO5', sub: 'pb' });
+  });
+
+  it('Leader Creation beneath a full foxhole puts the leader outside it, in the Location (B27.12)', () => {
+    const tables = { leaderCreation: () => 'ru.L91' };
+    const { engine, state } = game([ru('a', 'uN5'), ...far], { first: 'ru', phase: 'RPh', tables, dice: [1, 1] });
+    let s = act(engine, state, { type: 'test.fortPlace', fortSide: 'ru', counters: [{ kind: 'foxhole', hex: 'uN5', hidden: false, capacity: 1 }] }).state;
+    s = act(engine, s, { type: 'test.teleport', id: 'a', hex: 'uN5', ent: 'foxhole' }).state;
+    const made = act(engine, s, { type: 'test.promote', unit: 'a' });
+    const id = (made.events.find((e) => e.type === 'sk1.leaderCreation')!.payload as { leader: string }).leader;
+    // A 1S foxhole holds the squad and four SMC (B27.12): room for him beneath it.
+    expect(made.state.pieces[id]!.loc).toEqual({ kind: 'hex', hex: 'uN5', pos: { ent: 'foxhole' } });
+    const four = ['l1', 'l2', 'l3', 'l4'];
+    const f = game([ru('a', 'uN5'), ...four.map((x): PieceSpec => ({ id: x, def: 'ru.L81', side: 'ru', hex: 'uN5' })), ...far], { first: 'ru', phase: 'RPh', tables, dice: [1] });
+    let u = act(f.engine, f.state, { type: 'test.fortPlace', fortSide: 'ru', counters: [{ kind: 'foxhole', hex: 'uN5', hidden: false, capacity: 1 }] }).state;
+    for (const x of ['a', ...four]) u = act(f.engine, u, { type: 'test.teleport', id: x, hex: 'uN5', ent: 'foxhole' }).state;
+    const out = act(f.engine, u, { type: 'test.promote', unit: 'a' });
+    const lid = (out.events.find((e) => e.type === 'sk1.leaderCreation')!.payload as { leader: string }).leader;
+    expect(out.state.pieces[lid]!.loc).toEqual({ kind: 'hex', hex: 'uN5' });
   });
 
   it('no vehicle, and no Gun pushed in or out (B30.111, B30.45), each with its own reason', () => {

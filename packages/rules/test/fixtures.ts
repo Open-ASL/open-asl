@@ -9,6 +9,8 @@ import {
 import {
   HexGridMap,
   SK4_TERRAIN,
+  UNKNOWN_DEF,
+  UNKNOWN_DEF_ID,
   piecesModule,
   turnModule,
   type CounterDef,
@@ -153,6 +155,8 @@ export const COUNTERS: Record<string, CounterDef> = {
   'ge.stgiiigl.aamg': { id: 'ge.stgiiigl.aamg', nationality: 'ge', kind: 'sw', type: 'AAMG', fp: 1, range: 8, pp: 0, fixed: true, b: 12, repair: 1 },
   'ge.otv.bmg': { id: 'ge.otv.bmg', nationality: 'ge', kind: 'sw', type: 'BMG', fp: 3, range: 8, pp: 0, fixed: true, b: 12, repair: 1 },
   'ge.otv.cmg': { id: 'ge.otv.cmg', nationality: 'ge', kind: 'sw', type: 'CMG', fp: 5, range: 12, pp: 0, fixed: true, b: 12, repair: 1 },
+  // The "?" a redacted view puts over a concealed stack (SK4 8.3), as the content package registers it.
+  [UNKNOWN_DEF_ID]: { ...UNKNOWN_DEF },
 };
 
 /** TEST FIXTURE IFT matching every data point in the SK1 rulebook examples. Not the real chart. */

@@ -209,9 +209,11 @@ export function pfIllegal(env: QueryEnv, side: SideId, pf: PfShot, mode: FireMod
     if (why) return why;
   }
   if (pf.targetType === 'VTT') {
-    const v = pf.targetUnit ? env.state.pieces[pf.targetUnit] : enemyVehicleAt(env, pf.target, side);
+    const v = pf.targetUnit ? env.state.pieces[pf.targetUnit] : enemyVehicleAt(env, pf.target, side, moving);
     if (!v || v.side === side || !vehicle(env, v) || hexOf(env.state, v) !== pf.target || v.tags['wreck']) return 'No enemy vehicle there to aim at';
     if (!env.query('piece.visibleTo', { piece: v.id, viewer: side }, true)) return 'No target there';
+    // Defensive First Fire attacks only the moving unit, never a vehicle that sits in its hex (SK4 3.3.3, ASLRB A8.1).
+    if (moving && !moving.includes(v.id)) return 'Defensive First Fire may attack only the moving unit: that vehicle is not moving';
     return null;
   }
   if (range === 0) return 'Cannot fire into own hex';
@@ -232,8 +234,12 @@ export function simplePfShots(env: QueryEnv, side: SideId, mode: FireMode, targe
   for (const u of units)
     for (const target of targets)
       for (const targetType of ['VTT', 'ITT'] as const) {
-        const pf: PfShot = { unit: u.id, target, targetType };
-        if (!pfIllegal(env, side, pf, mode, moving)) out.push(pf);
+        // Full ASL: one shot per enemy vehicle where several share the Location (ASLRB A5.2; `ordnance.vttTargets`).
+        const named = targetType === 'VTT' ? env.query('ordnance.vttTargets', { target, side }, []) : [];
+        for (const targetUnit of named.length ? named : [undefined]) {
+          const pf: PfShot = { unit: u.id, target, targetType, ...(targetUnit ? { targetUnit } : {}) };
+          if (!pfIllegal(env, side, pf, mode, moving)) out.push(pf);
+        }
       }
   return out;
 }

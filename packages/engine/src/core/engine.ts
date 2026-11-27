@@ -14,7 +14,7 @@ import {
   type RngState,
   type SideId,
 } from './types';
-import { applyPatch, deepEqual, diffStates, mentionsAny, type ViewPatch } from './view';
+import { applyPatch, deepEqual, diffStates, idPattern, mentionsAny, type ViewPatch } from './view';
 
 export interface EngineOptions {
   /**
@@ -76,10 +76,15 @@ const BUILTIN_EVENTS: { [K in keyof BuiltinPayloads]: (d: Draft<GameState>, p: B
   },
 };
 
-function stripRng(p: BuiltinPayloads['dice.rolled']): BuiltinPayloads['dice.rolled'] {
+/**
+ * A roll as a viewer sees it: without the generator state, and with every piece hidden from them that its label names
+ * (`Rally <id>`) shown as "?": the roll is made in plain sight, which counter made it is not.
+ */
+function viewRoll(p: BuiltinPayloads['dice.rolled'], hidden: Set<string>): BuiltinPayloads['dice.rolled'] {
   const { rng: _rng, ...rest } = p;
   void _rng;
-  return rest;
+  const re = idPattern(hidden, 'g');
+  return re && re.test(rest.label) ? { ...rest, label: rest.label.replace(re, '?') } : rest;
 }
 
 export class Engine {
@@ -262,7 +267,7 @@ export class Engine {
       for (const id of Object.keys(full.pieces)) if (!(id in view.pieces)) hidden.add(id);
       for (const id of Object.keys(nextFull.pieces)) if (!(id in nextView.pieces)) hidden.add(id);
       const secretRoll = ev.type === 'dice.rolled' && (ev.payload as BuiltinPayloads['dice.rolled']).secret;
-      let candidate: GameEvent | null = ev.type !== 'dice.rolled' ? ev : secretRoll && secretRoll !== viewer ? null : { ...ev, payload: stripRng(ev.payload as BuiltinPayloads['dice.rolled']) };
+      let candidate: GameEvent | null = ev.type !== 'dice.rolled' ? ev : secretRoll && secretRoll !== viewer ? null : { ...ev, payload: viewRoll(ev.payload as BuiltinPayloads['dice.rolled'], hidden) };
       const redactor = byEvent.get(ev.type);
       if (candidate && redactor?.redactEvent) candidate = redactor.redactEvent(candidate, viewer, this.env(nextFull));
       let accepted: GameEvent | null = null;

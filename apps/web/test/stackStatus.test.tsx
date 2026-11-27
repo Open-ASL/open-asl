@@ -2,8 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { act as reactAct, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { sk2CoreModules } from '@asl/rules';
-import { GE_VS_BR, makeEngine } from '../../../packages/rules/test/fixtures';
+import { UNKNOWN_DEF, UNKNOWN_DEF_ID, concealmentModule, redactState, sk2CoreModules, sk3CoreModules } from '@asl/rules';
+import { GE_VS_BR, RU_VS_GE, makeEngine } from '../../../packages/rules/test/fixtures';
 import type { GameState } from '@asl/engine';
 import { DEMO_VEHICLES_SCENARIO, newGame } from '@asl/content';
 import { StackPeek } from '../src/board/StackPeek';
@@ -79,5 +79,29 @@ describe('a Stunned vehicle in the stack views', () => {
     expect(words('STUNNED · STUN +1')).toEqual([]);
     expect(words('DESTROYED')).toEqual([]);
     expect(renderHost(createElement(StunCase, { text: 'Immobilized · Stun' })).textContent).toBe('Immobilized · Stun');
+  });
+});
+
+describe('a concealed enemy stack', () => {
+  it('reads as one "?" over the number of counters beneath it, not as a count of "?" counters (SK4 8.3, ASLRB A12.1)', () => {
+    const { engine, state } = makeEngine({
+      scenario: { ...RU_VS_GE, ssr: [{ module: 'concealment', params: {}, text: 'Concealment' }] },
+      extra: [...sk2CoreModules, ...sk3CoreModules, concealmentModule],
+      counters: { [UNKNOWN_DEF_ID]: UNKNOWN_DEF },
+      terrain: { yK5: { terrain: 'building-stone', buildingId: 'b' } },
+      pieces: [
+        { id: 'a', def: 'ru.447', side: 'ru', hex: 'yK5', tags: { concealed: true } },
+        { id: 'b', def: 'ru.447', side: 'ru', hex: 'yK5', tags: { concealed: true } },
+        { id: 'g', def: 'ge.467', side: 'ge', hex: 'yK8' },
+      ],
+    });
+    const env = engine.env(redactState(engine, state, 'ge'));
+    const card = render(createElement(StackPeek, { env, hex: 'yK5', at: { x: 10, y: 10 }, bounds: { w: 800, h: 600 } }));
+    expect(card).toContain('one "?" over 2 counters');
+    // The card's count is the stack's height at the table: the "?" and the two beneath it.
+    expect(card).toContain('3 counters');
+    expect(card).not.toMatch(/stack of \d+ counter/);
+    const tray = render(createElement(StackInspector, { env, hex: 'yK5', selected: new Set(), onToggle: () => {} }));
+    expect(tray).toContain('one "?" over 2 counters');
   });
 });

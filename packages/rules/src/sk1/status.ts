@@ -222,6 +222,9 @@ export const fireMarker = (p: Piece) => p.tags[T.fire] as 'prep' | 'adv' | 'firs
 export function finalFireMarker(env: QueryEnv, w: Piece): 'prep' | 'adv' | 'first' | 'final' | 'bff' | undefined {
   const own = fireMarker(w);
   if (own || w.loc.kind !== 'held') return own;
+  // A MG that kept its Rate of Fire may fire again this phase (SK1 1.2.4), whatever its holder's marker; a Gun stays
+  // under its crew's.
+  if (w.tags[T.rofFired] !== undefined && !gun(env, w)) return own;
   const h = env.state.pieces[w.loc.by];
   const hm = h ? fireMarker(h) : undefined;
   if (!h || (hm !== 'first' && hm !== 'final')) return own;
@@ -258,6 +261,15 @@ export function goodOrderLeadersAt(env: QueryEnv, loc: LocId, side: SideId): Pie
     (p) => smc(env, p) && isGoodOrder(env, p) && !isPinned(p),
   );
 }
+
+/**
+ * Whether a leader who passed his MC unharmed lends his leadership DRM to `to`'s check in the same attack (SK1 3.2.1:
+ * "An unpinned, Good Order leader will apply his leadership DRM to other units ... in the target location"): only to
+ * units of his own side, and only while unpinned and in Good Order, which a leader in Melee is not (SK1 glossary: "Good
+ * Order: An Infantry unit that is neither broken nor marked with a Melee counter"; ASLRB A.7 "held in Melee").
+ */
+export const lendsLeadershipTo = (env: QueryEnv, leader: Piece, to: Piece) =>
+  leader.side === to.side && !isPinned(leader) && isGoodOrder(env, leader);
 
 /** The best (most negative) leadership DRM among usable leaders, or 0. */
 export function bestLeadership(env: QueryEnv, leaders: Piece[]): { leader: Piece | null; drm: number } {

@@ -10,6 +10,7 @@ import {
   isBroken,
   isGoodOrder,
   isPinned,
+  lendsLeadershipTo,
   mmc,
   pieceOf,
   setTags,
@@ -317,10 +318,14 @@ export const moraleModule: RuleModule = {
       const others = alive.filter((id) => !leaders.includes(id)).sort();
       // Leaders who passed unharmed, each lending his DRM to the units after him (to those he may lead).
       const lenders: PieceId[] = (opts.lenders ?? []).filter((l) => ctx.state.pieces[l]?.loc.kind !== 'eliminated');
-      const lend = (to: PieceId) => Math.min(0, ...lenders.map((l) => ctx.query('unit.leadership', { unit: l, for: to }, smc(ctx, pieceOf(ctx, l))!.leadership)));
+      // Only to his own side, and only while unpinned and in Good Order (not in Melee): `lendsLeadershipTo`. The lenders
+      // of an earlier result group of the same attack (`opts.lenders`) are held to it too.
+      const lendersTo = (to: PieceId) => lenders.filter((l) => lendsLeadershipTo(ctx, pieceOf(ctx, l), pieceOf(ctx, to)));
+      const leadershipFor = (l: PieceId, to: PieceId) => ctx.query('unit.leadership', { unit: l, for: to }, smc(ctx, pieceOf(ctx, l))!.leadership);
+      const lend = (to: PieceId) => Math.min(0, ...lendersTo(to).map((l) => leadershipFor(l, to)));
       const usable = (id: PieceId) => {
         const p = pieceOf(ctx, id);
-        return !isBroken(p) && !isPinned(p);
+        return !isBroken(p) && !isPinned(p) && isGoodOrder(ctx, p);
       };
       for (const l of leaders) {
         const before = pieceOf(ctx, l);
@@ -332,7 +337,7 @@ export const moraleModule: RuleModule = {
       for (const id of others) {
         const drm = lend(id);
         // A leader lending his modifier to a MC uses it (Concealment loses its "?" for that, SK4 8.3).
-        if (drm < 0 && ctx.query('events.optional', {}, false)) for (const l of lenders.filter((x) => ctx.query('unit.leadership', { unit: x, for: id }, smc(ctx, pieceOf(ctx, x))!.leadership) === drm)) ctx.emit('sk1.morale.lent', { leader: l, to: id, drm });
+        if (drm < 0 && ctx.query('events.optional', {}, false)) for (const l of lendersTo(id).filter((x) => leadershipFor(x, id) === drm)) ctx.emit('sk1.morale.lent', { leader: l, to: id, drm });
         out[id] = ctx.proc<CheckUnitFn>(P.checkUnit)(ctx, id, { ...opts, leaderDrm: drm });
       }
       return out;

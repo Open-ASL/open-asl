@@ -221,16 +221,25 @@ export interface VehicleDef extends CounterBase {
    * the nationality: "Red TH#s (Pre44)" on the back of the Lend-Lease Sherman III(a) (SK3 Russian Vehicle Note 50).
    */
   redThBefore?: number;
-  /** Machine guns (SK4 7.8): Bow / Coaxial / Anti-Aircraft / Rear FP; a white dot on the BMG is a Fixed Mount. */
-  mg: { bmg?: number; bmgFixed?: boolean; cmg?: number; aamg?: number; rmg?: number };
+  /**
+   * Machine guns (SK4 7.8): Bow / Coaxial / Anti-Aircraft / Rear FP; a white dot on the BMG is a Fixed Mount. `rmgClock`:
+   * where a turret Rear MG sits relative to the MA at 12:00, when the counter says so ("4:00 from MA" on the Type 95
+   * HA-GO, "8:00 from MA" on the Type 89B CHI-RO: SK4 Japanese Vehicle Notes); otherwise it fires through the rear of the
+   * turret, 6:00 (ASLRB D1.82).
+   */
+  mg: { bmg?: number; bmgFixed?: boolean; cmg?: number; aamg?: number; rmg?: number; rmgClock?: number };
   /** "CMG: VCA Only" (or "MG: VCA only") on the counter back: that CMG may not attack in CC (ASLRB D1.82, A11.62). */
   cmgVcaOnly?: true;
   /** The MA is one of the vehicle's MGs (the Light Tank Mk VIB prints "*CMG" with a ROF box): that MG fires with the MA's ROF. */
   maMg?: { mg: 'bmg' | 'cmg'; rof?: number };
   /** Open-Topped (SK4 7.13): the depiction on a white background. */
   openTopped?: boolean;
-  /** Vehicular smoke dispensers with their usage numbers (SK4 7.5). */
-  smoke?: { kind: 'sD' | 'sM' | 'sP' | 'sN'; n: number }[];
+  /**
+   * Vehicular smoke dispensers with their usage numbers (SK4 7.5). A dispenser with a superscripted date on the counter
+   * ("sD5⁴⁺" is sD5 from 1944; "sN7⁴/8⁵" is sN7 from 1944, sN8 from 1945) lists its numbers by date in `steps`, as Special
+   * Ammo does; `n` is then the first. Read it at the scenario date with `smokeDispenser`.
+   */
+  smoke?: { kind: 'sD' | 'sM' | 'sP' | 'sN'; n: number; steps?: SpecialAmmoDef['steps'] }[];
   /** The protective DRM of a Crew Exposed crew (SK4 7.7); 2 for every SK vehicle. */
   ceDrm: number;
   /** The inherent crew's morale: the nationality's best unbroken elite Infantry MMC (SK4 7.9). */

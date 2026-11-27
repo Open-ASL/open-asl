@@ -5,7 +5,7 @@
  * The piece's `info` trait carries the counter back: Crew Survival, smoke dispensers, Special Ammo.
  */
 import type { GunType, SpecialAmmoDef, TurretType, VehicleDef } from '@asl/rules';
-import { parseGunInfo } from './counters';
+import { parseDate, parseGunInfo } from './counters';
 
 export interface VehicleSlot {
   /** VASL piece name ("T-34 M43"). */
@@ -103,9 +103,15 @@ function armorBlock(svg: string, comment: string): { af: number; red: boolean; d
   };
 }
 
-/** The counter back's notes: Crew Survival, smoke dispensers, Special Ammo, limited ammunition. */
-export function parseVehicleInfo(info: string): { cs?: number; smoke: { kind: 'sD' | 'sM' | 'sP' | 'sN'; n: number }[]; specialAmmo: SpecialAmmoDef[] } {
-  const smoke: { kind: 'sD' | 'sM' | 'sP' | 'sN'; n: number }[] = [];
+type Dispenser = NonNullable<VehicleDef['smoke']>[number];
+
+/**
+ * The counter back's notes: Crew Survival, smoke dispensers, Special Ammo, limited ammunition. A dispenser may carry a
+ * superscripted date, as Special Ammo does: "sD5^4+^" is sD5 from 1944 (SK4 Japanese Vehicle Notes: "sD becomes
+ * available in 1944—as signified by the superscript '4+'"), "sN7^4^/8^5^" sN7 from 1944 and sN8 from 1945.
+ */
+export function parseVehicleInfo(info: string): { cs?: number; smoke: Dispenser[]; specialAmmo: SpecialAmmoDef[] } {
+  const smoke: Dispenser[] = [];
   let cs: number | undefined;
   const rest: string[] = [];
   for (const raw of info.split(',')) {
@@ -115,9 +121,23 @@ export function parseVehicleInfo(info: string): { cs?: number; smoke: { kind: 's
       cs = Number(c[1]);
       continue;
     }
-    const d = /^s([DMPN])(\d+)\*?$/.exec(tok);
+    const d = /^s([DMPN])(\d+)\*?((?:\^[^/^]*\^?)?(?:\/\d+\^[^/^]*\^?)*)$/.exec(tok);
     if (d) {
-      smoke.push({ kind: `s${d[1]}` as 'sD' | 'sM' | 'sP' | 'sN', n: Number(d[2]) });
+      const kind = `s${d[1]}` as Dispenser['kind'];
+      const rest = d[3]!;
+      if (!rest) {
+        smoke.push({ kind, n: Number(d[2]) });
+        continue;
+      }
+      // "^4^/8^5^": the first number's date, then further "/n^date^" steps (the closing "^" is sometimes missing).
+      const first = /^\^([^/^]*)\^?/.exec(rest);
+      const d0 = first ? parseDate(first[1]!) : {};
+      const steps: NonNullable<Dispenser['steps']> = [{ n: Number(d[2]), ...(d0.from ? { from: d0.from } : {}) }];
+      for (const s of rest.matchAll(/\/(\d+)\^([^/^]*)\^?/g)) {
+        const ds = parseDate(s[2]!);
+        steps.push({ n: Number(s[1]), ...(ds.from ? { from: ds.from } : {}) });
+      }
+      smoke.push({ kind, n: Number(d[2]), ...(steps.some((s) => s.from) ? { steps } : {}) });
       continue;
     }
     rest.push(tok);
@@ -167,6 +187,9 @@ export function parseVehicleSvg(front: string, info: string): ParsedVehicle | nu
     return m ? Number(m[1]) : undefined;
   };
   const rmg = /R(\d+)/.exec(mgText)?.[1];
+  // "RMG: 4:00 from MA" on the counter back: the turret Rear MG's arc is centred there, not at the rear (SK4 Japanese
+  // Vehicle Notes: the Type 95 HA-GO and the Type 89B CHI-RO).
+  const rmgClock = /(?:^|,)\s*RMG:\s*(\d{1,2}):00 from MA/i.exec(info)?.[1];
   const bmgFixed = /<circle[^>]*fill:\s*white/i.test(block(front, 'Machine guns')) || /&#x2B24;|⬤/.test(block(front, 'Machine guns'));
   const gp = block(front, 'Ground Pressure');
   const groundPressure = /<circle/.test(gp) ? 'high' : /<rect/.test(gp) ? 'low' : 'normal';
@@ -218,6 +241,7 @@ export function parseVehicleSvg(front: string, info: string): ParsedVehicle | nu
       ...(cmg !== undefined ? { cmg } : {}),
       ...(aamg !== undefined ? { aamg } : {}),
       ...(rmg ? { rmg: Number(rmg) } : {}),
+      ...(rmg && rmgClock ? { rmgClock: Number(rmgClock) } : {}),
     },
     // "CMG: VCA only" (or "MG:VCA only" on an AFV whose only CMG it can be) on the counter back (ASLRB D1.82).
     ...(cmg !== undefined && /(?:^|,)\s*(?:\(r\))?C?MG\s*:\s*(?:\(R\))?VCA only/i.test(info) ? { cmgVcaOnly: true as const } : {}),

@@ -28,6 +28,13 @@ import { aslHullDownModule } from './hullDown';
 import { aslHullDownChoiceModule } from './hullDownChoice';
 import { aslManhandleModule } from './manhandle';
 import { aslDeployModule } from './deploy';
+import { aslMinimumMoveModule } from './minimumMove';
+import { aslDoubleTimeModule } from './doubleTime';
+import { aslAfphLimitsModule } from './afphLimits';
+import { aslDashModule } from './dash';
+import { aslInfantryOvrModule } from './infantryOvr';
+import { aslOverstackingModule } from './overstacking';
+import { aslAdvanceDifficultModule } from './advanceDifficult';
 import { setupDeployModule } from '../sk1/setupDeploy';
 
 export { aslBypassModule, bypassable, bypassCorners, plan as bypassPlan } from './bypass';
@@ -47,7 +54,8 @@ export { aslRandomSelectionModule } from './randomSelection';
 export { aslSnapShotModule, snapCorners, snapSide, snapWhyNot, SNAP } from './snapShot';
 export { aslSwRepairModule } from './swRepair';
 export { aslTerrainModule } from './terrain';
-export { aslTpbfModule } from './tpbf';
+export { MANDATORY_TPBF, aslTpbfModule, mandatoryTpbfDecl, mandatoryTpbfIllegal, mandatoryTpbfOf, openMandatoryTpbf, type MandatoryTpbfAction } from './tpbf';
+export { OVR_EVADE, OVR_FAILED, OVR_PLACE, aslInfantryOvrModule, ovrIllegal, ovrNtcDrm, ovrTarget, slipAwayHexes, slipAwayIllegal, type OvrNtcEvent, type OvrPlaceAction, type OvrSlipAction, type OvrStayAction } from './infantryOvr';
 export { aslWallAdvantageModule, WA_TAG, WA_RPH_DECISION, acrossObstacle, hasWa, hasWaOver, mandatoryWa, waClaimIllegal, waDeniers, waForfeitIllegal, waIneligible, waUnits, wallSidesOf, type WaAction } from './wallAdvantage';
 export { aslClearanceModule, CLEARANCE_EXT, CLEARANCE_RULE, clearanceSideFor, defaultTbHexsides, clearanceCandidates, clearanceIllegal, clearanceLaborKey, clearanceSide, clearanceTargets, clearanceTasks, clearanceUnitIllegal, pendingTasksAt, taskDrm, type ClearanceDeclare, type ClearanceKind, type ClearanceTask } from './clearance';
 export { aslRoadblocksModule, roadblockBetween, roadblockBlocksEnemyLos, roadblockObstacles, wallTemDelta, entrenchedWallBlock, heRoadblocks, roadblockLineCrosses, roadblockThDrm, vehicleWallTem } from './roadblocks';
@@ -61,6 +69,12 @@ export { HD_CHOICE_EXT, aslHullDownModule, bmgHullDownIllegal, hdHitLocation, hu
 export { aslManhandleModule, manhandleLabor } from './manhandle';
 export { ASL_DEPLOY_MODULE, DEPLOYED_AT, actedIllegal, aslDeployModule, defaultDeploySplit, deployIncapable, deployLeaders, recombineIllegal as aslRecombineIllegal, rphDeployIllegal as aslRphDeployIllegal, squadDefIncapable, squadOf, type AslDeployAction, type AslDeployEvent, type AslRecombineAction, type AslRecombinedEvent } from './deploy';
 export { HD_CHOICE_DECISION, aslHullDownChoiceModule, hdQuestion, type HdChooseAction, type HdQuestion } from './hullDownChoice';
+export { MINIMUM_EVENT, aslMinimumMoveModule, minimumMoveIllegal, minimumMovers, noMfSpent } from './minimumMove';
+export { aslDoubleTimeModule, lateDoubleTimeIllegal, type LateDoubleTimeAction } from './doubleTime';
+export { MF_HELD, aslAfphLimitsModule } from './afphLimits';
+export { DASH_EVENT, aslDashModule, dashAt, dashGeometryIllegal, dashHalves, dashIllegal, dashOptions, dashQualifiesFor, dashShot, roadSidesOf, type DashAction } from './dash';
+export { aslAdvanceDifficultModule } from './advanceDifficult';
+export { STRAY_HIT_EVENT, aslOverstackingModule, attackPenalty, firerPenalty, overstackBy, overstackEntryMf, stackingEquivalents, targetPenalty, type StrayHitEvent } from './overstacking';
 export { aslWireModule, WIRE_DROP_DECISION, WIRE_EXT, WIRE_LAST_EXT, lastWireExit, onWire, ownHiddenWire, removeWire, setWirePos, stackWire, wireExitIllegal, wireKnownTo, type RoutWireAction, type WireDropAction, type WireExitAction, type WireExitResult, type WireRoll } from './wire';
 
 /**
@@ -79,4 +93,4 @@ export { aslWireModule, WIRE_DROP_DECISION, WIRE_EXT, WIRE_LAST_EXT, lastWireExi
  *
  * One module per topic; `packages/rules/docs/asl-chapter-a.md` tracks which rule is where.
  */
-export const aslCoreModules: RuleModule[] = [aslLocationsModule, aslLevelsModule, aslLosModule, aslRandomSelectionModule, aslFieldPromotionModule, aslLeaderCreationModule, aslSwRepairModule, aslTerrainModule, aslBypassModule, aslSnapShotModule, aslTpbfModule, aslFortifiedModule, aslWindModule, aslLaborModule, aslFireModule, aslRubbleModule, aslFortificationsModule, aslEntrenchmentsModule, aslWireModule, aslWallAdvantageModule, aslRoadblocksModule, aslClearanceModule, aslVoluntaryRoutModule, aslMinesModule, aslPillboxesModule, aslHullDownModule, aslHullDownChoiceModule, aslManhandleModule, setupDeployModule, aslDeployModule];
+export const aslCoreModules: RuleModule[] = [aslLocationsModule, aslLevelsModule, aslLosModule, aslRandomSelectionModule, aslFieldPromotionModule, aslLeaderCreationModule, aslSwRepairModule, aslTerrainModule, aslBypassModule, aslSnapShotModule, aslTpbfModule, aslFortifiedModule, aslWindModule, aslLaborModule, aslFireModule, aslRubbleModule, aslFortificationsModule, aslEntrenchmentsModule, aslWireModule, aslWallAdvantageModule, aslRoadblocksModule, aslClearanceModule, aslVoluntaryRoutModule, aslMinesModule, aslPillboxesModule, aslHullDownModule, aslHullDownChoiceModule, aslManhandleModule, setupDeployModule, aslDeployModule, aslMinimumMoveModule, aslDoubleTimeModule, aslAfphLimitsModule, aslDashModule, aslInfantryOvrModule, aslOverstackingModule, aslAdvanceDifficultModule];

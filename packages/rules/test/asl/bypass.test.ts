@@ -206,13 +206,16 @@ describe('Bypass movement (ASLRB A4.3, A4.31)', () => {
     expect(ms(engine, s)?.assault ?? false).toBe(false);
   });
 
-  it('ignores stacking limits in Bypass (full ASL, Q14), and no SW Recovery there (A4.44)', () => {
+  it('no stacking cap into or out of Bypass, but the overstacking MF (A5.1, A5.11), and no SW Recovery there (A4.44)', () => {
     const inside = ['a', 'b', 'c'].map((id): PieceSpec => ({ id, def: 'ge.447', side: 'ge', hex: 'uR3' }));
     const { engine, state } = game([squad(), ...inside, far]);
     const s = start(engine, state);
-    expect(check(engine, s, { type: 'move.step', to: 'uR3' })).toMatch(/Stacking/);
+    // Into the obstacle: the building's MF and one more for the fourth squad.
+    expect(check(engine, s, { type: 'move.step', to: 'uR3' })).toBeNull();
+    // Into Bypass of it: the stack is in that Location, overstacking it by one (one MF for the hexside, one for that).
     const b = step(engine, s, { to: 'uR3', bypass: ['uR4'] });
     expect(ms(engine, b).bypass).toBeDefined();
+    expect(ms(engine, b).spent['g']).toBe(2);
     expect(check(engine, b, { type: 'move.recover', unit: 'g', sw: 'x' })).toMatch(/A4.44/);
   });
 

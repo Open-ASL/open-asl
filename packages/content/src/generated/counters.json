@@ -5850,6 +5850,26 @@
    "cmg": 5,
    "aamg": 2
   },
+  "smoke": [
+   {
+    "kind": "sN",
+    "n": 7,
+    "steps": [
+     {
+      "n": 7,
+      "from": {
+       "year": 1944
+      }
+     },
+     {
+      "n": 8,
+      "from": {
+       "year": 1945
+      }
+     }
+    ]
+   }
+  ],
   "cs": 6,
   "note": 31,
   "ceDrm": 2,
@@ -6273,6 +6293,26 @@
    "cmg": 5,
    "aamg": 2
   },
+  "smoke": [
+   {
+    "kind": "sN",
+    "n": 7,
+    "steps": [
+     {
+      "n": 7,
+      "from": {
+       "year": 1944
+      }
+     },
+     {
+      "n": 8,
+      "from": {
+       "year": 1945
+      }
+     }
+    ]
+   }
+  ],
   "cs": 6,
   "note": 27,
   "ceDrm": 2,
@@ -6629,6 +6669,20 @@
    "cmg": 4,
    "aamg": 4
   },
+  "smoke": [
+   {
+    "kind": "sM",
+    "n": 4,
+    "steps": [
+     {
+      "n": 4,
+      "from": {
+       "year": 1944
+      }
+     }
+    ]
+   }
+  ],
   "cs": 5,
   "note": 12,
   "ceDrm": 2,
@@ -7304,31 +7358,32 @@
   "crewMorale": 8,
   "cvp": 0
  },
- "ja.ty97Achiha": {
-  "id": "ja.ty97Achiha",
+ "ja.ty89Bchiro": {
+  "id": "ja.ty89Bchiro",
   "nationality": "ja",
-  "name": "Type 97A CHI-HA",
+  "name": "Type 89B CHI-RO",
   "kind": "vehicle",
   "tracked": true,
-  "mp": 14,
+  "mp": 10,
   "groundPressure": "low",
   "af": {
    "hull": {
-    "front": 3,
-    "side": 2,
-    "rear": 2
+    "front": 2,
+    "side": 1,
+    "rear": 1
    },
    "turret": {
-    "front": 4,
-    "side": 3,
-    "rear": 3
+    "front": 2,
+    "side": 2,
+    "rear": 2
    }
   },
   "turret": "ST",
-  "targetSize": "normal",
+  "targetSize": "large",
   "ma": {
    "type": "AT",
    "caliber": 57,
+   "barrel": "*",
    "rof": 1,
    "ammo": {
     "he": true,
@@ -7337,10 +7392,11 @@
   },
   "mg": {
    "bmg": 2,
-   "rmg": 2
+   "rmg": 2,
+   "rmgClock": 8
   },
   "cs": 4,
-  "note": 8,
+  "note": 7,
   "ceDrm": 2,
   "crewMorale": 8,
   "cvp": 0
@@ -7377,8 +7433,23 @@
   },
   "mg": {
    "bmg": 2,
-   "rmg": 2
+   "rmg": 2,
+   "rmgClock": 4
   },
+  "smoke": [
+   {
+    "kind": "sD",
+    "n": 5,
+    "steps": [
+     {
+      "n": 5,
+      "from": {
+       "year": 1944
+      }
+     }
+    ]
+   }
+  ],
   "cs": 3,
   "note": 5,
   "ceDrm": 2,

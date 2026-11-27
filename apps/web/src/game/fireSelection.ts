@@ -61,6 +61,8 @@ export function swCarriers(env: QueryEnv, ids: Iterable<PieceId>): PieceId[] {
 export function beyondRange(env: QueryEnv, decl: { units: PieceId[]; target: HexId }): PieceId[] {
   const map = statics(env).map;
   const target = hexOfLoc(decl.target);
+  // No range to a hex off the map (A2.6): nothing to leave out; the rules refuse such a shot on their own.
+  if (!map.hex(target)) return [];
   return decl.units.filter((id) => {
     const p = env.state.pieces[id];
     const at = p ? hexOf(env.state, p) : null;
@@ -96,6 +98,8 @@ export function fireLeaders(env: QueryEnv, leaders: Piece[], units: PieceId[], o
  * Unpossessed weapons and wrecks do not count: they are not attacked.
  */
 export function blindFireOffered(env: QueryEnv, hex: HexId, side: SideId): boolean {
+  // An off-board hex (the imaginary one beyond an edge, ASLRB A2.6) is drawn but is no Location to fire at.
+  if (!statics(env).map.hex(hex)) return false;
   return unitsInHex(env, hex, side).length === 0;
 }
 

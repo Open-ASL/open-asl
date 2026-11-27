@@ -176,6 +176,17 @@ export const concealmentModule: RuleModule = {
         return p && isConcealed(p) && viewer !== p.side && concealmentActive(env) ? false : v;
       },
     });
+    // The "?" is on the board, so its Location may be fired at, as Area Fire (8.3.2); a stand-in in a redacted view counts
+    // the same. A unit still under HIP is not (its Location holds nothing the enemy can see).
+    r.contribute({
+      id: 'sk4.concealment.fireTarget',
+      query: 'piece.fireTarget',
+      apply(v, { piece, viewer }, env) {
+        const p = env.state.pieces[piece];
+        if (v || !p || p.loc.kind !== 'hex' || !isConcealed(p) || isHidden(p) || viewer === p.side || !concealmentActive(env)) return v;
+        return true;
+      },
+    });
     r.contribute({ id: 'sk4.concealment.terrain', query: 'hex.concealmentTerrain', layer: 0, apply: (_v, { hex }, env) => !!terrainOf(env, hex).concealment });
 
     // ---------------------------------------------------------------- setup (SK4 8.3)
@@ -256,6 +267,9 @@ export const concealmentModule: RuleModule = {
     const firedHandler = (ctx: Ctx, parts: PieceId[], directors: PieceId[]) => {
       if (!concealmentActive(ctx)) return;
       const units = [...new Set([...parts.map((id) => firerOf(ctx, id)), ...directors])];
+      // Only a shot on a To Hit Table keeps a HIP Emplaced Gun's "?" on a low colored dr (8.3.3): an IFT attack by its
+      // crew or its IFE was revealed as any other fire (ASLRB A12.34), so the mark its reveal left comes off.
+      for (const u of units) for (const id of withGun(ctx, u)) if (ctx.state.pieces[id]?.tags[T4.hipFired] === true) setTags(ctx, id, { [T4.hipFired]: null });
       dropConcealment(ctx, units, 'fire', hexesOf(ctx, units));
     };
     for (const event of ['sk1.fire.attack', 'sk1.fire.noLos'])
@@ -365,10 +379,24 @@ export const concealmentModule: RuleModule = {
       next?.(ctx, ms, to, cost, woods);
       const cur = moveState(ctx);
       if (!cur) return;
-      // Judged where the MF are spent, the hex entered (ASLRB A12.14 EX: no loss "because the hexes in which it expends
-      // those MF are not in LOS"): a unit seen where it was but stepping out of sight keeps its "?".
-      if (!cur.assault) dropConcealment(ctx, cur.units, 'moved', [toHex]);
-      else if (seenInTheOpen(ctx, toHex, ctx.state.attacker, cur.viaRoad)) dropConcealment(ctx, cur.units, 'open');
+      // Judged where the MF are spent (ASLRB A12.14 EX: no loss "because the hexes in which it expends those MF are not in
+      // LOS"): the hex entered, so a unit seen where it was but stepping out of sight keeps its "?"; or, for a stack forced
+      // back by a hidden unit, the hex it never left (A12.15: the MF are "considered expended in the Location it is returned to").
+      const spentIn = cur.hex ?? toHex;
+      if (!cur.assault) dropConcealment(ctx, cur.units, 'moved', [spentIn]);
+      else if (seenInTheOpen(ctx, spentIn, ctx.state.attacker, cur.viaRoad)) dropConcealment(ctx, cur.units, 'open');
+    });
+    // A stack forced back by a hidden unit (SK4 6.4) attempted to enter a hex with enemy concealment: hidden status is
+    // concealment (ASLRB A12.3), so the "?" comes off the moving stack (SK4 8.3.2) in the LOS of a Good Order enemy (SK4
+    // 8.3), judged in the hex it stays in (A12.15 "where it will lose Concealment"). The unit found is revealed outright.
+    r.on<{ units: PieceId[]; hex: HexId }>({
+      id: 'sk4.concealment.hip-bounce',
+      event: 'sk2.hip.bounce',
+      handler(ctx, ev) {
+        if (!concealmentActive(ctx)) return;
+        const at = [...new Set(ev.payload.units.map((u) => ctx.state.pieces[u] && hexOf(ctx.state, pieceOf(ctx, u))).filter((h): h is HexId => !!h))];
+        dropConcealment(ctx, ev.payload.units, 'entering', at);
+      },
     });
     // Advancing into Open Ground in the LOS of a Good Order enemy (8.3.2).
     r.on<{ id: PieceId; loc: { kind: string; hex?: HexId } }>({

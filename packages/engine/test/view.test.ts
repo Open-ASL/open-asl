@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Engine, applyPatch, buildRuleset, deepEqual, diffStates, seedRng, type Action, type GameEvent, type GameState, type RuleModule } from '../src';
+import { Engine, applyPatch, buildRuleset, deepEqual, diffStates, idPattern, mentionsAny, seedRng, type Action, type GameEvent, type GameState, type RuleModule } from '../src';
 import { produce } from 'immer';
 
 /**
@@ -50,12 +50,13 @@ const toy: RuleModule = {
       events: ['toy.secret'],
       redactEvent: (ev, viewer) => ((ev.payload as { side: string }).side === viewer ? ev : null),
     });
-    r.action<Action & { events: GameEvent[]; roll?: boolean; secretRoll?: string }>({
+    r.action<Action & { events: GameEvent[]; roll?: boolean; secretRoll?: string; rollLabel?: string }>({
       type: 'act',
       decisionKinds: ['main'],
       resolve(ctx, a) {
         if (a.roll) ctx.roll('toy');
         if (a.secretRoll) ctx.roll('toy secret', 1, { secret: a.secretRoll });
+        if (a.rollLabel) ctx.roll(a.rollLabel);
         for (const ev of a.events) ctx.emit(ev.type, ev.payload);
         ctx.popDecision();
         const other = ctx.state.sides.find((s) => s !== a.side)!;
@@ -207,6 +208,26 @@ describe('redactTransition', () => {
     const forB = checkViewer('B', s0, t);
     expect(forB[0]!.type).toBe('view.patch');
     expect(checkViewer('A', s0, t)[0]!.type).toBe('toy.tag');
+  });
+
+  it('treats an id inside a string built from ids, or named in a text, as a mention; a longer id is not one', () => {
+    expect(mentionsAny({ pairs: { 'h1>h2@a2+b1#3': ['b1'] } }, ['a2'])).toBe(true);
+    expect(mentionsAny({ label: 'Rally a2' }, ['a2'])).toBe(true);
+    expect(mentionsAny({ ids: ['a2.d', 'a20', 'xa2', 'a2:1'] }, ['a2'])).toBe(false);
+    expect(idPattern([])).toBeNull();
+    expect('a2 and a2.1'.replace(idPattern(['a2', 'a2.1'], 'g')!, '?')).toBe('? and ?');
+  });
+
+  it('withholds an event that names a hidden piece inside a composite key, and shows a roll by one with the counter as "?"', () => {
+    const s0 = start();
+    const t = act(s0, [{ type: 'toy.tag', payload: { id: 'b1', key: 'firedAt', value: 'a1+a2#1' } }]);
+    expect(checkViewer('B', s0, t)[0]!.type).toBe('view.patch');
+    expect(checkViewer('A', s0, t)[0]!.type).toBe('toy.tag');
+    const d = engine.currentDecision(s0)!;
+    const r = engine.submit(s0, { type: 'act', side: d.owner, decisionId: d.id, events: [], rollLabel: 'Rally a2 with a1' } as Action);
+    const dice = (r.events[0]!.payload as { dice: number[] }).dice;
+    expect(checkViewer('B', s0, r)[0]).toMatchObject({ type: 'dice.rolled', payload: { label: 'Rally ? with a1', dice } });
+    expect(checkViewer('A', s0, r)[0]).toMatchObject({ type: 'dice.rolled', payload: { label: 'Rally a2 with a1', dice } });
   });
 
   it('keeps the fold property over a sequence of transitions for every viewer', () => {

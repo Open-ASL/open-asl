@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Engine, GameState } from '@asl/engine';
 import { makeEngine } from '../../../packages/rules/test/fixtures';
-import { blindFireOffered } from '../src/game/fireSelection';
+import { beyondRange, blindFireOffered } from '../src/game/fireSelection';
 
 describe('blind fire at a hex where no enemy is seen', () => {
   const pieces = [
@@ -20,5 +20,12 @@ describe('blind fire at a hex where no enemy is seen', () => {
   it('is not offered at a hex holding the firer’s own unit: nothing hidden can be there (A12.15)', () => {
     expect(blindFireOffered(env, 'yP5', 'am')).toBe(false);
     expect(blindFireOffered(env, 'yN5', 'ge')).toBe(false);
+  });
+
+  it('is not offered at an off-board hex: fire attacks Locations on the map (ASLRB A2.6), and the range check does not throw', () => {
+    // yP11 is the imaginary hex beyond the board edge, drawn for entry and exit but not a map hex.
+    expect(blindFireOffered(env, 'yP11', 'am')).toBe(false);
+    expect(() => beyondRange(env, { units: ['a1'], target: 'yP11' })).not.toThrow();
+    expect(beyondRange(env, { units: ['a1'], target: 'yP11' })).toEqual([]);
   });
 });

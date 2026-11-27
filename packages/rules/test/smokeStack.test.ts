@@ -41,7 +41,7 @@ describe('Smoke grenades thrown together by a moving stack (ASLRB A4.2, A24.1)',
         { unit: 'g3', target: adj },
       ],
     });
-    expect(rolls(t)).toEqual(['Smoke grenades by g1', 'Smoke grenades by g2', 'Smoke grenades by g3']);
+    expect(rolls(t).map((l) => l.replace(/ into .*$/, ''))).toEqual(['Smoke grenades by g1', 'Smoke grenades by g2', 'Smoke grenades by g3']);
     s = t.state;
     expect(s.hexMarkers['yN5']?.['smoke']).toBe(1);
     expect(s.hexMarkers[adj]?.['smoke']).toBe(1);

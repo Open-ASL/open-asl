@@ -168,10 +168,14 @@ function testbedSetup(f: FixtureBuilder, fortified: string[]) {
  * The test bed setup with some Russian units elsewhere: `moved` maps "def" or "def#n" to a Location; `hidden` names
  * the defs set up hidden under the HIP special rule.
  */
-function testbedSetupWith(f: FixtureBuilder, fortified: string[], moved: Record<string, string>, hidden: string[] = []) {
+function testbedSetupWith(f: FixtureBuilder, fortified: string[], moved: Record<string, string>, hidden: string[] = [], germans: Record<string, string> = {}) {
   const ru = (def: string, n = 1) => f.unit('ru', def, n);
   const at = (def: string, n: number, hex: string) => moved[`${def}#${n}`] ?? (n === 1 ? moved[def] : undefined) ?? hex;
   const ge = (def: string, n = 1) => f.unit('ge', def, n);
+  const gat = (def: string, n: number, hex: string) => germans[`${def}#${n}`] ?? (n === 1 ? germans[def] : undefined) ?? hex;
+  // Germans the test bed does not place (a variant's additions) go where `germans` names them ("def#n").
+  const base = new Set(['ge.L92#1', 'ge.838#1', 'ge.548#1', 'ge.467#1', 'ge.467#2', 'ge.467#3', 'ge.L80#1', 'ge.447#1', 'ge.447#2']);
+  const extra = Object.fromEntries(Object.entries(germans).filter(([k]) => k.includes('#') && !base.has(k)).map(([k, hex]) => [ge(k.split('#')[0]!, Number(k.split('#')[1])), hex]));
   f.fortify(fortified);
   f.setup('ru', {
     [ru('ru.L91')]: at('ru.L91', 1, 'uK4'),
@@ -186,16 +190,40 @@ function testbedSetupWith(f: FixtureBuilder, fortified: string[], moved: Record<
     [ru('ru.426', 2)]: at('ru.426', 2, 'uH5'),
   }, {}, hidden.length ? { hidden: hidden.map((d) => ru(d)) } : {});
   f.setup('ge', {
-    [ge('ge.L92')]: 'uT3',
-    [ge('ge.838')]: 'uT3',
-    [ge('ge.548')]: 'uT3',
-    [ge('ge.467', 1)]: 'uU4',
-    [ge('ge.467', 2)]: 'uT4',
-    [ge('ge.467', 3)]: 'uS5',
-    [ge('ge.L80')]: 'uS5',
-    [ge('ge.447', 1)]: 'uS5',
-    [ge('ge.447', 2)]: 'uV4',
+    [ge('ge.L92')]: gat('ge.L92', 1, 'uT3'),
+    [ge('ge.838')]: gat('ge.838', 1, 'uT3'),
+    [ge('ge.548')]: gat('ge.548', 1, 'uT3'),
+    [ge('ge.467', 1)]: gat('ge.467', 1, 'uU4'),
+    [ge('ge.467', 2)]: gat('ge.467', 2, 'uT4'),
+    [ge('ge.467', 3)]: gat('ge.467', 3, 'uS5'),
+    [ge('ge.L80')]: gat('ge.L80', 1, 'uS5'),
+    [ge('ge.447', 1)]: gat('ge.447', 1, 'uS5'),
+    [ge('ge.447', 2)]: gat('ge.447', 2, 'uV4'),
+    ...extra,
   });
+}
+
+/**
+ * The movement test bed (T7) setup: the test bed's, with Russian (`ru`) and German (`ge`) units moved ("def" or "def#n"
+ * to a hex) and `hidden` Russian defs set up under the HIP rule.
+ */
+function movementSetup(f: FixtureBuilder, ru: Record<string, string> = {}, ge: Record<string, string> = {}, hidden: string[] = []) {
+  testbedSetupWith(f, TESTBED_FORTIFIED, ru, hidden, ge);
+}
+
+/**
+ * The stacking test bed (T8) setup: the test bed's, with Russian (`ru`) and German (`ge`) units moved ("def" or "def#n" to
+ * a hex; the T8 additions by "def#n") and `hidden` Russian defs set up under the HIP rule. Russians set up in O6 or N10
+ * begin broken (T8).
+ */
+function stackingSetup(f: FixtureBuilder, ru: Record<string, string> = {}, ge: Record<string, string> = {}, hidden: string[] = []) {
+  testbedSetupWith(f, TESTBED_FORTIFIED, ru, hidden, ge);
+}
+
+/** German Turn 1 of the movement test bed: the stack in S8 goes up the road to `to` (R7, Q8, P8, then O8 or O9-O10). */
+function roadApproach(f: FixtureBuilder, units: PieceId[], to: 'uO8' | 'uO10') {
+  f.until('MPh', { turn: 1, attacker: 'ge' });
+  f.move(units, to === 'uO8' ? ['uR7', 'uQ8', 'uP8', 'uO8'] : ['uR7', 'uQ8', 'uP8', 'uO9', 'uO10']);
 }
 
 /**
@@ -1375,6 +1403,210 @@ export const DEV_FIXTURES: DevFixture[] = [
     },
   },
 
+  {
+    id: 'afph-recover',
+    scenarioId: 'asl-testbed',
+    title: 'AFPh: a MMG Recovered where it lay (A4.41)',
+    description:
+      'German Turn 1 Movement Phase. The 4-6-7 in T4 has dropped its MMG there; the 4-4-7 with the 8-0 in S5 is next to it. Move the 4-4-7 into T4 and Recover the MMG with its last MF: in the AFPh it may fire it (halved, one shot), as the MMG "remained stationary" (ASLRB A4.41). A unit that carries it a hex, or holds it while attempting SMOKE, may not.',
+    build(f) {
+      testbedSetup(f, TESTBED_FORTIFIED);
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      f.act({ type: 'move.drop', sw: f.sw('ge', 'ge.MMG') });
+    },
+  },
+  {
+    id: 'min-move',
+    scenarioId: 'asl-testbed-movement',
+    title: 'Movement: Minimum Move (A4.134)',
+    description:
+      'German Turn 1 Movement Phase. The 4-6-7 in S4 carries a HMG and two LMG (6 PP): it has one MF. Start it and enter the woods of S3 (2 MF): the step reads Minimum Move, it spends the 2 MF, stays there for the Russian First Fire and is then pinned and CX (ASLRB A4.134). After any other MF first, or into terrain it cannot enter, there is no Minimum Move.',
+    build(f) {
+      movementSetup(f, {}, { 'ge.467#4': 'uS4' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'double-time-late',
+    scenarioId: 'asl-testbed-movement',
+    title: 'Movement: Double Time during the move (A4.5)',
+    description:
+      'German Turn 1 Movement Phase. A 4-4-7 has moved S6-R6-Q6 and spent two MF: "Double Time now" gives it one MF more and a CX counter at once (ASLRB A4.5 EXC). Then start the 8-0\'s stack in S5 with Assault Movement: the entry is disabled, "Assault Movement cannot be voluntarily voided (A4.61)".',
+    build(f) {
+      movementSetup(f, {}, { 'ge.447#2': 'uS6' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      const sq = f.unit('ge', 'ge.447', 2);
+      f.act({ type: 'move.start', units: [sq] });
+      f.act({ type: 'move.step', to: 'uR6' });
+      f.settle('ge');
+      f.act({ type: 'move.step', to: 'uQ6' });
+      f.settle('ge');
+    },
+  },
+  {
+    id: 'dash',
+    scenarioId: 'asl-testbed-movement',
+    title: 'Movement: Dash across the road at N8 (A4.63)',
+    description:
+      'German Turn 2 Movement Phase. The 8-0 and a 4-4-7 came up the road to the O8 stone building. Start them and choose "Dash…": the end hexes beyond the N8 road hex light up with their two-hex cost; M9 (a building) is a Dash for every Russian, N9 (Open Ground) only against units that cannot see it. The Russian 4-4-7 in the N10 woods looks up the road: its First Fire at the Dashing stack in N8 is Area Fire (×½), with FFNAM and FFMO (ASLRB A4.63, A10.531). The next step can only be the declared hex.',
+    build(f) {
+      movementSetup(f, { 'ru.447#3': 'uN10' }, { 'ge.L80': 'uS8', 'ge.447#1': 'uS8' });
+      roadApproach(f, [f.unit('ge', 'ge.L80'), f.unit('ge', 'ge.447', 1)], 'uO8');
+      f.until('MPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'dash-hidden',
+    scenarioId: 'asl-testbed-movement',
+    title: 'Movement: a Dash into a hidden unit (A4.63, A12.15)',
+    description:
+      'As the Dash fixture, but a Russian 4-2-6 is hidden in the M9 building. Dash across N8 to M9: the hidden squad is revealed, the stack stays in the road hex N8, its MPh over, and the Russian First Fire at it there is no longer halved (ASLRB A4.63: "this time without the applicable Dash penalties to the firer").',
+    build(f) {
+      movementSetup(f, { 'ru.447#3': 'uN10', 'ru.426#1': 'uM9' }, { 'ge.L80': 'uS8', 'ge.447#1': 'uS8' }, ['ru.426']);
+      roadApproach(f, [f.unit('ge', 'ge.L80'), f.unit('ge', 'ge.447', 1)], 'uO8');
+      f.until('MPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'ovr-leader',
+    scenarioId: 'asl-testbed-movement',
+    title: 'Movement: Infantry OVR of a lone leader (A4.15, A4.151)',
+    description:
+      'German Turn 2 Movement Phase. The 9-2 with the 8-3-8 and the 5-4-8 stands in O10; the Russian 7-0 is alone in the N10 woods. Start the stack and step into N10: "Leader takes the NTC" (one roll for all, +1 for the woods) or "Each squad its own NTC" (the 9-2\'s -2 helping each). On a pass they enter at double cost (4 MF); the Russian chooses to stay or slip away, and you pick where he goes (ASLRB A4.151: not Open Ground while another hex is left). If he stays, CC follows at once (A4.152).',
+    build(f) {
+      movementSetup(f, { 'ru.L70': 'uN10' }, { 'ge.L92': 'uS8', 'ge.838': 'uS8', 'ge.548': 'uS8' });
+      roadApproach(f, [f.unit('ge', 'ge.L92'), f.unit('ge', 'ge.838'), f.unit('ge', 'ge.548')], 'uO10');
+      f.until('MPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'ovr-armed',
+    scenarioId: 'asl-testbed-movement',
+    title: 'Movement: OVR of an armed leader, mandatory TPBF (A4.15, A8.312)',
+    description:
+      'German Turn 2 Movement Phase. The 8-0 with a 4-6-7 and a 4-4-7 stands in O10; the Russian 9-1 is alone in the N10 woods with the LMG, a 4-4-7 next to him in N9. Overrun the 9-1: if he stays he must attack at once with the LMG (no Pass), before the 4-4-7 in N9 may fire (ASLRB A8.312); then CC in the MPh.',
+    build(f) {
+      movementSetup(f, { 'ru.L91': 'uN10', 'ru.447#3': 'uN9' }, { 'ge.L80': 'uS8', 'ge.467#3': 'uS8', 'ge.447#1': 'uS8' });
+      roadApproach(f, [f.unit('ge', 'ge.L80'), f.unit('ge', 'ge.467', 3), f.unit('ge', 'ge.447', 1)], 'uO10');
+      f.until('MPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'ovr-melee',
+    scenarioId: 'asl-testbed-movement',
+    title: 'Movement: OVR of a leader held in Melee (A4.152)',
+    description:
+      'German Turn 2 Movement Phase. The 8-3-8 advanced into the N10 woods in Turn 1 and is in Melee with the Russian 7-0; the 9-2 and the 5-4-8 are in O10. Overrun N10 with them: the 7-0 cannot slip away (held in Melee), nobody fires into the Melee, and in the CC only the newcomers attack; only they may move on if he dies (ASLRB A4.152).',
+    build(f) {
+      movementSetup(f, { 'ru.L70': 'uN10' }, { 'ge.L92': 'uS8', 'ge.838': 'uS8', 'ge.548': 'uS8' });
+      roadApproach(f, [f.unit('ge', 'ge.L92'), f.unit('ge', 'ge.838'), f.unit('ge', 'ge.548')], 'uO10');
+      f.until('APh', { turn: 1, attacker: 'ge' });
+      f.advance([f.unit('ge', 'ge.838')], 'uN10');
+      f.until('MPh', { turn: 2, attacker: 'ge' });
+    },
+  },
+
+  {
+    id: 'overstack-move',
+    scenarioId: 'asl-testbed-stacking',
+    title: 'Stacking: moving into an overstacked building (A5.11, A5.12, A5.131)',
+    description:
+      'German Turn 1 Movement Phase. Three 4-6-7 hold the V8 wooden building; the 9-2 with a 4-4-7 stands beside it in V9. Move the 4-4-7 (or the stack) into V8: the step costs 3 MF, the building\'s 2 and one for the fourth squad (ASLRB A5.11; the Starter Kit would refuse it), and V8 shows OVERSTACKED +1. From there every German attack is +1 (A5.12) and every attack on the Germans in V8 -1 (A5.131); in this MPh only the moving stack suffers the -1 (A5.13).',
+    build(f) {
+      stackingSetup(f, {}, { 'ge.467#1': 'uV8', 'ge.467#2': 'uV8', 'ge.467#3': 'uV8', 'ge.L92': 'uV9', 'ge.447#1': 'uV9' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'overstack-five-smc',
+    scenarioId: 'asl-testbed-stacking',
+    title: 'Stacking: five SMC equal a HS (A5.5)',
+    description:
+      'German Turn 1 Movement Phase. Three 4-6-7 and four leaders (9-2, two 8-0, 7-0) hold the V8 wooden building: four SMC count nothing, so it is not overstacked. Move the 9-1 in from V9: the fifth SMC makes a HS (ASLRB A5.5), 3½ squad-equivalents, overstacked by one (FRU): the step costs 3 MF.',
+    build(f) {
+      stackingSetup(f, {}, { 'ge.467#1': 'uV8', 'ge.467#2': 'uV8', 'ge.467#3': 'uV8', 'ge.L92': 'uV8', 'ge.L80#1': 'uV8', 'ge.L80#2': 'uV8', 'ge.L70#1': 'uV8', 'ge.L91#1': 'uV9' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'overstack-advance',
+    scenarioId: 'asl-testbed-stacking',
+    title: 'Stacking: the A5.11 example, an advance at four MF (A5.11, A4.72)',
+    description:
+      'German Turn 1 Advance Phase. Two 4-6-7 and the 2-2-8 crew held the V8 wooden building; a third 4-6-7 moved in from V9 at 3 MF (2 + 1 overstacked). Advance the 4-4-7 from U8 into V8: the Location now costs four MF (overstacked by 1½, FRU two), so it becomes CX (ASLRB A5.11 EX, A4.72); a CX unit may not advance there at all. The 2-4-7 HS in W8 pays four MF too after it.',
+    build(f) {
+      stackingSetup(f, {}, { 'ge.467#1': 'uV8', 'ge.467#2': 'uV8', 'ge.228c#1': 'uV8', 'ge.467#3': 'uV9', 'ge.447#1': 'uU8', 'ge.247h#1': 'uW8' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      f.move([f.unit('ge', 'ge.467', 3)], ['uV8']);
+      f.until('APh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'overstack-rout',
+    scenarioId: 'asl-testbed-stacking',
+    title: 'Stacking: a rout into an overstacked building (A10.51, A5.11)',
+    description:
+      'German Turn 1 Rout Phase. The Russian 4-4-7 set up broken in O6 (T8); a German 4-4-7 walked to P6, beside it. It must rout: the N6 building holds three Russian squads, yet it is a shelter "even if overstacked" (ASLRB A10.51), reckoned at 3 MF with the overstacking MF (Q&A to A5.11 and A10.51), as near as N7 and O8. Routing into N6 costs 3 MF and the rout may end there.',
+    build(f) {
+      stackingSetup(f, { 'ru.447#3': 'uO6', 'ru.458#2': 'uN6', 'ru.447#2': 'uN6', 'ru.426#2': 'uN6' }, { 'ge.447#1': 'uS5' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      f.move([f.unit('ge', 'ge.447', 1)], ['uR5', 'uQ6', 'uP6']);
+      f.until('RtPh', { turn: 1, attacker: 'ge' });
+    },
+  },
+  {
+    id: 'overstack-dm',
+    scenarioId: 'asl-testbed-stacking',
+    title: 'Stacking: keeping DM in an overstacked woods (A10.62)',
+    description:
+      'Russian Turn 1 Rally Phase. The Russian 4-4-7 set up broken in O10 (T8) and kept its DM in the open; a German 4-4-7 walked to P10 beside it, and it routed into the N10 woods, which three Russian squads already held ("even if overstacked", ASLRB A10.51). In woods a broken unit\'s DM comes off at the end of the RPh, but an overstacked one "may also opt to retain its DM status" (A10.62): the 4-4-7 offers Keep DM (overstacked). A squad in woods that is not overstacked has no such choice.',
+    build(f) {
+      stackingSetup(f, { 'ru.447#3': 'uO10', 'ru.447#2': 'uN10', 'ru.426#1': 'uN10', 'ru.426#2': 'uN10' }, { 'ge.447#1': 'uS9' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      f.move([f.unit('ge', 'ge.447', 1)], ['uR9', 'uQ10', 'uP10']);
+      f.until('RtPh', { turn: 1, attacker: 'ge' });
+      f.settle('ru');
+      const b = f.unit('ru', 'ru.447', 3);
+      f.act({ type: 'rout.step', unit: b, to: 'uN10' });
+      if (f.engine.legalActions(f.state, 'ru').some((a) => a.type === 'rout.stop')) f.act({ type: 'rout.stop', unit: b });
+      f.until('RPh', { turn: 1, attacker: 'ru' });
+    },
+  },
+  {
+    id: 'overstack-hidden',
+    scenarioId: 'asl-testbed',
+    title: 'Stacking: a hidden squad overstacked in German view (A12.14, A12.3)',
+    description:
+      'Russian Turn 1 Movement Phase. The hidden 4-4-7 (SSR 2) is in the P5 building with a 4-5-8 and a 4-2-6; the 4-4-7 in P6 is beside them. Move it into P5: the Location is overstacked while the Germans in S5 see it, so the hidden squad is revealed at once (ASLRB A12.14, A12.3), and the step costs 3 MF (A5.11). Its twin fixture has the hidden squad in K4, out of German sight: it stays hidden.',
+    build(f) {
+      testbedSetupWith(f, TESTBED_FORTIFIED, { 'ru.447#1': 'uP5', 'ru.458#2': 'uP5', 'ru.447#3': 'uP6' }, ['ru.447']);
+      f.until('MPh', { turn: 1, attacker: 'ru' });
+    },
+  },
+  {
+    id: 'overstack-hidden-unseen',
+    scenarioId: 'asl-testbed',
+    title: 'Stacking: a hidden squad overstacked out of German view (A12.14, A12.3)',
+    description:
+      'Russian Turn 1 Movement Phase. The hidden 4-4-7 (SSR 2) is in the K4 building with the 4-5-8 and a 4-4-7 (and the 9-1); the 4-4-7 in K5 is beside them. Move it into K4: no Good Order German sees K4 (the 4-6-7 that would, from T4, set up in U4 instead), so the hidden squad stays hidden (ASLRB A12.14), while the step costs the mover 3 MF (A5.11 counts every unit of its side). It loses its HIP when a German comes to see K4 while it is overstacked.',
+    build(f) {
+      testbedSetupWith(f, TESTBED_FORTIFIED, { 'ru.447#1': 'uK4', 'ru.447#2': 'uK4', 'ru.447#3': 'uK5' }, ['ru.447'], { 'ge.467#2': 'uU4' });
+      f.until('MPh', { turn: 1, attacker: 'ru' });
+    },
+  },
+  {
+    id: 'overstack-vehicles',
+    scenarioId: 'asl-testbed-vehicles',
+    title: 'Stacking: two vehicles in one hex (A5.2, A5.132)',
+    description:
+      'German Turn 1 Defensive Fire Phase on the vehicle test bed. The PSW 234/1 drove into U6 beside the PzKpfw IVF2 and ended its MPh there: full ASL allows it, with +1 to every German attack from U6 (ASLRB A5.2, A5.12); the Starter Kit would make one a wreck. The Russian 45L AT Gun in O6 fires on the Vehicle Target Type at either (the fire panel names each): a miss by less than two may still hit the other on a dr < 2 (A5.132).',
+    build(f) {
+      vehicleSetup(f, vehicleForts(f), { 'ru.228c': 'uO6' }, { 'ge.pzivf2': 'uU6', 'ge.psw2341': 'uV6' });
+      f.until('MPh', { turn: 1, attacker: 'ge' });
+      drive(f, f.unit('ge', 'ge.psw2341'), ['uU6']);
+      f.until('DFPh', { turn: 1, attacker: 'ge' });
+    },
+  },
 ];
 
 /** The dev fixtures of a scenario. */

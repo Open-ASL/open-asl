@@ -70,7 +70,7 @@ export const aslTerrainModule: RuleModule = {
       layer: Layer.Base + 10,
       ref: 'ASLRB B.2, A24.7',
       label: '+1 MF entering SMOKE (part of the COT)',
-      when: ({ to }, env) => smokeIn(env, to),
+      when: ({ to, noSmoke }, env) => !noSmoke && smokeIn(env, to),
       apply: (v) => v + 1,
     });
   },

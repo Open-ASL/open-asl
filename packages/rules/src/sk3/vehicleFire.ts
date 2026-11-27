@@ -8,7 +8,7 @@ import { moveState } from '../sk1/movement';
 import { fireMarker, inMelee, pieceOf, setTags } from '../sk1/status';
 import { terrainOf } from '../sk1/terrain';
 import { woodsBuildingOrRubble, type OrdnanceShot, type ShotCtx } from '../sk2/ordnance';
-import { BOW_TURN, T3, crewCanAct, inMotion, isCe, isMovingTarget, isWreck, stunWord, vehicle } from './status';
+import { BOW_TURN, T3, crewCanAct, firedThisPhase, inMotion, isCe, isMovingTarget, isWreck, stunWord, vehicle } from './status';
 import { T } from '../sk1/status';
 import { applyVehicleEffect, crewTakesResult } from './vehicleStatus';
 import { closeTerrain, hullTurnRefusal, turnRiskingBog } from './vehicleMove';
@@ -65,6 +65,16 @@ export function mpInLosOf(env: QueryEnv, v: Piece, firerHex: HexId, blind = fals
   return trail.filter((t) => statics(env).map.hex(t.hex) && (blind || hasLos(env, firerHex, t.hex))).reduce((n, t) => n + t.mp, 0);
 }
 
+/**
+ * Why a turreted vehicle's MA may not fire in this phase because its turret Rear MG fired in it (ASLRB D1.82; see
+ * `FIRED_PHASE` in sk3/status), or null. Target-independent: the wheel greys the MA's entry with it.
+ */
+export function maRmgRefusal(env: QueryEnv, vehicleId: PieceId): string | null {
+  const p = env.state.pieces[vehicleId];
+  const d = p && vehicle(env, p);
+  return d && d.turret !== 'NT' && firedThisPhase(env, p, 'rmg') ? 'The turret Rear MG fired this phase: the Main Armament may not fire in the same phase (ASLRB D1.82)' : null;
+}
+
 /** Why a vehicle's Main Armament may not fire now (SK4 7.2, 7.10, 3.2.5, 3.5), or null. */
 export function maIllegal(env: QueryEnv, shot: OrdnanceShot, mode: FireMode): string | null {
   const p = env.state.pieces[shot.weapon];
@@ -78,6 +88,8 @@ export function maIllegal(env: QueryEnv, shot: OrdnanceShot, mode: FireMode): st
   // Turned without MP at the end of this phase (SK4 3.3.2): it fires no more in it.
   const turned = caTurnedIllegal(env, p);
   if (turned) return turned;
+  const rmg = maRmgRefusal(env, p.id);
+  if (rmg) return rmg;
   // An NT vehicle's MA turns its hull to fire outside the CA, so the hull must be free to turn: not Immobilized, Bogged or
   // dug in (SK4 glossary "Immobilized: ... may not change hexes, turn its VCA, or start"; 7.6).
   if (shot.ca !== undefined && d.turret === 'NT' && shot.ca !== (p.tags[T2.ca] as number | undefined)) {

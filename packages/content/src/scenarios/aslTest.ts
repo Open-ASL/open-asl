@@ -241,5 +241,52 @@ export const ASL_TESTBED_DEPLOY_SCENARIO: ScenarioDef = {
   notes: [...ASL_TESTBED_SCENARIO.notes!, 'Deploy and Recombine: the Russians add two 2-2-6 half-squads; a German 8-1 with three 4-6-7 enters on Turn 2 along the east edge.'],
 };
 
+/**
+ * The test bed for the movement options (full ASL A4.134 Minimum Move, A4.5 Double Time during the move, A4.63 Dash, A4.15
+ * Infantry OVR and A8.312 mandatory TPBF): the Russian 9-1 holds the LMG himself (an armed leader who must TPBF when
+ * overrun) and the 4-4-7 that held it goes without; the Germans add a 4-6-7 carrying a HMG and two LMG (6 PP: one MF,
+ * so a woods or building hex is a Minimum Move). The setups decide the rest: a leader alone in a building next to the
+ * German line is overrun, the road through N8 is Dashed across (dev fixtures in `packages/content/src/fixtures.ts`).
+ */
+export const ASL_TESTBED_MOVEMENT_SCENARIO: ScenarioDef = {
+  ...ASL_TESTBED_SCENARIO,
+  id: 'asl-testbed-movement',
+  number: 'T7',
+  title: 'T7 Full ASL Test Bed: Movement',
+  forces: ASL_TESTBED_SCENARIO.forces.map((f) =>
+    f.side === 'ru'
+      ? { ...f, units: f.units.map((u) => (u.def === 'ru.L91' ? { ...u, withSw: ['ru.LMG'] } : u.withSw?.includes('ru.LMG') ? { def: u.def, count: u.count } : u)) }
+      : { ...f, units: [...f.units, { def: 'ge.467', count: 1, withSw: ['ge.HMG', 'ge.LMG', 'ge.LMG'] }] },
+  ),
+  notes: [...ASL_TESTBED_SCENARIO.notes!, 'Movement: the Russian 9-1 carries the LMG; the Germans add a 4-6-7 with a HMG and two LMG (one MF: a Minimum Move into woods or a building).'],
+};
+
+/**
+ * The test bed for overstacking (full ASL A5.1, A5.5, A5.11, A5.12, A5.131, A4.72, A10.51, A10.62): the Germans add an 8-0,
+ * a 7-0 and a 9-1 (five SMC in one Location count as a HS, A5.5), a 2-2-8 crew and a 2-4-7 HS (the A5.11 EX: two squads
+ * and a crew, then a squad or a HS entering); Russians set up in O6 or O10 begin broken (a rout to an overstacked
+ * building, a DM kept in an overstacked woods). The setups decide the rest (dev fixtures in `packages/content/src/fixtures.ts`).
+ */
+export const ASL_TESTBED_STACKING_SCENARIO: ScenarioDef = {
+  ...ASL_TESTBED_SCENARIO,
+  id: 'asl-testbed-stacking',
+  number: 'T8',
+  title: 'T8 Full ASL Test Bed: Stacking',
+  forces: ASL_TESTBED_SCENARIO.forces.map((f) =>
+    f.side === 'ge'
+      ? { ...f, units: [...f.units, { def: 'ge.L80', count: 1 }, { def: 'ge.L70', count: 1 }, { def: 'ge.L91', count: 1 }, { def: 'ge.228c', count: 1 }, { def: 'ge.247h', count: 1 }] }
+      : f,
+  ),
+  notes: [...ASL_TESTBED_SCENARIO.notes!, 'Stacking: the Germans add an 8-0, a 7-0, a 9-1, a 2-2-8 crew and a 2-4-7 half-squad; Russians set up in O6 or O10 begin broken.'],
+  ssr: [
+    ...ASL_TESTBED_SCENARIO.ssr,
+    {
+      module: 'set-up-broken',
+      params: { side: 'ru', hexes: ['uO6', 'uO10'] },
+      text: 'Russian units set up in O6 or O10 begin play broken, under DM.',
+    },
+  ],
+};
+
 /** The scenarios that play under the Full ASL ruleset. */
-export const ASL_SCENARIOS: ScenarioDef[] = [ASL_TESTBED_SCENARIO, ASL_TESTBED_FIRE_SCENARIO, ASL_TESTBED_MINES_SCENARIO, ASL_TESTBED_PILLBOX_SCENARIO, ASL_TESTBED_VEHICLES_SCENARIO, ASL_TESTBED_DEPLOY_SCENARIO];
+export const ASL_SCENARIOS: ScenarioDef[] = [ASL_TESTBED_SCENARIO, ASL_TESTBED_FIRE_SCENARIO, ASL_TESTBED_MINES_SCENARIO, ASL_TESTBED_PILLBOX_SCENARIO, ASL_TESTBED_VEHICLES_SCENARIO, ASL_TESTBED_DEPLOY_SCENARIO, ASL_TESTBED_MOVEMENT_SCENARIO, ASL_TESTBED_STACKING_SCENARIO];

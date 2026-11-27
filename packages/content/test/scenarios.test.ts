@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { T, T2, T3, TAG_LIFECYCLE, moveState, sideToward, statics } from '@asl/rules';
+import { STRAY_HIT_EVENT, T, T2, T3, TAG_LIFECYCLE, moveState, overstackEntryMf, pieceOf, sideToward, statics, vehiclesAt } from '@asl/rules';
+import type { Action, Engine, GameState } from '@asl/engine';
 import { ALL_SCENARIOS, PLAYABLE_SCENARIOS, applyBalance, isPlayable, mulberry, newSk1Game, playRandom, scenarioById, sk1Ruleset, staticsFor, weightedPicker } from '../src';
 import { skLocationViolation, tankWeights, turnBoundaryCheck } from './randomPlayChecks';
 
@@ -9,6 +10,26 @@ describe('tag lifecycles', () => {
     expect(declared.filter((k) => !TAG_LIFECYCLE[k])).toEqual([]);
   });
 });
+
+/**
+ * Whether `a` overstacks a Location (full ASL A5.1, A5.2): an Infantry step, advance or rout step that pays the A5.11 MF,
+ * or a vehicle step into a hex holding a friendly vehicle. The runs of other features weigh these at zero, so that they
+ * play as they did under the stacking cap; the stacking test bed has its own run.
+ */
+function overstacks(engine: Engine, state: GameState, a: Action): boolean {
+  const env = engine.env(state);
+  const to = typeof a['to'] === 'string' ? (a['to'] as string) : null;
+  if (!to) return false;
+  if (a.type === 'move.step') {
+    const ms = moveState(env);
+    if (!ms) return false;
+    if (ms.vehicle) return vehiclesAt(env, to, state.attacker, true).some((v) => !ms.units.includes(v.id));
+    return overstackEntryMf(env, to, ms.units, state.attacker) > 0;
+  }
+  if (a.type === 'advance') return overstackEntryMf(env, to, a['units'] as string[], state.attacker) > 0;
+  if (a.type === 'rout.step') return overstackEntryMf(env, to, [a['unit'] as string], pieceOf(env, a['unit'] as string).side) > 0;
+  return false;
+}
 
 describe('catalogued scenarios', () => {
   it('marks every coming-soon card with what it needs and no forces', () => {
@@ -173,6 +194,16 @@ describe('catalogued scenarios', () => {
     const wireHexes = new Set<string>();
     const weigh = weightedPicker((a, _legal, state, engine) => {
       if (a.type === 'fort.place') return 400;
+      // The movement options this run does not exercise (Double Time, Assault Movement, Dash, Minimum Move, Infantry
+      // OVR; they have their own run on the movement test bed): never picked, so the run plays as it did without them.
+      if (a.type === 'move.doubleTime' || a.type === 'move.dash' || (a.type === 'move.start' && (a['doubleTime'] || a['assault']))) return 0;
+      if (a.type === 'move.step' && (a['ovr'] || (() => {
+        const env = engine.env(state);
+        const ms = moveState(env);
+        const to = String(a['to']);
+        const enemy = Object.values(state.pieces).some((p) => p.side !== state.attacker && p.loc.kind === 'hex' && p.loc.hex === to);
+        return enemy || (!!ms && ms.units.some((u) => env.query('move.stepCost', { ms, to }, 1) > (ms.allowance[u] ?? 0) - (ms.spent[u] ?? 0)));
+      })())) return 0;
       if (a.type === 'move.wire') return 40;
       if (a.type === 'clearance.declare') return 40;
       if (a.type === 'rout.wire') return 20;
@@ -313,6 +344,7 @@ describe('catalogued scenarios', () => {
     const bump = (k: string, n = 1) => (counts[k] = (counts[k] ?? 0) + n);
     const near = ['uO9', 'uP8'];
     const weigh = weightedPicker((a, _legal, state, engine) => {
+      if (overstacks(engine, state, a)) return 0;
       if (a.type === 'fort.place') return 400;
       // Deploy and Recombine have their own run (T6): not here.
       if (a.type === 'setup.deploy' || a.type === 'rally.deploy' || a.type === 'rally.recombine') return 0;
@@ -453,7 +485,11 @@ describe('catalogued scenarios', () => {
     const bump = (k: string, n = 1) => (counts[k] = (counts[k] ?? 0) + n);
     const goal = (state: { attacker: string }) => (state.attacker === 'ge' ? 'uP6' : 'uO9');
     const weigh = weightedPicker((a, _legal, state, engine) => {
+      if (overstacks(engine, state, a)) return 0;
       if (a.type === 'fort.place') return 400;
+      // A vehicle MG turning its turret or hull to fire (SK4 3.2.4, 7.8): rarely, so the armor fights over the trench and
+      // the Gun rather than spraying MG fire all round.
+      if ((a.type === 'fire' || a.type === 'defFire') && ((a['decl'] as { tca?: number; vca?: number }).tca !== undefined || (a['decl'] as { vca?: number }).vca !== undefined)) return 0.1;
       // Pushes into the P7 and O8 buildings (their TEM and MF on the DR) fail often: Labor across the turns.
       if (a.type === 'move.manhandle') return ['uP7', 'uO8'].includes(String(a['to'])) ? 200 : 60;
       if (a.type === 'move.start' && a['manhandle']) return 80;
@@ -581,6 +617,230 @@ describe('catalogued scenarios', () => {
     expect(counts['recombined:ru'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
     expect(counts['recombined:ge'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
   }, 180_000);
+
+  it('asl-testbed-movement: weighted random play makes Minimum Moves, Double Time during the move, Dashes and Infantry OVR with their First Fire and CC; every Player Turn boundary is clean', () => {
+    const scenario = scenarioById('asl-testbed-movement')!;
+    const counts: Record<string, number> = {};
+    const bump = (k: string, n = 1) => (counts[k] = (counts[k] ?? 0) + n);
+    const col = (h: unknown) => (typeof h === 'string' ? (/^u([A-Z]+)/.exec(h)?.[1] ?? '') : '');
+    const colIndex = (c: string) => (c.length === 1 ? c.charCodeAt(0) - 64 : 26 + c.charCodeAt(1) - 64);
+    // The Germans press west, into enemy Locations where the rules let them (Infantry OVR), Dash and Double Time when
+    // offered; the Russians stay and fight an overrun leader as often as they slip away.
+    const weigh = weightedPicker((a, _legal, state, engine) => {
+      if (a.type === 'move.dash') return 60;
+      if (a.type === 'move.doubleTime') return 15;
+      if (a.type === 'move.step' && typeof a['to'] === 'string') {
+        const to = a['to'] as string;
+        const enemy = Object.values(state.pieces).some((p) => p.side !== state.attacker && p.loc.kind === 'hex' && p.loc.hex === to);
+        if (enemy) return 400;
+        const env = engine.env(state);
+        const ms = moveState(env);
+        const from = ms?.hex;
+        // A step some unit cannot pay for is a Minimum Move (A4.134).
+        if (ms && ms.units.some((u) => env.query('move.stepCost', { ms, to }, 1) > (ms.allowance[u] ?? 0) - (ms.spent[u] ?? 0))) return 80;
+        // Toward the nearest Russian leader standing alone (to overrun him, A4.15).
+        const map = statics(env).map;
+        const lone = Object.values(state.pieces)
+          .filter((p) => p.side === 'ru' && p.loc.kind === 'hex' && p.defId.startsWith('ru.L'))
+          .map((p) => (p.loc as { hex: string }).hex)
+          .filter((h) => Object.values(state.pieces).filter((q) => q.side === 'ru' && q.loc.kind === 'hex' && (q.loc as { hex: string }).hex === h).length === 1);
+        const near = (h: string) => Math.min(99, ...lone.map((l) => map.distance(h, l)));
+        if (from && state.attacker === 'ge' && map.hex(to) && near(to) < near(from)) return 30;
+        return from && state.attacker === 'ge' && colIndex(col(to)) < colIndex(col(from)) ? 6 : 1;
+      }
+      if (a.type === 'cc.declare') return (a['attacks'] as unknown[]).length ? 10 : 1;
+      // The Russians mostly stay put and hold their fire, so the Germans reach the leaders they overrun.
+      if (a.type === 'move.start') return state.attacker === 'ge' ? 40 : 0.2;
+      // Advancing into the leaders' hexes would take them in CC first: rarely.
+      if (a.type === 'advance') return 0.2;
+      if (a.type === 'endPhase') return state.phase === 'MPh' ? 1 : 3;
+      // No German Prep Fire: a unit that fires there may not move (A3.2).
+      if (a.type === 'fire') return state.phase === 'PFPh' && state.attacker === 'ge' ? 0 : 2;
+      return a.type === 'defFire' ? 0.3 : 1;
+    });
+    const pick: typeof weigh = (legal, state, engine, rand) => {
+      const a = weigh(legal, state, engine, rand);
+      const bad = engine.validate(state, a);
+      if (bad) throw new Error(`listed but refused: ${JSON.stringify(a)}: ${bad}`);
+      // Russian leaders set up alone in the buildings on the front line (P5, P7), the 9-1 with his LMG, to be overrun.
+      if (a.type === 'setup.place' && a.side === 'ru') {
+        const placements = { ...(a['placements'] as Record<string, string>) };
+        const of = (def: string) => Object.keys(placements).sort().find((x) => state.pieces[x]?.defId === def);
+        const l70 = of('ru.L70');
+        const l91 = of('ru.L91');
+        if (l70) placements[l70] = 'uP7';
+        if (l91) placements[l91] = 'uP5';
+        for (const [id, hex] of Object.entries(placements)) if (id !== l70 && id !== l91 && (hex === 'uP7' || hex === 'uP5')) placements[id] = 'uK4';
+        const moved = { ...a, placements };
+        return engine.validate(state, moved as never) ? a : (moved as typeof a);
+      }
+      // The German 4-6-7 with three SW (one MF) beside the S3 woods, so that it has a Minimum Move to make.
+      if (a.type === 'setup.place' && a.side === 'ge') {
+        const placements = { ...(a['placements'] as Record<string, string>) };
+        const ids = Object.keys(placements).sort();
+        const heavy = ids.find((x) => Object.values(state.pieces).filter((w) => w.loc.kind === 'held' && w.loc.by === x).length === 3);
+        // The rest along hexrow S facing the Russian leaders in P5 and P7.
+        const front = ['uS5', 'uS6', 'uS7', 'uS8'];
+        ids.filter((x) => x !== heavy).forEach((x, i) => (placements[x] = front[i % front.length]!));
+        if (heavy) placements[heavy] = 'uS4';
+        const moved = { ...a, placements };
+        return engine.validate(state, moved as never) ? a : (moved as typeof a);
+      }
+      return a;
+    };
+    for (const seed of [71, 72, 73, 74, 75, 76]) {
+      const check = turnBoundaryCheck(`asl-testbed-movement seed ${seed}`);
+      const { state, steps } = playRandom(scenario, `movement-${seed}`, {
+        rand: mulberry(seed),
+        maxSteps: 9000,
+        pick,
+        onStep: (st, events, a) => {
+          bump(a.type);
+          for (const ev of events) {
+            if (ev.type === 'asl.move.minimum') bump('minimum');
+            if (ev.type === 'asl.move.doubleTime') bump('doubleTime');
+            if (ev.type === 'asl.move.dash') bump('dash');
+            if (ev.type === 'asl.ovr.ntc') bump('ovr:ntc');
+            if (ev.type === 'asl.ovr.answer') bump(`ovr:${(ev.payload as { choice: string }).choice}`);
+            if (ev.type === 'asl.tpbf.mandatory') bump('tpbf');
+            if (ev.type === 'asl.ovr.cc') bump(`ovr:cc:${(ev.payload as { outcome: string }).outcome}`);
+          }
+          check(st, events);
+        },
+      });
+      expect(state.result, `seed ${seed} reached no result in ${steps} steps`).not.toBeNull();
+    }
+    for (const k of ['minimum', 'doubleTime', 'dash', 'ovr:ntc', 'ovr:stay', 'ovr:slip', 'tpbf']) expect(counts[k] ?? 0, `${k}: ${JSON.stringify(counts)}`).toBeGreaterThan(0);
+    expect((counts['ovr:cc:melee'] ?? 0) + (counts['ovr:cc:eliminated'] ?? 0), JSON.stringify(counts)).toBeGreaterThan(0);
+  }, 240_000);
+
+  it('asl-testbed-stacking: weighted random play overstacks by moving, advancing and routing, fires from and at overstacked Locations; every Player Turn boundary is clean', () => {
+    const scenario = scenarioById('asl-testbed-stacking')!;
+    const counts: Record<string, number> = {};
+    const bump = (k: string, n = 1) => (counts[k] = (counts[k] ?? 0) + n);
+    const labelsOf = (p: unknown) => ((p as { explain?: { label?: string }[] }).explain ?? []).map((n) => n.label ?? '');
+    // Every side presses into Locations its own units hold, so that they overstack; the rest heads for the enemy.
+    const weigh = weightedPicker((a, _legal, state, engine) => {
+      if (a.type === 'fort.place') return 400;
+      if (a.type === 'move.step' || a.type === 'advance' || a.type === 'rout.step') {
+        if (overstacks(engine, state, a)) return a.type === 'rout.step' ? 50 : 200;
+        if (a.type !== 'move.step') return 1;
+        const to = String(a['to']);
+        const env = engine.env(state);
+        const from = moveState(env)?.hex;
+        const map = statics(env).map;
+        const enemy = Object.values(state.pieces).filter((p) => p.side !== state.attacker && p.loc.kind === 'hex').map((p) => (p.loc as { hex: string }).hex);
+        const near = (h: string) => Math.min(99, ...enemy.map((e) => map.distance(h, e)));
+        return from && !to.includes(':') && map.hex(to) && near(to) < near(from) ? 10 : 1;
+      }
+      if (a.type === 'move.start') return 30;
+      if (a.type === 'move.dash' || a.type === 'move.doubleTime') return 0;
+      if (a.type === 'endPhase') return state.phase === 'MPh' ? 1 : 4;
+      return 1;
+    });
+    const pick: typeof weigh = (legal, state, engine, rand) => {
+      const a = weigh(legal, state, engine, rand);
+      const bad = engine.validate(state, a);
+      if (bad) throw new Error(`listed but refused: ${JSON.stringify(a)}: ${bad}`);
+      if (overstacks(engine, state, a)) bump(`overstack:${a.type}`);
+      return a;
+    };
+    for (const seed of [81, 82, 83, 84]) {
+      const check = turnBoundaryCheck(`asl-testbed-stacking seed ${seed}`);
+      const { state, steps } = playRandom(scenario, `stacking-${seed}`, {
+        rand: mulberry(seed),
+        maxSteps: 9000,
+        pick,
+        onStep: (st, events) => {
+          for (const ev of events) {
+            if (ev.type === 'sk1.fire.attack' && labelsOf(ev.payload).some((l) => l.includes('overstacked firer'))) bump('firer');
+            if (ev.type === 'sk1.fire.result' && labelsOf(ev.payload).some((l) => l.includes('vs overstacked'))) bump('target');
+            if (ev.type === 'sk1.cc.attack' && labelsOf(ev.payload).some((l) => l.includes('overstacked'))) bump('cc');
+          }
+          check(st, events);
+        },
+      });
+      expect(state.result, `seed ${seed} reached no result in ${steps} steps`).not.toBeNull();
+    }
+    for (const k of ['overstack:move.step', 'overstack:advance', 'firer', 'target']) expect(counts[k] ?? 0, `${k}: ${JSON.stringify(counts)}`).toBeGreaterThan(0);
+  }, 240_000);
+
+  it('asl-testbed-vehicles: weighted random play stacks the German AFV in one hex and fires at them there on the Vehicle Target Type (A5.2, A5.132); every Player Turn boundary is clean', () => {
+    const scenario = scenarioById('asl-testbed-vehicles')!;
+    const counts: Record<string, number> = {};
+    const bump = (k: string, n = 1) => (counts[k] = (counts[k] ?? 0) + n);
+    const weigh = weightedPicker((a, _legal, state, engine) => {
+      if (a.type === 'fort.place') return 400;
+      // A vehicle MG turning its turret or hull to fire (SK4 3.2.4, 7.8): rarely, so the ordnance keeps firing on the
+      // Vehicle Target Type at the stacked AFV.
+      if ((a.type === 'fire' || a.type === 'defFire') && ((a['decl'] as { tca?: number; vca?: number }).tca !== undefined || (a['decl'] as { vca?: number }).vca !== undefined)) return 0.1;
+      if (a.type === 'vmove.start') {
+        const v = state.pieces[a['vehicle'] as string];
+        const sharing = !!v && v.loc.kind === 'hex' && vehiclesAt(engine.env(state), (v.loc as { hex: string }).hex, v.side, true).length > 1;
+        return sharing ? 0 : state.attacker === 'ge' ? 60 : 5;
+      }
+      const ms = moveState(engine.env(state));
+      const shared = !!ms?.vehicle && !!ms.hex && vehiclesAt(engine.env(state), ms.hex, state.attacker, true).length > 1;
+      if (a.type === 'move.step') {
+        if (ms?.vehicle) return shared ? 0.5 : overstacks(engine, state, a) ? 400 : 2;
+        return overstacks(engine, state, a) ? 20 : 1;
+      }
+      if (a.type === 'vmove.turn') return 20;
+      if ((a.type === 'vmove.stop' || a.type === 'vmove.end') && shared) return 400;
+      // No German Prep Fire (a vehicle that fires then may not move); after that everyone fires on the Vehicle Target Type.
+      if (state.phase === 'PFPh' && state.attacker === 'ge' && a.type !== 'endPhase') return 0;
+      if ((a.type === 'fire.ordnance' || a.type === 'defFire.ordnance' || a.type === 'vmove.bff') && (a['shot'] as { targetType: string }).targetType === 'VTT') {
+        const t = String((a['shot'] as { target: string }).target);
+        return vehiclesAt(engine.env(state), t, undefined, true).filter((v) => v.side !== a.side).length > 1 ? 400 : 20;
+      }
+      if (a.type === 'endPhase') return state.phase === 'MPh' ? 2 : 4;
+      return 1;
+    });
+    const pick: typeof weigh = (legal, state, engine, rand) => {
+      const a = weigh(legal, state, engine, rand);
+      const bad = engine.validate(state, a);
+      if (bad) throw new Error(`listed but refused: ${JSON.stringify(a)}: ${bad}`);
+      const sh = a['shot'] as { targetType?: string; target?: string } | undefined;
+      if (sh?.targetType === 'VTT' && vehiclesAt(engine.env(state), sh.target!, undefined, true).filter((v) => v.side !== a.side).length > 1) bump('vttStacked');
+      // The two German AFV set up side by side (a setup never overstacks, A2.9), one hex apart from the Russian Gun's view.
+      if (a.type === 'setup.place' && a.side === 'ge') {
+        const placements = { ...(a['placements'] as Record<string, string>) };
+        const id = (def: string) => Object.keys(placements).sort().find((x) => state.pieces[x]?.defId === def);
+        if (id('ge.pzivf2')) placements[id('ge.pzivf2')!] = 'uU6';
+        if (id('ge.psw2341')) placements[id('ge.psw2341')!] = 'uV6';
+        const moved = { ...a, placements };
+        return engine.validate(state, moved as never) ? a : (moved as typeof a);
+      }
+      if (a.type === 'setup.place' && a.side === 'ru') {
+        const placements = { ...(a['placements'] as Record<string, string>) };
+        const crew = Object.keys(placements).sort().find((x) => state.pieces[x]?.defId === 'ru.228c');
+        if (crew) placements[crew] = 'uO6';
+        const guns = Object.fromEntries(Object.entries((a['guns'] as Record<string, { ca: number; hip?: boolean }> | undefined) ?? {}).map(([g, spec]) => [g, { ca: spec.ca }]));
+        const moved = { ...a, placements, guns };
+        return engine.validate(state, moved as never) ? a : (moved as typeof a);
+      }
+      return a;
+    };
+    for (const seed of [91, 92, 93, 94, 99, 108]) {
+      const check = turnBoundaryCheck(`asl-testbed-vehicles stacking seed ${seed}`);
+      const { state, steps } = playRandom(scenario, `vehicle-stacking-${seed}`, {
+        rand: mulberry(seed),
+        maxSteps: 9000,
+        pick,
+        onStep: (st, events) => {
+          for (const ev of events) if (ev.type === STRAY_HIT_EVENT) bump((ev.payload as { hit: string | null }).hit ? 'stray:hit' : 'stray:dr');
+          const together = Object.values(st.pieces).filter((p) => p.side === 'ge' && p.loc.kind === 'hex' && (p.defId === 'ge.pzivf2' || p.defId === 'ge.psw2341') && p.tags['wreck'] !== true);
+          if (st.phase === 'DFPh' && st.attacker === 'ge' && together.length === 2 && (together[0]!.loc as { hex: string }).hex === (together[1]!.loc as { hex: string }).hex) bump('together');
+          check(st, events);
+        },
+      });
+      expect(state.result, `seed ${seed} reached no result in ${steps} steps`).not.toBeNull();
+    }
+    // The A5.132 dr needs a miss by exactly one here (two vehicles), rare at these ranges: seeds 99 and 108 reach it.
+    expect(counts['together'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
+    expect(counts['vttStacked'] ?? 0, JSON.stringify(counts)).toBeGreaterThan(0);
+    expect((counts['stray:dr'] ?? 0) + (counts['stray:hit'] ?? 0), JSON.stringify(counts)).toBeGreaterThan(0);
+  }, 240_000);
 
   for (const s of PLAYABLE_SCENARIOS) {
     it(`${s.id}: builds, applies every balance option, and plays through at random`, () => {

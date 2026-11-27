@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Ctx, Decision, Engine, GameState, RuleModule } from '@asl/engine';
-import { CONCEAL_RTPH_DECISION, FP, P as MP, SETUP_PLACED, UNKNOWN_DEF_ID, concealmentModule, hiddenUnitsModule, hexOf, isKnownTo, statics, isVisibleTo, moveState, redactState, sk2CoreModules, sk3CoreModules, type CasualtyFn, type FireDeclaration, type FireMode, type ResolveFireFn, type SetupAction, type SetupPlacedFn, type UnitFn } from '../../src';
+import { CONCEAL_RTPH_DECISION, FP, P as MP, SETUP_PLACED, UNKNOWN_DEF, UNKNOWN_DEF_ID, concealmentModule, hiddenUnitsModule, hexOf, isKnownTo, statics, isVisibleTo, moveState, playerTurnLeftovers, redactState, sk2CoreModules, sk3CoreModules, type CasualtyFn, type FireDeclaration, type FireMode, type ResolveFireFn, type SetupAction, type SetupPlacedFn, type UnitFn } from '../../src';
 import { RU_VS_GE, act, makeEngine, type PieceSpec } from '../fixtures';
 
 /** Test-only actions: resolve a fire declaration; run the setup-placed and scenario-begin procedures. */
@@ -78,6 +78,47 @@ describe('Concealment (SK4 8.3): gate, visibility and redaction', () => {
     expect(JSON.stringify(view)).not.toMatch(/"a"|"b"|"crew"|"gun"/);
     // The stand-in is no unit: the enemy may fire at the hex, cannot aim the Infantry Target Type at it, and may try to walk in.
     expect(engine.legalActions(view, 'ge').length).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('Concealment (SK4 8.3.2): a "?" may be fired at', () => {
+  const HIDDEN_RU = { module: 'hidden-units', params: { side: 'ru', notOpenGround: true, rule: 'SSR' }, text: 'SSR' };
+  const geFirst = (pieces: PieceSpec[], startPhase: string, dice?: number[]) =>
+    // The "?" counter def is in the content's counters, as it is in every real game.
+    makeEngine({ scenario: { ...RU_VS_GE, firstSide: 'ge', ssr: [SSR, HIDDEN_RU] }, extra: [...extra, hiddenUnitsModule], terrain: BUILDINGS, startPhase, pieces, counters: { [UNKNOWN_DEF_ID]: { ...UNKNOWN_DEF } }, ...(dice ? { dice } : {}) });
+  const targets = (engine: Engine, s: GameState, type: string) =>
+    [...new Set(engine.legalActions(s, 'ge').filter((a) => a.type === type).map((a) => ((a['decl'] ?? a['shot']) as { target: string }).target))].sort();
+
+  it('a Location holding only a concealed stack is offered as an Area Fire target (Infantry and Gun), in the full position and in the firer\'s own view; a hidden unit\'s Location is not', () => {
+    const { engine, state } = geFirst(
+      [sq('a', 'yK5', { concealed: true }), sq('h', 'yM5', { hip: true }), ge('g', 'yK6'), { id: 'crew', def: 'ge.228c', side: 'ge', hex: 'yK8' }, { id: 'gun', def: 'ge.AT75L', side: 'ge', heldBy: 'crew', tags: { ca: 0 } }],
+      'PFPh',
+    );
+    expect(targets(engine, state, 'fire')).toEqual(['yK5']);
+    expect(targets(engine, state, 'fire.ordnance')).toEqual(['yK5']);
+    // The firer's redacted view holds the "?" stand-in, not the squad: the same Location is offered there.
+    const view = redactState(engine, state, 'ge');
+    expect(targets(engine, view, 'fire')).toEqual(['yK5']);
+  });
+
+  it('the shot at the "?" is Area Fire and may be repeated next Player Turn: the stack, unharmed, keeps its "?", and the firer is free to fire again', () => {
+    // 6+6: no effect, so the "?" stays (a hit with any result would drop it, SK4 8.3).
+    const { engine, state } = geFirst([sq('a', 'yK5', { concealed: true }), ge('g', 'yK6')], 'PFPh', [6, 6, 6, 6, 6, 6, 6, 6]);
+    const fire = engine.legalActions(state, 'ge').find((a) => a.type === 'fire' && (a['decl'] as FireDeclaration).target === 'yK5')!;
+    let s = act(engine, state, fire).state;
+    expect(concealed(s.pieces['a'])).toBe(true);
+    expect(s.pieces['g']!.tags['fire']).toBe('prep');
+    for (let i = 0; i < 60 && !(s.turn === 2 && s.attacker === 'ge' && s.phase === 'PFPh'); i++) {
+      const d = engine.currentDecision(s)!;
+      const legal = engine.legalActions(s, d.owner);
+      const next = legal.find((x) => x.type === 'endPhase') ?? legal.find((x) => x.type === 'defPass') ?? legal.find((x) => x.type === 'conceal.keep') ?? legal[0]!;
+      s = engine.submit(s, next).state;
+    }
+    expect(s.attacker).toBe('ge');
+    expect(s.phase).toBe('PFPh');
+    expect(s.pieces['g']!.tags['fire']).toBeUndefined();
+    expect(concealed(s.pieces['a'])).toBe(true);
+    expect(targets(engine, s, 'fire')).toEqual(['yK5']);
   });
 });
 
@@ -498,6 +539,33 @@ describe('Concealment (SK4 8.3.3): Guns and HIP', () => {
     expect(concealed(s.pieces['g40'])).toBe(true);
   });
 
+  it('a HIP Emplaced Gun whose crew fires on the IFT keeps no mark of a firing Gun: the colored-dr exception is for its To Hit shot only, and nothing is left on it at the next Player Turn (SK4 8.3.3; ASLRB A12.34)', () => {
+    // The Gun in the K5 building; the crew fires its own FP at the Russian at K8 (no effect on 6+6).
+    const { engine, state } = game([{ id: 'c1', def: 'ge.228c', side: 'ge', hex: 'yK5', tags: { hip: true } }, { id: 'g40', def: 'ge.AT75L', side: 'ge', heldBy: 'c1', tags: { ca: 0, hip: true, emplaced: true } }, sq('a', 'yK8')], 'PFPh', { firstSide: 'ge', dice: [6, 6, 6, 6, 6, 6, 6, 6] });
+    let s = act(engine, state, { type: 'test.fire', decl: { units: ['c1'], sw: [], target: 'yK8' }, mode: 'prep' }).state;
+    expect(s.pieces['c1']!.tags['hip']).toBeUndefined();
+    expect(s.pieces['g40']!.tags['hipFired']).toBeUndefined();
+    for (let i = 0; i < 60 && !(s.attacker === 'ru' && s.phase === 'MPh'); i++) {
+      const d = engine.currentDecision(s)!;
+      const legal = engine.legalActions(s, d.owner);
+      s = engine.submit(s, legal.find((x) => x.type === 'endPhase') ?? legal.find((x) => x.type === 'defPass') ?? legal.find((x) => x.type === 'conceal.keep') ?? legal[0]!).state;
+    }
+    expect(s.attacker).toBe('ru');
+    expect(Object.keys(s.pieces['g40']!.tags).filter((t) => t === 'hipFired')).toEqual([]);
+  });
+
+  it('a HIP Emplaced Gun whose crew fires its own FP on the IFT: the "?" kept by a Gun\'s shot is not marked, and nothing is left for the next Player Turn', () => {
+    // German Prep Fire: the hidden crew in a building fires its own FP at the adjacent Russian squad.
+    const { engine, state } = game([{ id: 'c1', def: 'ge.228c', side: 'ge', hex: 'yK5', tags: { hip: true } }, { id: 'g40', def: 'ge.AT75L', side: 'ge', heldBy: 'c1', tags: { ca: 0, hip: true, emplaced: true } }, sq('a', 'yK6')], 'PFPh', { firstSide: 'ge', dice: Array(40).fill(4) });
+    const r = act(engine, state, { type: 'fire', decl: { units: ['c1'], sw: [], target: 'yK6' } });
+    expect(events(r, 'sk2.hip.revealed').length + events(r, 'sk2.hip.unitRevealed').length).toBeGreaterThan(0);
+    expect(r.state.pieces['g40']!.tags['hipFired']).toBeUndefined();
+    let s = r.state;
+    for (let i = 0; i < 40 && !(s.attacker === 'ru' && s.phase === 'RPh'); i++) s = act(engine, s, { type: engine.currentDecision(s)!.kind === 'firstFire' ? 'defPass' : 'endPhase' }).state;
+    expect(s.phase).toBe('RPh');
+    expect(playerTurnLeftovers(s)).toEqual([]);
+  });
+
   // ASLRB A12.32 (SK4 is silent): a hidden unit that moves or advances is first placed on board beneath a "?"; the normal
   // concealment rules then decide whether it keeps it.
   const HIDDEN_RU = { module: 'hidden-units', params: { side: 'ru', notOpenGround: true, rule: 'SSR' }, text: 'SSR' };
@@ -542,5 +610,165 @@ describe('Concealment (SK4 8.3.3): Guns and HIP', () => {
     s = play(engine, s, { type: 'advance', units: ['h2'], to: 'yK6' });
     expect(s.pieces['h2']!.tags['hip']).toBeUndefined();
     expect(concealed(s.pieces['h2'])).toBe(false);
+  });
+
+  // SK4 8.3 ("It attempts to enter a hex with an enemy concealment counter during its MPh", in the LOS of a non-HIP Good
+  // Order enemy) and 8.3.2 (the "?" comes off the moving stack); hidden status is concealment (ASLRB A12.3), and a stack
+  // forced back by a hidden unit "will lose Concealment and end its MPh" where it was (A12.15).
+  const hipAttack = (pieces: PieceSpec[], terrain: Record<string, { terrain: string; buildingId?: string }> = BUILDINGS) =>
+    makeEngine({ scenario: { ...RU_VS_GE, firstSide: 'ge', ssr: [SSR, HIDDEN_RU] }, extra: [...extra, hiddenUnitsModule], terrain, startPhase: 'MPh', pieces });
+
+  it('a concealed stack Assault Moving into the Location of a hidden unit is forced back and loses its "?" there; the unit found is revealed outright', () => {
+    const { engine, state } = hipAttack([sq('h', 'yK5', { hip: true }), ge('g', 'yK6', { concealed: true }), ge('g2', 'yK6', { concealed: true })]);
+    let s = play(engine, state, { type: 'move.start', units: ['g', 'g2'], assault: true });
+    const t = act(engine, s, { type: 'move.step', to: 'yK5' });
+    expect(events(t, 'sk2.hip.bounce')[0]).toMatchObject({ hex: 'yK5' });
+    expect(events(t, 'sk4.concealment.lost')).toContainEqual(expect.objectContaining({ units: ['g', 'g2'], hex: 'yK6', reason: 'entering' }));
+    s = settle(engine, t.state);
+    expect(hexOf(s, s.pieces['g']!)).toBe('yK6');
+    expect(concealed(s.pieces['g'])).toBe(false);
+    expect(concealed(s.pieces['g2'])).toBe(false);
+    expect(s.pieces['h']!.tags['hip']).toBeUndefined();
+    expect(concealed(s.pieces['h'])).toBe(false);
+    expect(moveState(engine.env(s))).toBeUndefined();
+  });
+
+  it('the same with Non-Assault Movement, and with a concealed stack beside the hidden unit: every "?" on both sides comes off', () => {
+    const { engine, state } = hipAttack([sq('h', 'yK5', { hip: true }), sq('c', 'yK5', { concealed: true }), ge('g', 'yK6', { concealed: true })]);
+    const s = settle(engine, play(engine, state, { type: 'move.start', units: ['g'] }, { type: 'move.step', to: 'yK5' }));
+    expect(hexOf(s, s.pieces['g']!)).toBe('yK6');
+    expect(concealed(s.pieces['g'])).toBe(false);
+    expect(concealed(s.pieces['c'])).toBe(false);
+    expect(s.pieces['h']!.tags['hip']).toBeUndefined();
+  });
+
+  it('a stack forced back where no Good Order enemy sees it keeps its "?": the loss is judged in the hex it stays in, not the one it tried to enter', () => {
+    // The hidden unit is broken (not Good Order); the German in K3 sees K5 over the open K4 but not K6 behind the K5 building.
+    const { engine, state } = hipAttack([sq('h', 'yK5', { hip: true, broken: true }), sq('k', 'yK3'), ge('g', 'yK6', { concealed: true })]);
+    for (const assault of [true, false]) {
+      const s = settle(engine, play(engine, state, { type: 'move.start', units: ['g'], assault }, { type: 'move.step', to: 'yK5' }));
+      expect(hexOf(s, s.pieces['g']!)).toBe('yK6');
+      expect(s.pieces['h']!.tags['hip']).toBeUndefined();
+      expect(concealed(s.pieces['g'])).toBe(true);
+    }
+  });
+
+  it('after being forced back the stack moves and fires in its next Player Turn, and regains "?" at its end in Concealment Terrain out of unbroken enemy LOS (SK4 8.3.1)', () => {
+    const terrain = { ...BUILDINGS, yK7: { terrain: 'building-stone', buildingId: 'b-K7' } };
+    const { engine, state } = hipAttack([sq('h', 'yK5', { hip: true }), ge('g', 'yK6', { concealed: true })], terrain);
+    let s = settle(engine, play(engine, state, { type: 'move.start', units: ['g'], assault: true }, { type: 'move.step', to: 'yK5' }));
+    expect(concealed(s.pieces['g'])).toBe(false);
+    // On to the German's next PFPh.
+    for (let i = 0; i < 60 && !(s.turn === 2 && s.attacker === 'ge' && s.phase === 'PFPh'); i++) {
+      const d = engine.currentDecision(s)!;
+      const legal = engine.legalActions(s, d.owner);
+      const a = legal.find((x) => x.type === 'endPhase') ?? legal.find((x) => x.type === 'defPass') ?? legal.find((x) => x.type === 'conceal.keep') ?? legal.find((x) => x.type === 'rally.done') ?? legal[0]!;
+      s = engine.submit(s, a).state;
+    }
+    expect(s.phase).toBe('PFPh');
+    expect(s.pieces['g']!.tags['hip']).toBeUndefined();
+    const firesAtK5 = (st: GameState) => engine.legalActions(st, 'ge').some((a) => a.type === 'fire' && (a as unknown as { decl: { target: string } }).decl.target === 'yK5');
+    expect(firesAtK5(s)).toBe(true);
+    // It moves on into the K7 building and fires at the unit that turned it back in the AFPh.
+    s = settle(engine, play(engine, s, { type: 'endPhase' }, { type: 'move.start', units: ['g'] }, { type: 'move.step', to: 'yK7' }));
+    expect(hexOf(s, s.pieces['g']!)).toBe('yK7');
+    for (let i = 0; i < 10 && s.phase !== 'AFPh'; i++) {
+      const d = engine.currentDecision(s)!;
+      const legal = engine.legalActions(s, d.owner);
+      s = engine.submit(s, legal.find((x) => x.type === 'move.end') ?? legal.find((x) => x.type === 'defPass') ?? legal.find((x) => x.type === 'endPhase')!).state;
+    }
+    expect(s.phase).toBe('AFPh');
+    expect(firesAtK5(s)).toBe(true);
+    s = settle(engine, play(engine, s, { type: 'fire', decl: { units: ['g'], sw: [], target: 'yK5' } }));
+    // The Russian breaks (no unbroken enemy LOS is left), and at the end of the German Player Turn the squad in the building regains "?".
+    s = play(engine, s, { type: 'test.break', unit: 'h' });
+    for (let i = 0; i < 40 && s.attacker === 'ge'; i++) {
+      const d = engine.currentDecision(s)!;
+      const legal = engine.legalActions(s, d.owner);
+      const a = legal.find((x) => x.type === 'endPhase') ?? legal.find((x) => x.type === 'defPass') ?? legal.find((x) => x.type === 'conceal.keep') ?? legal.find((x) => x.type === 'move.end') ?? legal[0]!;
+      s = engine.submit(s, a).state;
+    }
+    expect(s.attacker).toBe('ru');
+    expect(concealed(s.pieces['g'])).toBe(true);
+    expect(s.pieces['g']!.tags['moved']).toBeUndefined();
+  });
+});
+
+describe('Concealment (SK4 8.3): Defensive First Fire at a concealed moving stack, as each side sees it', () => {
+  // Distinctive ids, so that a substring search of a view finds any trace of them, inside composite strings too.
+  const MOVERS = ['ruConcealedAlpha', 'ruConcealedBravo'];
+  const WOODS = { yK5: { terrain: 'woods' }, yK4: { terrain: 'woods' }, yM4: { terrain: 'woods' } };
+  const setup = () =>
+    game(
+      [
+        sq(MOVERS[0]!, 'yK5', { concealed: true }),
+        sq(MOVERS[1]!, 'yK5', { concealed: true }),
+        sq('ruLater', 'yM4'),
+        ge('g1', 'yK3'),
+        { id: 'gLMG', def: 'ge.LMG', side: 'ge', heldBy: 'g1' },
+        // A squad in another hex keeps the defender's question open after the LMG shot.
+        ge('g2', 'yK2'),
+      ],
+      'MPh',
+      { terrain: WOODS, dice: [6, 6, 6, 6, 6, 6] },
+    );
+  const endMove = (engine: Engine, s: GameState) => (moveState(engine.env(s)) ? settle(engine, play(engine, s, { type: 'move.end' })) : s);
+  const defFire = (engine: Engine, s: GameState, units: string[], sw: string[]) =>
+    ({ type: 'defFire', decl: { units, sw, target: 'yK4' }, side: 'ge', decisionId: engine.currentDecision(s)!.id }) as never;
+
+  it('the defender’s view and its event stream name no unit under the "?", not even inside the fire log’s keys (SK4 8.3, ASLRB A12.1)', () => {
+    const { engine, state } = setup();
+    const s0 = play(engine, state, { type: 'move.start', units: MOVERS, assault: true }, { type: 'move.step', to: 'yK4' });
+    expect(engine.currentDecision(s0)).toMatchObject({ kind: 'firstFire', owner: 'ge' });
+    const t = act(engine, s0, { type: 'defFire', decl: { units: [], sw: ['gLMG'], target: 'yK4' } });
+    const s = t.state;
+    expect(MOVERS.every((id) => concealed(s.pieces[id]))).toBe(true);
+    const stream = engine.redactTransition('ge', (x) => redactState(engine, x, 'ge'), s0, t.events);
+    for (const json of [JSON.stringify(redactState(engine, s, 'ge')), JSON.stringify(stream), JSON.stringify(redactState(engine, s, null))]) {
+      for (const id of MOVERS) expect(json).not.toContain(id);
+    }
+  });
+
+  it('in the defender’s own view a unit that sat out the LMG’s shot is refused on that expenditure exactly as in the full state, and is offered nothing the full state refuses (ASLRB A7.55, SK1 1.2.4)', () => {
+    const { engine, state } = setup();
+    let s = play(engine, state, { type: 'move.start', units: MOVERS, assault: true }, { type: 'move.step', to: 'yK4' });
+    s = act(engine, s, { type: 'defFire', decl: { units: [], sw: ['gLMG'], target: 'yK4' } }).state;
+    const view = redactState(engine, s, 'ge');
+    const late = defFire(engine, s, ['g1'], []);
+    expect(engine.validate(s, late)).toMatch(/one Fire Group/);
+    expect(engine.validate(view, late)).toBe(engine.validate(s, late));
+    // The squad in the other hex is free in both.
+    expect(engine.validate(s, defFire(engine, s, ['g2'], []))).toBeNull();
+    expect(engine.validate(view, defFire(engine, s, ['g2'], []))).toBeNull();
+    const offered = (x: GameState) => engine.legalActions(x, 'ge').filter((a) => a.type === 'defFire').map((a) => JSON.stringify(a['decl'])).sort();
+    expect(offered(view)).toEqual(offered(s));
+    expect(offered(view)).not.toContain(JSON.stringify({ units: ['g1'], sw: [], target: 'yK4' }));
+  });
+
+  it('another stack entering the same hex later is a new target: the squad that sat out may fire at it alone, and next Player Turn every unit moves and fires again (ASLRB A7.55)', () => {
+    const { engine, state } = setup();
+    let s = play(engine, state, { type: 'move.start', units: MOVERS, assault: true }, { type: 'move.step', to: 'yK4' });
+    s = act(engine, s, { type: 'defFire', decl: { units: [], sw: ['gLMG'], target: 'yK4' } }).state;
+    s = settle(engine, s);
+    s = endMove(engine, s);
+    s = settle(engine, play(engine, s, { type: 'move.start', units: ['ruLater'] }, { type: 'move.step', to: 'yL4' }));
+    s = play(engine, s, { type: 'move.step', to: 'yK4' });
+    expect(engine.currentDecision(s)).toMatchObject({ kind: 'firstFire', owner: 'ge' });
+    const alone = defFire(engine, s, ['g1'], []);
+    expect(engine.validate(s, alone)).toBeNull();
+    expect(engine.validate(redactState(engine, s, 'ge'), alone)).toBeNull();
+    s = settle(engine, act(engine, s, { type: 'defFire', decl: { units: ['g1'], sw: [], target: 'yK4' } }).state);
+    s = endMove(engine, s);
+    // On through the German Player Turn into the next Russian MPh: no move record or fire log is left, and the stack moves.
+    for (let i = 0; i < 60 && !(s.turn === 2 && s.attacker === 'ru' && s.phase === 'MPh'); i++) {
+      const d = engine.currentDecision(s)!;
+      const legal = engine.legalActions(s, d.owner);
+      const pass = legal.find((a) => a.type === 'endPhase' || a.type === 'defPass' || a.type === 'conceal.keep' || a.type === 'move.end') ?? legal[0]!;
+      s = act(engine, s, { ...pass, side: d.owner } as never).state;
+    }
+    expect(s).toMatchObject({ turn: 2, attacker: 'ru', phase: 'MPh' });
+    expect(moveState(engine.env(s))).toBeUndefined();
+    expect(s.ext['sk1.fireLog']).toBeUndefined();
+    expect(engine.legalActions(s, 'ru').some((a) => a.type === 'move.start' && (a['units'] as string[]).includes(MOVERS[0]!))).toBe(true);
   });
 });

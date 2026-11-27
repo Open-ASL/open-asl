@@ -418,7 +418,7 @@ export const aslPillboxesModule: RuleModule = {
         const pb = pillboxOf(env, hex);
         if (!pb) return v;
         const se = pillboxCapacity(pb);
-        return { se, smc: 4, note: `the pillbox holds ${se} squad${se === 1 ? '' : 's'}, ASLRB B30.111` };
+        return { se, smc: 4, note: `the pillbox holds ${se} squad${se === 1 ? '' : 's'}, ASLRB B30.111`, capacity: true };
       },
     });
     // No vehicle (B30.111) and no Gun (B30.45: "No 5/8" counter may enter or leave a pillbox during play") moves in or out.

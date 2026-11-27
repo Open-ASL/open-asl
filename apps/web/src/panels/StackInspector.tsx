@@ -283,7 +283,7 @@ export function StackInspector({ env, hex, selected, onToggle, actingSide, swWit
                 <span className="pname">
                   <span className={`nat nat-${(env.statics as Statics).scenario.sides.find((x) => x.side === p.side)?.nationality ?? ''}`}>{nationName(env, (env.statics as Statics).scenario.sides.find((x) => x.side === p.side)?.nationality ?? '')}</span> concealed stack
                   <span className="muted small">
-                    {typeof p.tags['counters'] === 'number' ? ` · ${p.tags['counters']} counter${p.tags['counters'] === 1 ? '' : 's'} under the "?"` : ''} · cannot be inspected (SK4 8.3.2)
+                    {typeof p.tags['counters'] === 'number' ? ` · one "?" over ${p.tags['counters']} counter${p.tags['counters'] === 1 ? '' : 's'}` : ''} · cannot be inspected (SK4 8.3.2)
                   </span>
                 </span>
               </label>

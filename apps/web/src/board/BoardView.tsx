@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Application, Assets, Color, Container, Graphics, Rectangle, Sprite, Text, Texture, UPDATE_PRIORITY } from 'pixi.js';
-import { cubeDistance, cubeNeighbors, type GameState, type HexId, type Piece, type QueryEnv, type SideId } from '@asl/engine';
-import { GEO, stunLabel, coveredArc, defOf, gun as gunDef, gunHex, hexOf as hexOfPiece, inCoveredArc, isCaptured, isWeaponDef, isWreck, spineDirections, swHeldBy, tcaOf, vcaOf, vehicle as vehicleDef, type MapHex, type ObjectiveArea, type Statics, acquisitionOf, gunIdents, ordnanceOf, SMOKE58, stackOrder, hexOfLoc, levelOfLoc, locKey } from '@asl/rules';
+import { cubeDistance, cubeNeighbors, type GameState, type HexId, type Piece, type PieceId, type QueryEnv, type SideId } from '@asl/engine';
+import { GEO, rmgSpine, stunLabel, coveredArc, defOf, gun as gunDef, gunHex, hexOf as hexOfPiece, inCoveredArc, isCaptured, isWeaponDef, isWreck, spineDirections, swHeldBy, tcaOf, vcaOf, vehicle as vehicleDef, type MapHex, type ObjectiveArea, type Statics, acquisitionOf, gunIdents, ordnanceOf, SMOKE58, stackOrder, hexOfLoc, levelOfLoc, locKey } from '@asl/rules';
 import { CAVE_GONE, UNKNOWN_DEF_ID, cavesParams, caveLoc, cornerOffset, hexPixel, isCaveLoc, isPillboxLoc, moveState, pillboxCaHexsides, pillboxLoc, shownFireMarker, sideToward, smokeGrenades } from '@asl/rules';
 import { playableBounds, playableRect, printedRect, type CropPlacement } from './crop';
 import { assetUrl, boardImage, counterImage, cxMarker, loadTurrets, markerImage, splitTurret } from '../game/assets';
@@ -15,6 +15,8 @@ import { smoke58Chits } from '../game/smoke';
 import { releaseCaptureSource, setCaptureSource } from './capture';
 import { personnelStack } from './stacking';
 import { drawInk, drawStroke, type InkStroke } from './ink';
+import { ART_ATTEMPT_MS, loadArt } from './boardArt';
+import { recordError } from '../diagnostics/errorLog';
 
 const NO_INK: InkStroke[] = [];
 /** A LOS being checked: clear, and blocked from where it is blocked. */
@@ -471,12 +473,13 @@ export function pillboxArtTurn(ca: number): number {
 
 /** A counter sprite centred in its box, so it can flip and bob about its own middle. */
 /**
- * Shows or hides everything drawn for the units, so hiding them leaves the bare terrain: the counters, Control
- * and Covered Arc shading, hex highlights, effects, LOS and move lines, the turn handles and the hex badges
- * (MF left, rout end). Fortified buildings stay: they belong to the terrain.
+ * Shows or hides everything drawn for the units, so hiding them leaves the bare terrain: the counters, Covered Arc
+ * shading, hex highlights, effects, LOS and move lines, the turn handles and the hex badges (MF left, rout end).
+ * Fortified buildings stay: they belong to the terrain. So do the Control chits, which say who holds each building
+ * and Victory Condition hex, as a player looking past the counters wants to see.
  */
-function showUnitLayers(L: { highlights: Container; control: Container; ca: Container; pieces: Container; fx: Container; top: Container; controls: Container }, on: boolean) {
-  for (const c of [L.highlights, L.control, L.ca, L.pieces, L.fx, L.top, L.controls]) c.visible = on;
+export function showUnitLayers(L: { highlights: { visible: boolean }; ca: { visible: boolean }; pieces: { visible: boolean }; fx: { visible: boolean }; top: { visible: boolean }; controls: { visible: boolean } }, on: boolean) {
+  for (const c of [L.highlights, L.ca, L.pieces, L.fx, L.top, L.controls]) c.visible = on;
 }
 
 function counterSprite(tex: Texture, size = COUNTER): Sprite {
@@ -697,7 +700,7 @@ function drawWedge(g: Graphics, statics: Statics, t: ViewTransform, h: MapHex, s
   }
 }
 
-function drawCoveredArcs(g: Graphics, s: GameState, statics: Statics, hexOf: (id: HexId) => MapHex | undefined, t: ViewTransform, shown: (p: Piece, at: HexId) => boolean, reach = 4) {
+function drawCoveredArcs(g: Graphics, s: GameState, statics: Statics, hexOf: (id: HexId) => MapHex | undefined, t: ViewTransform, shown: (p: Piece, at: HexId) => boolean, picked: (id: PieceId) => boolean = () => false, reach = 4) {
   g.clear();
   const env = { state: s, statics };
   const idents = gunIdents(s, env);
@@ -718,6 +721,10 @@ function drawCoveredArcs(g: Graphics, s: GameState, statics: Statics, hexOf: (id
         const tca = tcaOf(env as never, p);
         wedge(h, vca, nat, false);
         if (veh.turret !== 'NT' && tca !== vca) wedge(h, tca, nat, true);
+        // A selected turret Rear MG: its own arc, dashed (the rear of the turret, or where the counter puts it: ASLRB D1.82,
+        // SK4 Japanese Vehicle Notes "4:00 from MA").
+        const rmg = veh.turret !== 'NT' ? swHeldBy(s, p.id).find((w) => (defOf(env as never, w) as { type?: string }).type === 'RMG') : undefined;
+        if (rmg && picked(rmg.id)) wedge(h, rmgSpine(veh, tca), nat, true);
       } else wedge(h, coveredArc(p), nat, false);
     }
   }
@@ -1267,6 +1274,8 @@ export function BoardView({
   // A Location id (full ASL upper level, "uK4:1") stands for its hex.
   const anyHex = (id: HexId) => statics.map.hex(hexOfLoc(id)) ?? statics.map.offboardHex(id);
   const ready = useRef(false);
+  /** Board art that never arrived: the map is drawn without it and a notice offers a reload. */
+  const [artMissing, setArtMissing] = useState(false);
   /** Floating result texts still on screen, per hex: a new one starts at the counter and pushes these up. */
   const liveTexts = useRef(new Map<string, FloatText[]>());
   const latest = useRef({ state, overlay, control, fortified, outOfPlay, fortifications });
@@ -1281,7 +1290,8 @@ export function BoardView({
     if (!L) return;
     const { state: s, overlay: o } = latest.current;
     drawCoveredArcs(L.ca, s, statics, anyHex, xf.current, (p, at) =>
-      at === hoverHex.current || at === o.selectedHex || !!o.selectedPieces?.has(p.id) || (p.loc.kind === 'held' && !!o.selectedPieces?.has(p.loc.by)));
+      at === hoverHex.current || at === o.selectedHex || !!o.selectedPieces?.has(p.id) || (p.loc.kind === 'held' && !!o.selectedPieces?.has(p.loc.by)),
+      (id) => !!o.selectedPieces?.has(id));
     // A spine handle under the pointer: the Covered Arc it would set, dashed over the current one.
     const hot = o.controls?.find((c) => c.id === hoverControl.current && c.arc && c.spine !== undefined && !c.disabled);
     const h = hot ? anyHex(hot.hex) : undefined;
@@ -1523,6 +1533,7 @@ export function BoardView({
   // One-time Pixi setup.
   useEffect(() => {
     let destroyed = false;
+    setArtMissing(false);
     stats.current.builds++;
     const app = new Application();
     // Pixi's `resizeTo` follows window resizes only. The pane also changes size on its own (the table chat rail opening
@@ -1558,10 +1569,7 @@ export function BoardView({
       art.rotation = t.angle;
       art.position.set(t.origin.x, t.origin.y);
       w.addChild(art);
-      for (const p of placements) {
-        const url = boardImage(p.board);
-        if (!url) continue;
-        const tex = await Assets.load<Texture>(url);
+      const placeArt = (p: (typeof placements)[number], tex: Texture) => {
         // Board art may be drawn at a multiple of the VASL geometry (the high-resolution boards);
         // crop in the art's own pixels and scale the sprite back onto the 1800×645 board.
         const k = tex.width / GEO.px.width;
@@ -1578,7 +1586,33 @@ export function BoardView({
           s.position.set(p.x * GEO.px.width + at.x0, p.y * GEO.px.height + at.y0);
         } else s.position.set(p.x * GEO.px.width + src.x0, p.y * GEO.px.height + src.y0);
         art.addChild(s);
-      }
+      };
+      // Board art is waited for a moment so the counters do not first appear on a blank map, but never longer: a
+      // stalled image must not keep the grid and counters from being drawn (see boardArt.ts). Art that lands later
+      // is placed under the counters then; art that never lands leaves the map drawn without it, with a notice.
+      const arts = placements.flatMap((p) => {
+        const url = boardImage(p.board);
+        if (!url) return [];
+        return [
+          loadArt(url, (src) => Assets.load<Texture>(src), { onMiss: (src, n) => console.warn(`Board art stalled or failed (attempt ${n + 1}): ${src}`) }).then((tex) => {
+            if (!tex) return false;
+            if (!destroyed) {
+              placeArt(p, tex);
+              wakeRef.current();
+            }
+            return true;
+          }),
+        ];
+      });
+      const allArt = Promise.all(arts);
+      await Promise.race([allArt, new Promise((r) => setTimeout(r, ART_ATTEMPT_MS))]);
+      if (destroyed) return;
+      void allArt.then((ok) => {
+        if (!destroyed && ok.includes(false)) {
+          recordError('console', 'Board art did not load');
+          setArtMissing(true);
+        }
+      });
       // Offboard entry hexes: drawn as dark virtual hexes beside the map edge.
       const offLayer = new Graphics();
       for (const h of offboard) {
@@ -1786,7 +1820,11 @@ export function BoardView({
       }
       ready.current = true;
       await redraw();
-    })();
+    })().catch((err) => {
+      // A failed setup leaves the pane empty: keep the reason for a bug report instead of an anonymous rejection.
+      if (!destroyed) recordError('exception', 'Board setup failed', err);
+      console.warn('[board] setup failed', err);
+    });
     return () => {
       destroyed = true;
       observer?.disconnect();
@@ -3390,6 +3428,14 @@ export function BoardView({
           <path d="M4 12h13M12 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
+      {artMissing && (
+        <div className="board-art-missing" role="status">
+          Map art did not load.{' '}
+          <button type="button" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        </div>
+      )}
     </div>
   );
 }

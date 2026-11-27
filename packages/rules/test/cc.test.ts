@@ -134,6 +134,36 @@ describe('Close Combat strengths', () => {
   });
 });
 
+describe('a pinned leader in CC (SK1 3.2.1, 3.8; ASLRB A11.14, A7.8)', () => {
+  // A SMC's CC strength of one is its inherent FP, so a pin halves his attack as it does a squad's; never his defense.
+  const ccDeclare = (pieces: PieceSpec[]) => {
+    const { engine, state } = makeEngine({ startPhase: 'APh', dice: Array(40).fill(6), pieces });
+    let s: GameState = act(engine, state, { type: 'advance', units: ['a1'], to: 'yO5' }).state;
+    s = act(engine, s, { type: 'endPhase' }).state;
+    for (let guard = 0; guard < 10 && engine.currentDecision(s)?.kind !== 'ccDeclare'; guard++) s = engine.submit(s, engine.legalActions(s, engine.currentDecision(s)!.owner)[0]!).state;
+    expect(engine.currentDecision(s)?.kind).toBe('ccDeclare');
+    return { engine, s };
+  };
+  const hs = { id: 'a1', def: 'am.347', side: 'am', hex: 'yN5' };
+
+  it('attacks alone at half a FP: 0.5 against a 3 FP HS is 1:6, and says why; he defends at 1', () => {
+    const { engine, s } = ccDeclare([hs, { id: 'l', def: 'ge.L91', side: 'ge', hex: 'yO5', tags: { pinned: true } }]);
+    const env = engine.env(s);
+    expect(ccAttackPreview(env, 'yO5', 'ge', { attackers: ['l'], targets: ['a1'] })).toMatchObject({ attackFp: 0.5, defenseFp: 3, odds: '1:6', fpNotes: [{ unit: 'l', note: 'pinned: FP halved' }] });
+    expect(ccAttackPreview(env, 'yO5', 'am', { attackers: ['a1'], targets: ['l'] })).toMatchObject({ attackFp: 3, defenseFp: 1 });
+  });
+
+  it('adds his half to an unpinned squad\'s attack', () => {
+    const { engine, s } = ccDeclare([hs, { id: 'l', def: 'ge.L91', side: 'ge', hex: 'yO5', tags: { pinned: true } }, { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yO5' }]);
+    expect(ccAttackPreview(engine.env(s), 'yO5', 'ge', { attackers: ['g1', 'l'], targets: ['a1'] })).toMatchObject({ attackFp: 4.5 });
+  });
+
+  it('unpinned, he attacks with his full 1', () => {
+    const { engine, s } = ccDeclare([hs, { id: 'l', def: 'ge.L91', side: 'ge', hex: 'yO5' }]);
+    expect(ccAttackPreview(engine.env(s), 'yO5', 'ge', { attackers: ['l'], targets: ['a1'] })).toMatchObject({ attackFp: 1, fpNotes: [] });
+  });
+});
+
 describe('Leaders stacked on top of MMC (SK1 3.8)', () => {
   // German 4-6-7s g1 and g2 with a 9-1 in O5; the Americans attack them there.
   const pieces = (leaderTags: Record<string, string> = {}): PieceSpec[] => [

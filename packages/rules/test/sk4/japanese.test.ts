@@ -278,6 +278,32 @@ describe('Miscellaneous (SK4 8.1.8)', () => {
     expect(ccAttackPreview(engine.env(pinned), 'yK5', 'am', { attackers: ['m'], targets: ['a'] }).kill).toBe(6);
   });
 
+  it('8.1.8.4: a Melee that became Hand-to-Hand remains so in the Marines\u2019 CCPh, and each attack says so', () => {
+    // The Japanese ambushed in their own CCPh, so the Melee carries the Hand-to-Hand marker into the Marines' turn.
+    const { engine, state: s0 } = game([{ id: 'a', def: 'ja.447', side: 'ja', hex: 'yK5' }, { id: 'm', def: 'am.768', side: 'am', hex: 'yK5' }], {
+      firstSide: 'am',
+      startPhase: 'CCPh',
+      hexMarkers: { yK5: { melee: true, hth: true } },
+      dice: [6, 6, 6, 6, ...Array(20).fill(5)],
+    });
+    events = [];
+    let s = s0;
+    for (let i = 0; i < 10 && !emitted('sk1.cc.attack'); i++) {
+      const d = engine.currentDecision(s)!;
+      if (d.kind === 'ccDeclare') {
+        const pv = ccAttackPreview(engine.env(s), 'yK5', 'am', { attackers: ['m'], targets: ['a'] });
+        expect(pv).toMatchObject({ odds: '3:2', kill: 8, killNotes: ['Hand-to-Hand'] });
+      }
+      const l = engine.legalActions(s, d.owner);
+      const decl = l.find((a) => a.type === 'cc.declare' && (a as unknown as { attacks: unknown[] }).attacks.length > 0);
+      s = step(engine.submit(s, decl ?? l.find((a) => a.type === 'cc.arranged') ?? l[0]!));
+    }
+    const attacks = events.filter((e) => e.type === 'sk1.cc.attack').map((e) => e.payload as { side: string; kill: number; killLabels?: string[] });
+    expect(attacks.map((a) => a.side).sort()).toEqual(['am', 'ja']);
+    for (const a of attacks) expect(a.killLabels).toEqual(['Hand-to-Hand']);
+    expect(attacks.find((a) => a.side === 'am')!.kill).toBe(8);
+  });
+
   it('8.1.8.4: no Hand-to-Hand when the Marines attack and the Japanese neither attack nor ambush', () => {
     const { engine, state: s0 } = game([{ id: 'a', def: 'ja.447', side: 'ja', hex: 'yK5' }, { id: 'm', def: 'am.768', side: 'am', hex: 'yK5' }], { firstSide: 'am', startPhase: 'CCPh' });
     const s = act(engine, s0, { type: 'test.ccState', hex: 'yK5', step: 'simultaneous-attacker' }).state;

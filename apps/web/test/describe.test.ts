@@ -96,6 +96,99 @@ describe('game log', () => {
     expect(lines[0]).toMatch(/: 10 FP → 8 column, cowers to the 6 column, DR /);
   });
 
+  it('says how many columns an attack cowers and why, and that a shift below the 1 column has no effect (SK1 3.2, 5.4)', () => {
+    // A Conscript half-squad (Inexperienced) at 2 FP, two hexes off (no Point Blank Fire), rolls doubles: two columns left of the 2 column is below the 1 column.
+    const { engine, state } = makeEngine({
+      scenario: RU_VS_GE,
+      terrain,
+      extra: [testFire],
+      pieces: [
+        { id: 'r1', def: 'ru.226', side: 'ru', hex: 'yN5' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yP5' },
+      ],
+      dice: [2, 2],
+    });
+    const t = act(engine, state, { type: 'test.fire', mode: 'prep', decl: { units: ['r1'], sw: [], target: 'yP5' } });
+    const attack = t.events.find((e) => e.type === 'sk1.fire.attack')!;
+    expect(attack.payload).toMatchObject({ cowered: true, cowerShift: 2, column: null, inexperienced: ['r1'] });
+    const log = describeEvents(engine.env(t.state), t.events);
+    const line = log.find((l) => l.kind === 'fire' && /on P5: /.test(l.text))!;
+    expect(line.text).toMatch(/: 2 FP → 2 column, cowers two columns \(Inexperienced: .*Conscript\), below the 1 column: no effect, DR /);
+    expect(line.rows!.find((r) => r.k === 'Strength')!.v).toMatch(/cowers two columns \(Inexperienced: .*Conscript\), below the 1 column: no effect$/);
+    // An event recorded before the shift was carried reads as it did.
+    const old = { ...attack, payload: { ...(attack.payload as object), cowerShift: undefined, inexperienced: undefined } };
+    expect(describeEvents(engine.env(t.state), [old] as never)[0]!.text).toMatch(/2 FP → 2 column, cowers to the — column/);
+  });
+
+  it("breaks a Fire Group's FP down unit by unit, so each modifier reads against the unit it applies to (SK1 3.2, 3.5)", () => {
+    // Advancing Fire: the 6-6-6 at normal range is halved and gets the Assault Fire +1; the 7-4-7 at long range is halved
+    // twice and gets no +1, Assault Fire applying only within normal range.
+    const { engine, state } = makeEngine({
+      startPhase: 'AFPh',
+      extra: [testFire],
+      pieces: [
+        { id: 'a1', def: 'am.666', side: 'am', hex: 'yN9' },
+        { id: 'a2', def: 'am.747', side: 'am', hex: 'yN10' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yN5' },
+      ],
+      dice: [3, 4],
+    });
+    const t = act(engine, state, { type: 'test.fire', mode: 'advancing', decl: { units: ['a1', 'a2'], sw: [], target: 'yN5' } });
+    const attack = t.events.find((e) => e.type === 'sk1.fire.attack')!;
+    expect(attack.payload).toMatchObject({ fp: 5.75, fpParts: [{ piece: 'a1', base: 6, fp: 4 }, { piece: 'a2', base: 7, fp: 1.75 }] });
+    const line = describeEvents(engine.env(t.state), t.events).find((l) => l.kind === 'fire' && /on N5: /.test(l.text))!;
+    const mods = line.rows!.find((r) => r.k === 'Strength')!.mods!;
+    expect(mods).toHaveLength(2);
+    expect(mods[0]).toMatch(/6¹-6-6: 6 → 4 FP \(.*½ Advancing Fire.*\+1 Assault Fire.*\)$/);
+    expect(mods[1]).toMatch(/7²-4-7: 7 → 1.75 FP \(.*½ long range.*½ Advancing Fire.*\)$/);
+    expect(mods[1]).not.toMatch(/Assault/);
+    expect(line.detail).toMatch(/FP: .*6¹-6-6: 6 → 4 FP .*; .*7²-4-7: 7 → 1.75 FP/);
+    // An event recorded before the breakdown was carried lists the modifiers as before.
+    const old = { ...attack, payload: { ...(attack.payload as object), fpParts: undefined } };
+    expect(describeEvents(engine.env(t.state), [old] as never)[0]!.rows!.find((r) => r.k === 'Strength')!.mods!.join(', ')).toMatch(/Advancing Fire/);
+  });
+
+  it('a Smoke grenade line names the hex, the dr needed and whether Smoke was placed (SK1 3.3)', () => {
+    const { engine, state } = makeEngine({ startPhase: 'MPh', dice: [5], pieces: [{ id: 'a1', def: 'am.747', side: 'am', hex: 'yN5' }] });
+    const t = act(engine, state, { type: 'move.start', units: ['a1'] });
+    const s = engine.currentDecision(t.state)?.kind === 'firstFire' ? act(engine, t.state, { type: 'defPass' }).state : t.state;
+    const r = act(engine, s, { type: 'move.smoke', unit: 'a1', target: 'yN6' });
+    const roll = r.events.filter((e) => e.type === 'dice.rolled' && /Smoke grenades/.test((e.payload as { label: string }).label));
+    expect(describeEvents(engine.env(r.state), roll as never)[0]!.text.trim()).toBe('Smoke grenades by a1 into yN6: dr 5 (needs ≤ 2) → no Smoke');
+    const placed = { ...roll[0]!, payload: { ...(roll[0]!.payload as object), dice: [2] } };
+    expect(describeEvents(engine.env(r.state), [placed] as never)[0]!.text).toMatch(/dr 2 \(needs ≤ 2\) → Smoke placed$/);
+    // An older recording's label: the dr alone.
+    const old = { ...roll[0]!, payload: { label: 'Smoke grenades by a1', dice: [5] } };
+    expect(describeEvents(engine.env(r.state), [old] as never)[0]!.text.trim()).toBe('Smoke grenades by a1: dr 5');
+  });
+
+  it('names what makes up a Close Combat DRM: a CX attacker\'s +1 (SK1 3.8)', () => {
+    const { engine, state } = makeEngine({
+      startPhase: 'APh',
+      dice: Array(20).fill(3),
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yO5', tags: { cx: true } },
+      ],
+    });
+    let s: GameState = act(engine, state, { type: 'advance', units: ['a1'], to: 'yO5' }).state;
+    s = act(engine, s, { type: 'endPhase' }).state;
+    for (let guard = 0; guard < 10 && engine.currentDecision(s)?.kind !== 'ccDeclare'; guard++) s = engine.submit(s, engine.legalActions(s, engine.currentDecision(s)!.owner)[0]!).state;
+    s = act(engine, s, { type: 'cc.declare', attacks: [{ attackers: ['a1'], targets: ['g1'] }] }).state;
+    const t = act(engine, s, { type: 'cc.declare', attacks: [{ attackers: ['g1'], targets: ['a1'] }] });
+    const ge = t.events.filter((e) => e.type === 'sk1.cc.attack' && (e.payload as { side: string }).side === 'ge');
+    expect(ge[0]!.payload).toMatchObject({ drm: 1, drmLabels: ['+1 CX attacker'] });
+    expect(describeEvents(engine.env(t.state), ge as never)[0]!.text).toMatch(/ \+1 \[\+1 CX attacker\] vs kill /);
+  });
+
+  it('names the chart a Close Combat kill number comes from when it is not the normal one (SK4 8.1.8.4 Hand-to-Hand)', () => {
+    const { engine, state } = makeEngine({ pieces: [{ id: 'a1', def: 'am.747', side: 'am', hex: 'yO5' }] });
+    const ev = { seq: 1, type: 'sk1.cc.attack', payload: { hex: 'yO5', side: 'am', attack: { attackers: ['a1'], targets: [] }, odds: '1:1', drm: 0, dr: 7, kill: 7, result: 'casualty reduction', killLabels: ['Hand-to-Hand'] } };
+    expect(describeEvents(engine.env(state), [ev] as never)[0]!.text).toMatch(/1:1, DR .* vs Hand-to-Hand kill 7 — casualty reduction$/);
+    const plain = { ...ev, payload: { ...ev.payload, killLabels: undefined, kill: 5 } };
+    expect(describeEvents(engine.env(state), [plain] as never)[0]!.text).toMatch(/ vs kill 5 — casualty reduction$/);
+  });
+
   it('writes the strengths behind Close Combat odds, unit by unit (a pinned unit at half FP)', () => {
     const { engine, state } = makeEngine({
       terrain,
@@ -267,8 +360,10 @@ describe('game log', () => {
     expect(t.state.pieces['g1']!.defId).toBe('ge.447');
     const all = describeEvents(engine.env(t.state), t.events);
     const lines = all.map((l) => l.text.trim());
-    // The attack line explains the FP (Point Blank Fire for the adjacent 6-6-6) and every DRM.
-    expect(all.find((l) => /^[A-Z][\w ]* on P5: /.test(l.text))!.detail).toBe('FP: x2 Point Blank Fire · DRM: +3 TEM (Stone Building), +1 LOS Hindrance');
+    // The attack line explains the FP unit by unit (Point Blank Fire for the adjacent 6-6-6 only) and every DRM.
+    expect(all.find((l) => /^[A-Z][\w ]* on P5: /.test(l.text))!.detail).toBe(
+      'FP: American 7²-4-7: 7 → 7 FP; American 6¹-6-6: 6 → 12 FP (x2 Point Blank Fire) · DRM: +3 TEM (Stone Building), +1 LOS Hindrance',
+    );
     // Before the replacement the unit is the 4-6-7 it was; the ELR line names both counters.
     expect(lines).toContainEqual(expect.stringMatching(/^German 4.?-6-7: NMC/));
     expect(lines).toContainEqual(expect.stringMatching(/^MC German 4.?-6-7: DR 5\+6=11 → 11 vs 7 — broken$/));
@@ -342,6 +437,33 @@ describe('fortified buildings in the log', () => {
     const fire = log2.find((l) => /^[A-Z][\w ]* on P5: /.test(l.text))!;
     expect(fire.text).toContain('DR 3+3=6, DRM +3');
     expect(fire.detail ?? '').not.toContain('Fortified');
+  });
+
+  it('tells the fortifying side, and only that side, of the secret +1 that changed nothing (SSR; ASLRB B23.9)', async () => {
+    const { FORTIFIED_MODULE, fortifiedModule, redactState } = await import('@asl/rules');
+    const { engine, state } = makeEngine({
+      terrain: { yP5: { terrain: 'building-stone', buildingId: 'b-P5' } },
+      extra: [fortifiedModule, testFire],
+      scenario: { forces: [{ side: 'ge', units: [], setup: { kind: 'area', description: 'P', hexes: ['yP5'] } }], ssr: [{ module: FORTIFIED_MODULE, params: { side: 'ge', count: 1 } }] },
+      pieces: [
+        { id: 'a1', def: 'am.747', side: 'am', hex: 'yN5' },
+        { id: 'g1', def: 'ge.467', side: 'ge', hex: 'yP5' },
+      ],
+      // DR 6: final 9 and 10 are both blank on the 6 column.
+      dice: [3, 3],
+    });
+    const t1 = act(engine, state, { type: 'fortify.designate', buildings: ['b-P5'] });
+    const t2 = act(engine, t1.state, { type: 'test.fire', mode: 'prep', decl: { units: ['a1'], sw: [], target: 'yP5' } });
+    const fireLine = (viewer: string | null, st = t2.state) => describeEvents(engine.env(st), t2.events, viewer).find((l) => /^[A-Z][\w ]* on P5: /.test(l.text))!;
+    const own = fireLine('ge');
+    expect(own.text).toContain('DR 3+3=6, DRM +3');
+    expect(own.detail).toMatch(/\+1 Fortified Building \(kept secret: it changed no result\)/);
+    expect(own.rows!.find((r) => r.k === 'DRM, all')!.mods!.join('\n')).toMatch(/\+1 Fortified Building \(kept secret/);
+    // The attacker, a shared hotseat screen and a spectator are not told, whether reading the real state or their own view.
+    for (const viewer of ['am', null]) {
+      expect(JSON.stringify(fireLine(viewer))).not.toMatch(/Fortified/i);
+      expect(JSON.stringify(fireLine(viewer, redactState(engine, t2.state, viewer)))).not.toMatch(/Fortified/i);
+    }
   });
 });
 

@@ -1,7 +1,7 @@
 import type { Action, Ctx, HexId, Piece, PieceId, QueryEnv, RuleModule, SideId } from '@asl/engine';
 import { byId, hexOf, otherSide, personnelAt, statics, swHeldBy, unitsAt } from '../common/pieces';
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
-import { FP, type FireDeclaration, type ResolveFireFn } from '../sk1/fire';
+import { FP, directorIllegal, type FireDeclaration, type ResolveFireFn } from '../sk1/fire';
 import { P as MP, type UnitFn } from '../sk1/morale';
 import { FIRST_FIRE, MOVE_ENTER, firstFireMode, moveInternals, movingInfo, ppCarried, rofChoices, stackLimit, type MoveEnterFn, type MoveState } from '../sk1/movement';
 import { moveState } from '../sk1/moveState';
@@ -106,6 +106,8 @@ export interface BanzaiState {
   dffFired?: Record<HexId, Record<PieceId, number>>;
   /** A DC charge (S71 SSR 2): the AFV it is made at. */
   vehicle?: PieceId;
+  /** The charge's number (the `seq` it was declared at), naming its First Fire windows (`banzaiWindowState`). */
+  charge?: number;
 }
 
 export type BanzaiAction =
@@ -319,15 +321,18 @@ export const banzaiModule: RuleModule = {
       when: ({ units, side }, env) => units.some((u) => pieceOf(env, u).tags[T4.banzai] !== undefined && enemyAt(env, hexOf(env.state, pieceOf(env, u)) ?? '', side).length > 0),
       apply: () => 'A Banzai unit that entered an enemy hex may not advance this turn (SK4 8.1.8.6)',
     });
-    // Banzai Ambush (8.1.8.8): other units advancing into a hex with Banzai units ambush as if the Banzai units were Inexperienced.
+    // Banzai Ambush (8.1.8.8): units advancing into a hex with Banzai units ambush as if the Banzai units were
+    // Inexperienced. Every unit of the Charge counts, those that ended it adjacent and advance in too: when the Charge
+    // is over "the Banzai counter on each Japanese unit is flipped to its '+1 Ambush' side" (SK4 Banzai Example). The
+    // +1 is the Inexperienced one (SK1 5.4), so it is not added again where an Inexperienced unit already gives it.
     r.contribute({
       id: 'sk4.banzai.ambush',
       query: 'cc.ambushDrm',
       ref: 'SK4 8.1.8.8',
       label: '+1 Banzai units Inexperienced',
-      when: ({ units, hex }, env) => {
+      when: ({ units }, env) => {
         const ps = units.map((u) => pieceOf(env, u));
-        return ps.some((p) => p.tags[T4.banzai] !== undefined) && ps.some((p) => p.tags[T4.banzai] === undefined && p.tags[T.advancedInto] === hex);
+        return ps.some((p) => p.tags[T4.banzai] !== undefined) && !ps.some((p) => env.query('unit.inexperienced', { unit: p.id }, false));
       },
       apply: (v) => v + 1,
     });
@@ -380,7 +385,7 @@ export const banzaiModule: RuleModule = {
         }
         if (concealmentActive(ctx)) dropConcealment(ctx, units, 'banzai');
         ctx.emit('sk4.banzai.declared', { side: a.side, leader: a.leader, target: a.target, units, ...(a.vehicle ? { vehicle: a.vehicle } : {}) });
-        setState(ctx, { side: a.side, leader: a.leader, target: a.target, units, allowance, spent: Object.fromEntries(units.map((u) => [u, 0])), left: {}, impulse: 0, moved: [], startSpent: {}, ended: [], ...(a.vehicle ? { vehicle: a.vehicle } : {}) });
+        setState(ctx, { side: a.side, leader: a.leader, target: a.target, units, allowance, spent: Object.fromEntries(units.map((u) => [u, 0])), left: {}, impulse: 0, moved: [], startSpent: {}, ended: [], ...(a.vehicle ? { vehicle: a.vehicle } : {}), charge: ctx.state.seq });
         startImpulse(ctx);
       },
     });
@@ -488,9 +493,19 @@ function mandatoryTpbf(ctx: Ctx, unit: PieceId, hex: HexId) {
   // Good Order enemy Infantry there, pinned or not (a pinned unit fires at half FP).
   const firers = personnelAt(ctx, hex, otherSide(ctx.state, st.side)).filter((p) => isGoodOrder(ctx, p));
   if (firers.length === 0) return;
-  const weapons = firers.flatMap((f) => swHeldBy(ctx.state, f.id).filter((w) => ['LMG', 'MMG', 'HMG', 'ATR'].includes(sw(ctx, w)?.type ?? '') && w.tags[T.malf] !== true).map((w) => w.id));
-  const decl: FireDeclaration = { units: firers.map((f) => f.id).sort(), sw: weapons.sort(), target: hex };
-  const mode = firstFireMode(ctx, decl);
+  const weaponsOf = (f: Piece) => swHeldBy(ctx.state, f.id).filter((w) => ['LMG', 'MMG', 'HMG', 'ATR'].includes(sw(ctx, w)?.type ?? '') && w.tags[T.malf] !== true).map((w) => w.id);
+  const weapons = firers.flatMap(weaponsOf);
+  // A leader in the hex directs the FG (SK1 3.2), the best one that may (his own weapon fired, he may not: SK1 4.0).
+  const isLeader = (f: Piece) => smc(ctx, f)?.kind === 'leader';
+  const units = firers.filter((f) => !isLeader(f) || weaponsOf(f).length > 0).map((f) => f.id).sort();
+  // A lone leader has no FP of his own to fire.
+  if (units.length === 0 && weapons.length === 0) return;
+  const base: FireDeclaration = { units, sw: weapons.sort(), target: hex };
+  const mode = firstFireMode(ctx, base);
+  const director = firers
+    .filter((f) => isLeader(f) && weaponsOf(f).length === 0 && !directorIllegal(ctx, f.id, mode, units))
+    .sort((a, b) => (smc(ctx, a)!.leadership ?? 0) - (smc(ctx, b)!.leadership ?? 0) || byId(a, b))[0];
+  const decl: FireDeclaration = { ...base, ...(director ? { directors: [director.id] } : {}) };
   const ms = moveState(ctx) ?? unitMove(ctx, st, unit, hex, { mfHere: 1 });
   ctx.emit('sk4.banzai.tpbf', { hex, unit, firers: decl.units });
   ctx.proc<ResolveFireFn>(FP.resolve)(ctx, decl, mode, { moving: [unit], movingInfo: movingInfo(ctx, ms) });
@@ -605,6 +620,8 @@ export function banzaiWindowState(env: QueryEnv, hex: HexId): MoveState | null {
     hexesEntered: 1,
     halted: true,
     ending: true,
+    // One target per charge, Impulse and hex, however often the DEFENDER leaves its window and comes back (ASLRB A7.55).
+    stack: `banzai${st.charge ?? 0}.${st.impulse}.${hex}`,
   };
 }
 

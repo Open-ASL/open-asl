@@ -4,7 +4,7 @@ import { hexOfLoc, isGroundLoc, locOf } from '../common/location';
 import { PHASE_DECISION } from '../common/turn';
 import { AP, type AdvanceAction, type AdvanceEnterFn } from '../sk1/advance';
 import { FP, type AttackResolvedFn } from '../sk1/fire';
-import { MOVE_ENTER, MOVE_ENTERED, afterMfExpenditure, moveInternals, ppCarried, remaining, type MoveEnterFn, type MoveEnteredFn, type MoveState } from '../sk1/movement';
+import { MOVE_ENTER, MOVE_ENTERED, MOVE_SPENT, afterMfExpenditure, moveInternals, ppCarried, remaining, type MoveEnterFn, type MoveEnteredFn, type MoveSpentFn, type MoveState } from '../sk1/movement';
 import { moveState } from '../sk1/moveState';
 import { ROUT_ENTERED, activeRout, mustRoutNow, routEscorts, routInPlace, routMfLeft, routRequirement, routersNow, type RoutEnteredFn } from '../sk1/rout';
 import { T, gun, isPinned, mmc, pieceOf, ppOf, setTags, smc } from '../sk1/status';
@@ -125,13 +125,17 @@ function arrive(ctx: Ctx, units: PieceId[], hex: HexId) {
   const c = wireAt(ctx, hex);
   if (!c) return;
   const phase = ctx.state.phase;
-  const free = phase === 'RtPh' || (phase === 'MPh' && !moveState(ctx)?.doubleTime);
+  const ms = moveState(ctx);
+  const free = phase === 'RtPh' || (phase === 'MPh' && !ms?.doubleTime);
   for (const id of [...units].sort()) {
+    // Nor by a late Double Time (A4.5, B26.46), nor by a Minimum Move ("A unit may not use a Minimum Move to get beneath
+    // Wire", B26.4).
+    const freeHere = free && !(phase === 'MPh' && (ms?.lateDt?.includes(id) || ms?.minimum?.includes(id)));
     const p = ctx.state.pieces[id];
     if (!p || p.loc.kind !== 'hex' || p.loc.hex !== hex || isVehicleDef(defOf(ctx, p))) continue;
     // The other side's hidden Wire: a unit that does not know of it passes it freely (A12.33) and gets no position.
     if (!shownCounter(c, p.side)) continue;
-    setWirePos(ctx, [id], hex, ownHiddenWire(c, p.side) && free ? 'beneath' : 'on');
+    setWirePos(ctx, [id], hex, ownHiddenWire(c, p.side) && freeHere ? 'beneath' : 'on');
   }
 }
 
@@ -157,7 +161,7 @@ export function wireExitIllegal(env: QueryEnv): string | null {
   if (!c || ms.level || ms.sub) return `No Wire in ${ms.hex}`;
   const top = stackOnTop(env, ms);
   if (top.length === 0) return 'No unit of the stack is on top of the Wire';
-  if (ms.doubleTime) return 'Infantry may not Double Time in a turn in which they attempt to move beneath Wire (ASLRB B26.46, A4.5)';
+  if (ms.doubleTime || top.some((u) => ms.lateDt?.includes(u))) return 'Infantry may not Double Time in a turn in which they attempt to move beneath Wire (ASLRB B26.46, A4.5)';
   if (ms.manhandle) return 'Units pushing a Gun may never push it under Wire (ASLRB B26.4, C10.3)';
   if (ms.dcPending) return 'Finish the DC placement first';
   return null;
@@ -183,6 +187,8 @@ function settle(ctx: Ctx) {
   // the Location with the stack's other stopped units, and if it was Assault Moving it no longer is (A4.61).
   const finished = results.filter((r) => (spent[r.unit] ?? 0) >= (ms.allowance[r.unit] ?? 0)).map((r) => r.unit);
   const paid = Math.max(0, ...results.map((r) => r.mf));
+  // The weapons they hold were possessed while MF were spent (A4.41).
+  ctx.proc<MoveSpentFn>(MOVE_SPENT)(ctx, results.filter((r) => r.mf > 0).map((r) => r.unit), []);
   const { trenchMove: _t, ...base } = ms;
   void _t;
   const next: MoveState = {
@@ -658,6 +664,9 @@ export function stackWire(env: QueryEnv, ms: MoveState | undefined): { counter: 
   const c = wireKnownTo(env, ms.hex, env.state.attacker);
   return c ? { counter: c, onTop: ms.units.filter((u) => onWire(pieceOf(env, u))), refusal: wireExitIllegal(env) } : null;
 }
+
+/** Whether `unit` has made a Wire Exit dr this MPh (B26.46: it may then not Double Time). */
+export const triedWireExit = (env: QueryEnv, unit: PieceId) => !!(env.state.ext[WIRE_LAST_EXT] as WireLast | undefined)?.units.some((r) => r.unit === unit);
 
 /** The Wire Exit drs the moving stack has just made, while they are its latest expenditure (B26.4: the DEFENDER sees them). */
 export function lastWireExit(env: QueryEnv): WireExitResult[] | null {

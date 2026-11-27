@@ -1,7 +1,7 @@
 import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import type { HexId, Piece, PieceId, QueryEnv } from '@asl/engine';
 import { bunkerTrenches, controlState, hexName, laborLoc, pillboxLoc, entrenchmentAt, entrenchmentName, haltedUnits, isEntrenched, lastMineAttacks, roadblockObstacles, stunLabel } from '@asl/rules';
-import { AMMO_NAME, acquisitionsAt, ammoOut, defOf, fireAt, fireMarker, fireNumbers, fortCounters, fortKindName, gunIdent, isWeaponDef, locationsOf, moveState, parseLabor, rubbleAt, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, terrainOf, windOf, type Statics, type VehicleDef } from '@asl/rules';
+import { AMMO_NAME, smokeDispenserLabel, acquisitionsAt, ammoOut, defOf, fireAt, fireMarker, fireNumbers, fortCounters, fortKindName, gunIdent, isWeaponDef, locationsOf, moveState, parseLabor, rubbleAt, shownFireMarker, smokeDrm, smokeGrenades, stackOrder, swHeldBy, terrainOf, windOf, type Statics, type VehicleDef } from '@asl/rules';
 import { counterImage, cxMarker, markerImage } from '../game/assets';
 import { fortMarker } from '../panels/FortTray';
 import { identCss } from './ident';
@@ -207,11 +207,11 @@ function vehicleSheet(env: QueryEnv, p: Piece, d: VehicleDef): [string, string][
     mg.bmg !== undefined ? `BMG ${mg.bmg}${mg.bmgFixed ? ' (fixed)' : ''}${mgState('BMG')}` : null,
     mg.cmg !== undefined ? `CMG ${mg.cmg}${mgState('CMG')}` : null,
     mg.aamg !== undefined ? `AAMG ${mg.aamg}${mgState('AAMG')}` : null,
-    mg.rmg !== undefined ? `RMG ${mg.rmg}${mgState('RMG')}` : null,
+    mg.rmg !== undefined ? `RMG ${mg.rmg}${mg.rmgClock !== undefined ? ` (${mg.rmgClock}:00 from MA)` : ''}${mgState('RMG')}` : null,
   ].filter(Boolean);
   rows.push(['MGs', mgs.length ? mgs.join(' · ') : 'none']);
   rows.push(['Target', SIZE_NAME[d.targetSize]]);
-  rows.push(['Crew', `morale ${d.crewMorale} · CE +${d.ceDrm} DRM${d.smoke?.length ? ` · ${d.smoke.map((x) => `${x.kind}${x.n}`).join(', ')} smoke` : ''}`]);
+  rows.push(['Crew', `morale ${d.crewMorale} · CE +${d.ceDrm} DRM${d.smoke?.length ? ` · ${d.smoke.map(smokeDispenserLabel).join(', ')} smoke` : ''}`]);
   return rows;
 }
 
@@ -355,12 +355,15 @@ export function StackPeek({ env, hex, at, bounds, placements, rotation, interact
   // A pillbox is a Location of its own (B30.1): its units are listed under their own heading, above the ground's.
   const inPillbox = (p: Piece) => p.loc.kind === 'hex' && p.loc.sub === 'pb';
   const pillboxUnits = stack.filter((e) => inPillbox(e.piece));
-  const total = stack.reduce((n, e) => n + 1 + e.held.length, 0);
+  // A concealed enemy stack is its "?" and the counters beneath it (SK4 8.3: the height of a stack is plain to see).
+  const beneath = (p: Piece) => (defOf(env, p).kind === 'unknown' && typeof p.tags['counters'] === 'number' ? (p.tags['counters'] as number) : 0);
+  const rows = stack.reduce((n, e) => n + 1 + e.held.length, 0);
+  const total = rows + stack.reduce((n, e) => n + beneath(e.piece), 0);
   // A lone vehicle on the map gets the big card: its counter unmarked, and its values read out.
   const vehicles = stack.filter((e) => defOf(env, e.piece).kind === 'vehicle');
   const big = vehicles.length === 1 && vehicles[0]!.piece.loc.kind === 'hex' && !vehicles[0]!.piece.tags['wreck'] ? vehicles[0]!.piece.id : null;
   const W = big ? 340 : 240;
-  const H = drawnH ?? 44 + total * 46 + (big ? 300 : 0) + (interactive ? 22 : 0);
+  const H = drawnH ?? 44 + rows * 46 + (big ? 300 : 0) + (interactive ? 22 : 0);
   // Just beside the pointer (close enough to slide onto), flipped to stay inside the pane.
   const GAP = 10;
   const left = at.x + GAP + W > bounds.w ? Math.max(4, at.x - GAP - W) : at.x + GAP;
@@ -372,7 +375,7 @@ export function StackPeek({ env, hex, at, bounds, placements, rotation, interact
     const nat = d.kind === 'unknown' ? ((env.statics as Statics).scenario.sides.find((x) => x.side === p.side)?.nationality ?? d.nationality) : d.nationality;
     const img = d.kind === 'unknown' ? markerImage(`qmark-${nat}`) : counterImage(p.defId, flipped);
     const under = p.tags['counters'];
-    const st = d.kind === 'unknown' ? [{ label: `concealed stack${typeof under === 'number' ? ` of ${under} counter${under === 1 ? '' : 's'}` : ''}, cannot be inspected (SK4 8.3.2)` }] : statusOf(env, p);
+    const st = d.kind === 'unknown' ? [{ label: `concealed stack: ${typeof under === 'number' ? `one "?" over ${under} counter${under === 1 ? '' : 's'}` : 'one "?"'}, cannot be inspected (SK4 8.3.2)` }] : statusOf(env, p);
     const crew = d.kind === 'vehicle' ? crewOf(p) : null;
     if (d.kind === 'vehicle' && p.tags['vca'] !== undefined && !p.tags['wreck']) {
       const vca = SPINE_NAME[Number(p.tags['vca'])] ?? '?';

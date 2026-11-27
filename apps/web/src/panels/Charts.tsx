@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ATT_BANDS, COUNTERS, ITT_BANDS, IFT_COLUMNS, IFT_HE, SK1_TABLES, TO_HIT, TO_KILL_AP, VTT_BANDS } from '@asl/content';
-import { SK4_TERRAIN, type IftResult, type SpecialAmmoDef, type ToHitEntry, type VehicleDef } from '@asl/rules';
+import { SK4_TERRAIN, smokeDispenserLabel, type IftResult, type SpecialAmmoDef, type ToHitEntry, type VehicleDef } from '@asl/rules';
 import { assetUrl, counterImage } from '../game/assets';
 import { NATION } from '../game/describe';
 import * as D from './chartData';
@@ -979,7 +979,7 @@ function decode(v: VehicleDef): [number, string, string][] {
   rows.push([
     7,
     'Machine guns',
-    `${mgFp(mg.bmg)}/${mgFp(mg.cmg)}${mg.aamg !== undefined ? `/${mg.aamg}` : ''}${mg.bmgFixed ? ' · Fixed-mount BMG' : ''}${mg.rmg !== undefined ? ` · rear MG ${mg.rmg}` : ''}`,
+    `${mgFp(mg.bmg)}/${mgFp(mg.cmg)}${mg.aamg !== undefined ? `/${mg.aamg}` : ''}${mg.bmgFixed ? ' · Fixed-mount BMG' : ''}${mg.rmg !== undefined ? ` · rear MG ${mg.rmg}${mg.rmgClock !== undefined ? ` (${mg.rmgClock}:00 from MA)` : ''}` : ''}`,
   ]);
   rows.push([8, 'Turret', TURRET_NAME[v.turret] ?? v.turret]);
   return rows;
@@ -1116,7 +1116,7 @@ function AfvSection({ nationalities }: { nationalities?: string[] }) {
                     <tr>
                       <td className="v" />
                       <td className="l">
-                        <b>Smoke dispensers</b> {picked.smoke.map((s) => `${s.kind}${s.n}`).join(', ')}
+                        <b>Smoke dispensers</b> {picked.smoke.map(smokeDispenserLabel).join(', ')}
                       </td>
                     </tr>
                   ) : null}

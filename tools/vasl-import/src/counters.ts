@@ -288,7 +288,7 @@ const AMMO_CODE: Record<string, AmmoKind> = { s: 'SMOKE', WP: 'WP', H: 'HEAT', A
 const MONTH: Record<string, number> = { F: 2, M: 3, J: 6, S: 9, O: 10, N: 11, D: 12 };
 
 /** A counter date superscript: "2" → 1942, "J4+E" → June 1944 in Europe, "4+P" → 1944 on, PTO only. */
-function parseDate(t: string): { from?: { year: number; month?: number }; theater?: 'ETO' | 'PTO' } {
+export function parseDate(t: string): { from?: { year: number; month?: number }; theater?: 'ETO' | 'PTO' } {
   const m = /^([A-Z])?(\d)?\+?([EP])?$/.exec(t.trim());
   if (!m) return {};
   return {

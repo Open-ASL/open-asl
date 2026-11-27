@@ -1,4 +1,4 @@
-import type { Action, Ctx, Decision, HexId, PieceId, QueryEnv, RuleModule } from '@asl/engine';
+import type { Action, Ctx, Decision, HexId, Location, Piece, PieceId, QueryEnv, RuleModule } from '@asl/engine';
 import { byId, defOf, hexOf, isFixedWeapon, otherSide, personnelAt, statics, swHeldBy, unpossessedSwAt } from '../common/pieces';
 import { locOf } from '../common/location';
 import { PHASE_DECISION, PHASE_DONE, askPhaseOwner, type PhaseDoneFn } from '../common/turn';
@@ -34,8 +34,16 @@ declare module '@asl/engine' {
     'recover.drm': { ctx: { unit: PieceId; hex: HexId }; value: number };
     /** DRM for a rally attempt. */
     'rally.drm': { ctx: { unit: PieceId; leader: PieceId | null; self: boolean }; value: number };
-    /** Full ASL: why a broken unit may not keep its DM beyond the terrain rule (beneath a trench, ASLRB A10.62); null in the Starter Kit. */
+    /**
+     * Why a broken unit may not keep its DM: the base answer is the woods/building refusal (SK1 3.1 g) or null; full ASL
+     * adds the pillbox and trench (ASLRB A10.62) and lifts the woods/building refusal for an overstacked unit (A10.62).
+     */
     'rally.dmKeepIllegal': { ctx: { unit: PieceId }; value: string | null };
+    /**
+     * Where a leader created by `unit` (Leader Creation, SK1/SK4 5.3; ASLRB A18.1) is placed: its hex in the Starter Kit
+     * (every hex one Location). Full ASL: its Location, or `why` it is not created there (A5.6, B30.111: a full pillbox).
+     */
+    'rally.createdLeaderAt': { ctx: { unit: PieceId }; value: { loc: Location } | { why: string } };
     /** Why a repair attempt on the SW is not allowed now (an SSR may forbid it), or null. */
     'sw.repairIllegal': { ctx: { unit: PieceId; sw: PieceId }; value: string | null };
     /** How many SW the unit may try to repair this RPh: one, its one RPh action (SK1/SK4 3.1); full ASL more (asl/swRepair.ts). */
@@ -120,8 +128,11 @@ const selfRallyCapable = (env: QueryEnv, unit: PieceId): boolean => {
  * are removed at the end of the RPh unless the DM unit is adjacent to a Known Enemy Unit. A broken unit may opt to keep
  * its DM status unless in woods or building" (SK1 3.1 g; ASLRB A10.62, "so as to guarantee its ability to rout again in
  * the next RtPh": only a broken unit under DM may rout, SK1 3.6). Jungle and huts count as woods and building (SK4 8.2).
- * Deferred (full ASL A10.62): pillbox and trench Locations, and the overstacked unit in woods/building that may keep it.
+ * Full ASL adds the pillbox and trench Locations and lifts the woods/building refusal for an overstacked unit (A10.62).
  */
+/** The refusal of the DM choice to a unit in woods or a building (SK1 3.1 g; ASLRB A10.62). */
+export const DM_IN_SHELTER = 'In woods or a building: its DM comes off at the end of the RPh (SK1 3.1 g)';
+
 export function dmChoiceIllegal(env: QueryEnv, side: string, unit: PieceId): string | null {
   const p = env.state.pieces[unit];
   if (!p || p.side !== side) return 'Not your unit';
@@ -129,8 +140,8 @@ export function dmChoiceIllegal(env: QueryEnv, side: string, unit: PieceId): str
   const loc = p.loc.kind === 'hex' ? locOf(env.state, p) : undefined;
   if (!loc) return 'Not on the map';
   if (adjacentToKnownEnemy(env, side, loc)) return 'Adjacent to a Known enemy unit: it keeps its DM (SK1 3.1 g)';
-  if (terrainOf(env, hexOf(env.state, p)!).routShelter) return 'In woods or a building: its DM comes off at the end of the RPh (SK1 3.1 g)';
-  return env.query('rally.dmKeepIllegal', { unit }, null);
+  // In woods or a building the DM comes off: the base answer, which a rule may lift (full ASL A10.62: overstacked there).
+  return env.query('rally.dmKeepIllegal', { unit }, terrainOf(env, hexOf(env.state, p)!).routShelter ? DM_IN_SHELTER : null);
 }
 
 /** Whether `unit`'s DM counter stays on at the end of this RPh: beside a Known enemy, or kept by its owner's choice (the default). */
@@ -162,11 +173,23 @@ function selfRallyIllegal(env: QueryEnv, side: string, unit: PieceId): string | 
   return env.query('rally.mmcSelfRallyIllegal', { unit }, null);
 }
 
+/** Why a SMC cannot rally other units at all now: SK1 3.1 f gives that to a Good Order leader. */
+function leaderCannotRally(env: QueryEnv, l: Piece): string | null {
+  if (!smc(env, l)) return 'Rally needs a Good Order leader';
+  // SK1 3.1 f: "If the only leader present in a stack of broken units is himself broken, he may attempt to rally the
+  // other units only if he self rallies first."
+  if (isBroken(l)) return 'A broken leader must be rallied before he may rally others (SK1 3.1)';
+  // SK1 glossary: "Good Order: An Infantry unit that is neither broken nor marked with a Melee counter."
+  if (!isGoodOrder(env, l)) return 'A leader in Melee is not in Good Order, so he cannot rally others (SK1 3.1, glossary)';
+  return null;
+}
+
 function rallyIllegal(env: QueryEnv, side: string, leader: PieceId, unit: PieceId): string | null {
   const l = env.state.pieces[leader];
   const u = env.state.pieces[unit];
   if (!l || !u || l.side !== side || u.side !== side) return 'Not your units';
-  if (!smc(env, l) || isBroken(l) || !isGoodOrder(env, l)) return 'Rally needs a Good Order leader';
+  const cannot = leaderCannotRally(env, l);
+  if (cannot) return cannot;
   if (locOf(env.state, l) !== locOf(env.state, u)) return 'Leader must be stacked with the unit';
   if (!isBroken(u)) return 'Unit is not broken';
   if (u.tags[T.rallyTried]) return 'Unit already attempted to rally this Player Turn';
@@ -240,7 +263,7 @@ export const rallyModule: RuleModule = {
       apply: (v, { leader, unit }, env) => v + env.query('unit.leadership', { unit: leader!, for: unit }, smc(env, pieceOf(env, leader!))!.leadership),
     });
 
-    r.event<{ unit: PieceId; dr: number; leader: PieceId | null; defId: string | null }>({ type: 'sk1.leaderCreation', apply() {} });
+    r.event<{ unit: PieceId; dr: number; leader: PieceId | null; defId: string | null; why?: string }>({ type: 'sk1.leaderCreation', apply() {} });
     r.procedure<RallyFailedFn>(RP.rallyFailed, () => () => {});
     r.procedure<RphActedFn>(RP.acted, () => () => {});
     r.procedure<FieldPromotionFn>(RP.fieldPromotion, () => (ctx, unit, morale, opts) => {
@@ -251,10 +274,11 @@ export const rallyModule: RuleModule = {
       const nat = defOf(ctx, p).nationality;
       const dr = ctx.roll(`Leader Creation for ${unit}`, 1).total;
       const def = statics(ctx).tables.leaderCreation(nat, morale, dr, opts?.broken ?? p.tags[T.broken] === true, opts?.ccColumnsBelowEven ?? 0);
-      const id = def ? `${unit}.L${ctx.state.seq}` : null;
-      if (def && id) ctx.emit('piece.created', { piece: { id, defId: def, side: p.side, loc: { kind: 'hex', hex }, tags: {} } });
-      // What the dr produced, for the log and the dice toast: the new leader, or none.
-      ctx.emit('sk1.leaderCreation', { unit, dr, leader: id, defId: def });
+      const at = def ? ctx.query('rally.createdLeaderAt', { unit }, { loc: { kind: 'hex', hex } }) : null;
+      const id = def && at && 'loc' in at ? `${unit}.L${ctx.state.seq}` : null;
+      if (def && id && at && 'loc' in at) ctx.emit('piece.created', { piece: { id, defId: def, side: p.side, loc: at.loc, tags: {} } });
+      // What the dr produced, for the log and the dice toast: the new leader, or none (and why not, where a rule bars him).
+      ctx.emit('sk1.leaderCreation', { unit, dr, leader: id, defId: def, ...(at && 'why' in at ? { why: at.why } : {}) });
       return id;
     });
 
@@ -391,7 +415,9 @@ export const rallyModule: RuleModule = {
       validate(env, a) {
         if (env.state.phase !== 'RPh') return 'Not the Rally Phase';
         const l = env.state.pieces[a.leader];
-        if (!l || l.side !== rallySide(env) || !smc(env, l) || isBroken(l) || !isGoodOrder(env, l)) return 'Rally needs a Good Order leader';
+        if (!l || l.side !== rallySide(env)) return 'Not your leader';
+        const cannot = leaderCannotRally(env, l);
+        if (cannot) return cannot;
         return rallyableBy(env, rallySide(env), a.leader).length ? null : 'No broken unit here to rally';
       },
       resolve(ctx, a) {

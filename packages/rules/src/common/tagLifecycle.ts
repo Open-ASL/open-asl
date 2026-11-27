@@ -76,6 +76,10 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   assembledIn: 'playerTurn',
   manhandled: 'playerTurn',
   hazardous: 'playerTurn',
+  /** Full ASL: a weapon possessed while its holder spent MF this MPh (ASLRB A4.41): may not fire in the AFPh. */
+  mfHeld: 'playerTurn',
+  /** Full ASL: failed its Infantry OVR NTC (ASLRB A4.15, A10.1): no more movement or action that phase; cleared at the MPh end. */
+  ovrFailed: 'playerTurn',
   firedNonSmoke: 'playerTurn',
   // SK3 (sk3/status T3)
   vca: 'lasting',
@@ -103,6 +107,8 @@ export const TAG_LIFECYCLE: Record<string, 'playerTurn' | 'lasting'> = {
   radioOk: 'lasting',
   radioTurn: 'lasting',
   tcaTurnPhase: 'playerTurn',
+  maFiredPhase: 'playerTurn',
+  rmgFiredPhase: 'playerTurn',
   tcaTurnSpines: 'playerTurn',
   tcaTurnPaid: 'playerTurn',
   vcaTurnPhase: 'playerTurn',

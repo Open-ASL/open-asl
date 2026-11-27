@@ -84,11 +84,25 @@ export function applyPatch(d: Draft<GameState>, p: ViewPatch): void {
   for (const [k, v] of Object.entries(p.ext?.set ?? {})) d.ext[k] = v;
 }
 
-/** Does `payload` mention any of these ids as a whole JSON string value or key? */
+/**
+ * A pattern for any of these piece ids wherever it stands in a string: a whole value or key, or a part of a string built
+ * from ids or naming one (a key `a+b#2`, a dice label `Rally a`). An id with more id characters (word characters, `.`,
+ * `:`) next to it is another id (`x.1` in `x.10`, a deployed `x.d`), not a mention. Null for no ids. `flags`: `g` to
+ * replace every mention.
+ */
+export function idPattern(ids: Iterable<string>, flags = ''): RegExp | null {
+  const list = [...new Set(ids)];
+  if (list.length === 0) return null;
+  // Longest first, so that one id that begins another is not matched in its place.
+  const alt = list.sort((a, b) => b.length - a.length).map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  return new RegExp(`(?<![\\w.:])(?:${alt})(?![\\w.:])`, flags);
+}
+
+/** Does `payload` mention any of these ids anywhere, inside strings built from them too (`idPattern`)? */
 export function mentionsAny(payload: unknown, ids: Iterable<string>): boolean {
-  const list = [...ids];
-  if (list.length === 0) return false;
+  const re = idPattern(ids);
+  if (!re) return false;
   const json = JSON.stringify(payload);
   if (json === undefined) return false;
-  return list.some((id) => json.includes(JSON.stringify(id)));
+  return re.test(json);
 }

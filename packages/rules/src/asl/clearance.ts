@@ -115,6 +115,9 @@ export function clearanceUnitIllegal(env: QueryEnv, p: Piece, kind: ClearanceKin
     const ms = moveState(env);
     if (ms?.units.includes(p.id)) {
       if (moveLoc(ms) !== loc || ms.hexesEntered !== 1 || (ms.spent[p.id] ?? 0) !== ms.mfHere) return `${p.id} must spend all of its MF entering (or remaining in) the rubble hex (ASLRB B24.71)`;
+      // Rubble Clearance is Hazardous Movement (B24.71, A4.62), and Assault Movement "is not applicable to Infantry using
+      // Hazardous Movement" (A4.61): a stack that declared Assault Movement may not take it on.
+      if (ms.assault) return 'Assault Movement is not applicable to Infantry using Hazardous Movement (ASLRB A4.61, A4.62)';
     } else if (p.tags[T.moved]) return `${p.id} has moved this Player Turn: all of its MF go to entering or remaining in the rubble hex (ASLRB B24.71)`;
     else if (ms) return 'A unit remaining in the rubble hex declares before any stack moves (ASLRB B24.71)';
   } else if (p.tags[T.moved]) return `${p.id} has moved this Player Turn (ASLRB ${rule})`;

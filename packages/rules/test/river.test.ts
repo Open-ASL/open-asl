@@ -55,7 +55,7 @@ describe('S66 SSR 1: a river crossed only at the footbridge', () => {
 
   it('the bridge holds one squad equivalent (and four leaders)', () => {
     const { engine, state } = game([{ id: 'a', def: 'am.558r', side: 'am', hex: 'yL5' }, { id: 'b', def: 'am.558r', side: 'am', hex: 'yL4' }, { id: 'g', def: 'ge.467', side: 'ge', hex: 'yA1' }], [{ module: RIVER_MODULE, params: BRIDGE }]);
-    expect(engine.env(state).query('stack.limit', { hex: 'yL5', side: 'am' }, { se: 3, smc: 4 })).toEqual({ se: 1, smc: 4 });
+    expect(engine.env(state).query('stack.limit', { hex: 'yL5', side: 'am' }, { se: 3, smc: 4 })).toEqual({ se: 1, smc: 4, capacity: true });
     const s = act(engine, state, { type: 'move.start', units: ['b'] }).state;
     expect(steps(engine, s)).not.toContain('yL5');
   });

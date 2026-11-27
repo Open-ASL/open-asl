@@ -27,8 +27,15 @@ foreseen from the seed. Open ASL's promise is enforcement, not an honour system.
 a stand-in where a hidden piece offers one (`piece.standIn`, the "?" of a concealed stack: def `?`, kind
 `unknown`), each module's secret `ext` slice as its redactor shows it (`RuleBuilder.redact`: fortified buildings,
 secret length, secret entry turns, entry groups, scatter plans), pending decisions with hidden ids removed, a fixed
-dice generator, and a last-line scrub of any surviving hidden piece id (ids name their counter). The computer
+dice generator, and a last-line scrub of any surviving hidden piece id (ids name their counter): a key or string value
+that names one, whole or inside a string built from ids (`idPattern` in the engine), is dropped. The computer
 opponent plays from the same function.
+
+So a record the viewer's own rules read must not be keyed by piece ids it might not see: the scrub would drop it and
+the view would judge differently from the full state. The moving stack is named by its move's number
+(`MoveState.stack`), so the fire log's per-expenditure keys (ASLRB A7.55) are the same in every view. In the event
+stream, an event that names a hidden id anywhere is replaced by a `view.patch`; a dice roll whose label names one
+keeps its dice and shows the counter as "?".
 
 ## Invariants (tested)
 - `fold(redact(S_i), redactedEvents) ≡ redact(S_j)` for every prefix, viewer and playable scenario

@@ -229,6 +229,20 @@ describe('Rubble Clearance and Trail Breaks (B24.71, B13.4212, B24.121)', () => 
     // B13.4211: no second TB on the exact same hexsides.
   });
 
+  it('not by a stack using Assault Movement: Rubble Clearance is Hazardous Movement, to which Assault Movement is not applicable (A4.61, A4.62)', () => {
+    // A German 4-6-7 (Smoke exponent 1), so the stack is not finished on entering: it could still place SMOKE there.
+    const { engine, state } = game([ge('a', 'uN6'), ...far], { first: 'ge' });
+    const s0 = act(engine, state, { type: 'test.rubble', hex: 'uN5' }).state;
+    const map = statics(engine.env(s0)).map;
+    const [k, k4] = [sideToward(map, 'uN5', 'uN6')!, sideToward(map, 'uN5', 'uN4')!];
+    let s = act(engine, s0, { type: 'move.start', units: ['a'], assault: true }).state;
+    s = act(engine, s, { type: 'move.step', to: 'uN5' }).state;
+    while (engine.currentDecision(s)?.kind === 'firstFire') s = act(engine, s, { type: 'defPass' }).state;
+    expect(engine.currentDecision(s)).toMatchObject({ kind: 'phase', owner: 'ge' });
+    expect(engine.legalActions(s, 'ge').some((a) => a.type === 'clearance.declare')).toBe(false);
+    expect(check(engine, s, { type: 'clearance.declare', kind: 'rubble', counter: 'uN5', loc: 'uN5', units: ['a'], hexsides: [k, k4] })).toMatch(/Assault Movement is not applicable to Infantry using Hazardous Movement/);
+  });
+
   it('a stack whose whole move is entering the hex may declare there, spending all its MF; units that moved on may not (B24.71)', () => {
     const { engine, s: s0, k, k4 } = rubbled([ru('a', 'uN6'), ru('b', 'uN6'), ...far]);
     let s = act(engine, s0, { type: 'move.start', units: ['a'] }).state;

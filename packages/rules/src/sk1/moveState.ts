@@ -31,11 +31,16 @@ export const firstFireTargets = (env: QueryEnv, ms: MoveState): PieceId[] => {
  * Identity of the moving stack's current MF/MP expenditure, for the Mandatory Fire Group rule: same-hex
  * units must combine only against "the same target (i.e., at both the same Location and the same unit and
  * the same 'simultaneous' MF/MP expenditure)" (ASLRB A7.55; SK4 glossary "or moving stack on the same
- * expenditure"; SK1 1.2.4 "at both the same hex and at the same unit"). The stack is named by the units it
- * started with (units it loses on the way do not make it a new target) and the expenditure by its count.
+ * expenditure"; SK1 1.2.4 "at both the same hex and at the same unit"). The stack is named by its move's number
+ * (`MoveState.stack`: units it loses on the way do not make it a new target) and the expenditure by its count.
+ * The key holds no piece id: the fire log and other records keyed by it go to both players, and a concealed or hidden
+ * mover's id must not reach the enemy (SK4 8.3, ASLRB A12.1); a view without the movers must still find the same
+ * key, so its own legality checks agree with the full state's.
  */
 export function expenditureKey(env: QueryEnv): string | undefined {
   const ms = moveState(env);
   if (!ms) return undefined;
-  return `${[...(ms.started ?? ms.units)].sort().join('+')}#${ms.trail?.length ?? 0}`;
+  // A state built without the event that numbers a move (a hand-made position) falls back to the movers' ids.
+  const stack = ms.stack !== undefined ? `m${ms.stack}` : [...(ms.started ?? ms.units)].sort().join('+');
+  return `${stack}#${ms.trail?.length ?? 0}`;
 }

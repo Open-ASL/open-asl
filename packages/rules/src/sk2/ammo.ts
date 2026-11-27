@@ -46,10 +46,18 @@ export function scenarioDate(env: QueryEnv): { year?: number; month: number } {
  */
 export function depletionAt(env: QueryEnv, sa: SpecialAmmoDef): number | null {
   if (sa.theater === 'PTO') return null;
+  return stepAt(env, sa.steps);
+}
+
+/**
+ * The number of a dated series ("A5²/4³/3⁴") at the scenario date: the last step whose date has come, or null before
+ * the first. A step with no date applies from the start of the war; a dateline without a year gets the first step.
+ */
+export function stepAt(env: QueryEnv, steps: SpecialAmmoDef['steps']): number | null {
   const { year, month } = scenarioDate(env);
-  if (year === undefined) return sa.steps[0]?.n ?? null;
+  if (year === undefined) return steps[0]?.n ?? null;
   let n: number | null = null;
-  for (const step of sa.steps) {
+  for (const step of steps) {
     if (!step.from) n = step.n;
     else if (year > step.from.year || (year === step.from.year && month >= (step.from.month ?? 1))) n = step.n;
   }

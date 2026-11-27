@@ -347,8 +347,8 @@ export const cavesModule: RuleModule = {
       apply(v, { hex }, env) {
         const q = cavesParams(env);
         if (!q) return v;
-        if (isCaveLoc(hex)) return { ...v, se: 1, note: 'a Cave holds one squad-equivalent, ASLRB G11.4' };
-        if (hex === q.connection) return { ...v, se: 2 * q.caves.length, note: 'the Connection holds two squad-equivalents per Cave, ASLRB G11.4' };
+        if (isCaveLoc(hex)) return { ...v, se: 1, note: 'a Cave holds one squad-equivalent, ASLRB G11.4', capacity: true };
+        if (hex === q.connection) return { ...v, se: 2 * q.caves.length, note: 'the Connection holds two squad-equivalents per Cave, ASLRB G11.4', capacity: true };
         return v;
       },
     });

@@ -1,5 +1,6 @@
 import type { GameState, LoggedEvent, QueryEnv, SideId } from '@asl/engine';
-import { SKY_NAME, chartLabel, entrenchmentAt, minefieldAt, rubbleAt, fortifiedKnownTo, defOf, hexOfLoc, levelOfLoc, entryAfterFireParams, entryGroupsParams, secretLengthParams, fortifiedParams, fortKindName, hexOf, shownCounter, type FortRecord, scatterParams, isVisibleTo, isWeaponDef, statics, weatherLabel, type CounterDef, type IftResult, type VariableReinforcementsEvent, type EntryOrderDrEvent, type EntryLossesEvent, entryOrderDrParams, entryOrderLabel, type ForceChartEvent, type ScatterState, type ScatterLanding, type EntryGroupsState, type Weather, NATION, PHASE_NAME, defLabel, hexName, hexNamer, humanize, nameIds, nationName, pieceLabel, sideNameOf, entryStretchParams, type LeaderReliefEvent, type OnceDrEvent, type OnceDrNmcEvent, type OnceDrRallyEvent, type LeaderPtcEvent, type RoutStep, sideNationalities } from '@asl/rules';
+import { FORTIFIED_DRM, fortifiedState, STRAY_HIT_EVENT, type StrayHitEvent, SKY_NAME, chartLabel, entrenchmentAt, minefieldAt, rubbleAt, fortifiedKnownTo, defOf, hexOfLoc, levelOfLoc, entryAfterFireParams, entryGroupsParams, secretLengthParams, fortifiedParams, fortKindName, hexOf, shownCounter, type FortRecord, scatterParams, isVisibleTo, isWeaponDef, statics, weatherLabel, type CounterDef, type IftResult, type VariableReinforcementsEvent, type EntryOrderDrEvent, type EntryLossesEvent, entryOrderDrParams, entryOrderLabel, type ForceChartEvent, type ScatterState, type ScatterLanding, type EntryGroupsState, type Weather, NATION, PHASE_NAME, defLabel, hexName, hexNamer, humanize, nameIds, nationName, pieceLabel, sideNameOf, entryStretchParams, type LeaderReliefEvent, type OnceDrEvent, type OnceDrNmcEvent, type OnceDrRallyEvent, type LeaderPtcEvent, type RoutStep, sideNationalities } from '@asl/rules';
+import { strayHitText } from './overstacking';
 
 // The naming helpers live in @asl/rules (labels.ts) so the server can name units too; re-exported for the many callers here.
 export { NATION, PHASE_NAME, defLabel, hexName, hexNamer, humanize, nameIds, nationName, pieceLabel, sideNameOf };
@@ -197,6 +198,42 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
   };
   /** The IFT column an attack of `fp` uses before any shift (the highest column not above it). */
   const fpColumn = (fp: number): number => (env.statics as { tables: { iftColumns: number[] } }).tables.iftColumns.filter((c) => c <= fp).pop() ?? 0;
+  /**
+   * The column an attack was resolved on. A cowering one (original doubles, no leader directing) shifts one column left,
+   * two when an Inexperienced MMC takes part, and a shift below the lowest column has no effect (SK1 3.2, 5.4): said so,
+   * with the units that made it two. An event without `cowerShift` (recorded before it was carried) reads as it did.
+   */
+  const strengthText = (p: Record<string, unknown>): string => {
+    const column = p['column'] as number | null;
+    if (!p['cowered']) return `${column ?? '—'} column`;
+    const from = fpColumn(p['fp'] as number);
+    const shift = p['cowerShift'] as number | undefined;
+    if (!shift) return `${from} column, cowers to the ${column ?? '—'} column`;
+    const lowest = (env.statics as { tables: { iftColumns: number[] } }).tables.iftColumns[0];
+    const why = ((p['inexperienced'] as string[] | undefined) ?? []).map((id) => {
+      const q = env.state.pieces[id] ? (defOf(env, env.state.pieces[id]!) as { quality?: string }).quality : undefined;
+      return `${name(id)}${q === 'C' ? ' Conscript' : q === 'G' ? ' Green, no Good Order leader with it' : ''}`;
+    });
+    const cower = `cowers ${shift === 1 ? 'one column' : shift === 2 ? 'two columns' : `${shift} columns`}${shift > 1 && why.length ? ` (Inexperienced: ${why.join(', ')})` : ''}`;
+    return `${from} column, ${cower}${column === null ? `, below the ${lowest} column: no effect` : ` to the ${column} column`}`;
+  };
+  /**
+   * The fortified building's +1 TEM is applied to every attack on it but told of only when it changes a result, until
+   * the building is revealed (SSR; ASLRB B23.9): the event then leaves it out. The fortifying side knows its building is
+   * fortified, so its own log says the +1 was there. Never another viewer's: `fortifiedKnownTo` holds for the fortifying
+   * side's own screen, or once revealed (when the event carries the +1 itself). A FT ignores TEM (SK1 4.2).
+   */
+  const secretFortifiedNote = (p: Record<string, unknown>): string[] => {
+    const st = fortifiedState(env);
+    const a = p['attack'] as { target: string; parts: string[] };
+    if (!st || viewer === null || viewer !== st.side || p['column'] === null || !fortifiedKnownTo(env, a.target, viewer)) return [];
+    if (((p['explain'] as { id: string }[] | undefined) ?? []).some((x) => x.id === FORTIFIED_DRM)) return [];
+    const ft = a.parts.some((id) => {
+      const pc = env.state.pieces[id];
+      return !!pc && (defOf(env, pc) as { type?: string }).type === 'FT';
+    });
+    return ft ? [] : ['+1 Fortified Building (kept secret: it changed no result)'];
+  };
   // The LOS of a shot from one hex, for the map, when it was fired from somewhere else than the target.
   const losOf = (from: string | undefined, to: string): Pick<LogLine, 'los'> => (from && from !== to ? { los: { from: [from], to } } : {});
   // A DR an event records only as its total (a MC, a CC attack, the weather): the dice come from the
@@ -245,8 +282,18 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
       case 'sk1.fire.attack': {
         const dr = p['dr'] as [number, number];
         // How the FP came about (½ Advancing Fire, +1 Assault Fire ...) and every DRM on the attack.
-        const fp = noteLabels(p['fpExplain']).join(', ');
-        const drm = noteLabels(p['explain']).join(', ');
+        // A Fire Group: unit by unit, so each modifier reads against the unit it applies to (an event recorded before
+        // `fpParts` was carried lists the kinds of modifier, once each).
+        const fpParts = p['fpParts'] as { piece: string; base: number; fp: number; explain?: unknown }[] | undefined;
+        const fpMods = fpParts?.length
+          ? fpParts.map((x) => {
+              const why = noteLabels(x.explain);
+              return `${name(x.piece)}: ${x.base} → ${x.fp} FP${why.length ? ` (${why.join(', ')})` : ''}`;
+            })
+          : noteLabels(p['fpExplain']);
+        const fp = fpMods.join(fpParts?.length ? '; ' : ', ');
+        const secretFort = secretFortifiedNote(p);
+        const drm = [...noteLabels(p['explain']), ...secretFort].join(', ');
         // Concealed targets are attacked as Area Fire at a lower FP (SK4 8.3.2): their own figure, without naming them.
         const area = p['area'] as { targets: string[]; fp: number; column: number | null; fpExplain?: unknown } | undefined;
         const areaText = area ? `; vs the concealed unit${area.targets.length === 1 ? '' : 's'}, Area Fire: ${area.fp} FP → ${area.column ?? 'no'} column` : '';
@@ -257,21 +304,22 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         // them, for a Gun or SW) stand now.
         const from = (p['from'] as string[] | undefined) ?? [...new Set(a.parts.map(hexOfNow).filter((h): h is string => !!h))];
         const directors = ((a as { directors?: string[] }).directors ?? []).filter((d) => !hiddenFrom(d));
-        const drmNotesOf = noteLabels(p['explain']);
+        const drmNotesOf = [...noteLabels(p['explain']), ...secretFort];
+        const strength = strengthText(p);
         out.push({
           seq: e.seq,
           kind: 'fire',
           title: `${a.parts.length ? a.parts.map(name).join(', ') : 'Residual FP'} → ${hexLabel(a.target)} · ${a.parts.length ? (FIRE_MODE_NAME[a.mode ?? ''] ?? 'Fire') : 'Residual FP'}${a.snap ? ' (Snap Shot)' : ''}`,
           rows: [
             ...(directors.length ? [{ k: 'Directed', v: directors.map(name).join(', ') }] : []),
-            { k: 'Strength', v: `${p['fp']} FP → ${p['cowered'] ? `${fpColumn(p['fp'] as number)} column, cowers to the ${p['column'] ?? '—'} column` : `${p['column'] ?? '—'} column`}`, mods: noteLabels(p['fpExplain']) },
+            { k: 'Strength', v: `${p['fp']} FP → ${strength}`, mods: fpMods },
             ...(area ? [{ k: 'Area Fire', v: `vs the concealed unit${area.targets.length === 1 ? '' : 's'}: ${area.fp} FP → ${area.column ?? 'no'} column`, mods: noteLabels(area.fpExplain) }] : []),
             { k: 'Roll', v: `DR ${drText(dr)}` },
             // The DRM every target shares; a target's own (its TEM, a FT it holds) is on its result.
             { k: 'DRM, all', v: `${(p['drm'] as number) >= 0 ? '+' : ''}${p['drm']}`, mods: drmNotesOf.length ? drmNotesOf : ['none'] },
           ],
           // A cowering attack (original doubles, no leader directing; SK1 3.2) is resolved columns lower: both shown.
-          text: `${a.parts.length ? (FIRE_MODE_NAME[a.mode ?? ''] ?? 'Fire') : 'Residual FP'}${a.snap ? ` (Snap Shot at ${a.snap.map(hexLabel).join('-')})` : ''} on ${hexLabel(a.target)}: ${p['fp']} FP → ${p['cowered'] ? `${fpColumn(p['fp'] as number)} column, cowers to the ${p['column'] ?? '—'} column` : `${p['column'] ?? '—'} column`}${areaText}, DR ${drText(dr)}, DRM ${(p['drm'] as number) >= 0 ? '+' : ''}${p['drm']}`,
+          text: `${a.parts.length ? (FIRE_MODE_NAME[a.mode ?? ''] ?? 'Fire') : 'Residual FP'}${a.snap ? ` (Snap Shot at ${a.snap.map(hexLabel).join('-')})` : ''} on ${hexLabel(a.target)}: ${p['fp']} FP → ${strength}${areaText}, DR ${drText(dr)}, DRM ${(p['drm'] as number) >= 0 ? '+' : ''}${p['drm']}`,
           ...(detail ? { detail } : {}),
           ...(from.length && from.some((h) => h !== a.target) ? { los: { from: from.filter((h) => h !== a.target), to: a.target, ...(a.at ? { at: a.at } : {}), ...(a.snap ? { snap: a.snap } : {}) } } : {}),
         });
@@ -469,7 +517,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
       case 'sk1.leaderCreation': {
         const leader = p['leader'] as string | null;
         const made = leader && env.state.pieces[leader] ? pieceLabel(env, env.state.pieces[leader]) : null;
-        out.push({ seq: e.seq, kind: 'info', text: `  ★ Leader Creation for ${name(p['unit'] as string)}: dr ${p['dr']} — ${made ? `${made} created` : 'no leader'}` });
+        out.push({ seq: e.seq, kind: 'info', text: `  ★ Leader Creation for ${name(p['unit'] as string)}: dr ${p['dr']} — ${made ? `${made} created` : p['why'] ? `no leader: ${p['why']}` : 'no leader'}` });
         break;
       }
       case 'sk1.fortified': {
@@ -1062,8 +1110,12 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         const strength = fp ? `${side(fp.attack, true)} vs ${side(fp.defense, false)} → ` : '';
         // A DRM for some targets only (ASLRB A4.8 EX: the -1 for TI defenders applies to the TI units alone).
         const per = Object.entries((p['targetDrm'] as Record<string, number> | undefined) ?? {});
+        // What makes up the DRM ("+1 CX attacker"), where the attack recorded it.
+        const drmWhy = ((p['drmLabels'] as string[] | undefined) ?? []).length ? ` [${(p['drmLabels'] as string[]).join(', ')}]` : '';
+        // The chart behind the kill number where it is not the Close Combat Chart ("Hand-to-Hand", SK4 8.1.8.4).
+        const killWhy = ((p['killLabels'] as string[] | undefined) ?? []).length ? `${(p['killLabels'] as string[]).join(', ')} ` : '';
         const perText = per.length ? ` (${per.map(([id, v]) => `${v > 0 ? '+' : ''}${v} vs ${hiddenFrom(id) ? '?' : name(id)}`).join(', ')})` : '';
-        out.push({ seq: e.seq, kind: 'cc', text: `CC in ${p['hex']} (${sideNameOf(env, p['side'] as string)}): ${strength}${p['odds']}, DR ${dr2(p['dr'], `CC ${p['side']} in`)}${(p['drm'] as number) ? ` ${(p['drm'] as number) > 0 ? '+' : ''}${p['drm']}` : ''}${perText} vs kill ${p['kill']} — ${p['result']}` });
+        out.push({ seq: e.seq, kind: 'cc', text: `CC in ${p['hex']} (${sideNameOf(env, p['side'] as string)}): ${strength}${p['odds']}, DR ${dr2(p['dr'], `CC ${p['side']} in`)}${(p['drm'] as number) ? ` ${(p['drm'] as number) > 0 ? '+' : ''}${p['drm']}${drmWhy}` : ''}${perText} vs ${killWhy}kill ${p['kill']} — ${p['result']}` });
         break;
       }
       case 'dice.rolled': {
@@ -1150,6 +1202,14 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
           out.push({ seq: e.seq, kind: 'info', text: `${entry.force}: entry dr ${(p['dice'] as number[])[0]} (needs ${entry.need}) → ${entry.enters ? 'enters this turn' : 'does not enter this turn'}` });
           break;
         }
+        // Smoke grenades: the hex and the dr that places Smoke there, and whether it did (older recordings: the dr only).
+        const grenades = /^(Smoke grenades by \S+ into \S+) \(dr ≤ (-?\d+)\)$/.exec(label);
+        if (grenades) {
+          const dr = (p['dice'] as number[])[0]!;
+          const need = Number(grenades[2]);
+          out.push({ seq: e.seq, kind: 'info', text: `  ${grenades[1]}: dr ${dr} (needs ≤ ${need}) → ${dr <= need ? 'Smoke placed' : 'no Smoke'}` });
+          break;
+        }
         // Leader Creation has its own line with the outcome.
         if (/Smoke|Recover|Repair|Ambush|wound/i.test(label)) {
           const dice = p['dice'] as number[];
@@ -1176,7 +1236,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
           ...(notes ? { detail: `TH DRM: ${notes}` } : {}),
           title: `${name(p['weapon'] as string)} → ${hexLabel(p['target'] as string)} · ${p['intensive'] ? 'Intensive Fire' : 'To Hit'}`,
           rows: [
-            { k: 'Target', v: `${p['targetType']}${ammo && ammo !== 'HE' ? `, ${AMMO_LABEL[ammo] ?? ammo}` : ''}, range ${p['range']}` },
+            { k: 'Target', v: `${p['targetType']}${p['targetType'] === 'VTT' && typeof p['targetUnit'] === 'string' && env.state.pieces[p['targetUnit']] ? ` (${name(p['targetUnit'])})` : ''}${ammo && ammo !== 'HE' ? `, ${AMMO_LABEL[ammo] ?? ammo}` : ''}, range ${p['range']}` },
             { k: 'To Hit', v: `TH ${p['th']}${p['red'] ? ' (red)' : ''}` },
             { k: 'Roll', v: `DR ${drText(dr)}` },
             { k: 'DRM', v: `${drm >= 0 ? '+' : ''}${drm}`, mods: notes ? noteLabels(p['explain']) : ['none'] },
@@ -1184,6 +1244,11 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
           ],
           ...losOf((p['from'] as string | undefined) ?? hexOfNow(p['weapon'] as string), p['target'] as string),
         });
+        break;
+      }
+      case STRAY_HIT_EVENT: {
+        // Full ASL A5.132: a Vehicle Target Type miss by less than the vehicles in the hex, and the dr for another of them.
+        out.push({ seq: e.seq, kind: 'fire', text: strayHitText(p as unknown as StrayHitEvent, name) });
         break;
       }
       case 'sk2.ordnance.ammo': {
@@ -1479,6 +1544,37 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         });
         break;
       }
+      // Full ASL movement options (ASLRB A4.134, A4.5, A4.63, A4.15–A4.152, A8.312).
+      case 'asl.move.minimum':
+        out.push({ seq: e.seq, kind: 'info', text: `  ${(p['units'] as string[]).map(name).join(', ')} ${(p['units'] as string[]).length > 1 ? 'make' : 'makes'} a Minimum Move into ${hexLabel(String(p['to']))} (${p['cost']} MF): pinned and CX once the First Fire at it is over (ASLRB A4.134)` });
+        break;
+      case 'asl.move.doubleTime':
+        out.push({ seq: e.seq, kind: 'info', text: `  » ${(p['units'] as string[]).map(name).join(', ')}: Double Time (+1 MF): CX (ASLRB A4.5)` });
+        break;
+      case 'asl.move.dash':
+        out.push({ seq: e.seq, kind: 'info', text: `  ⇢ ${(p['units'] as string[]).map(name).join(', ')} ${(p['units'] as string[]).length > 1 ? 'Dash' : 'Dashes'} from ${hexLabel(String(p['from']))} across ${hexLabel(String(p['road']))} to ${hexLabel(String(p['to']))} (ASLRB A4.63)` });
+        break;
+      case 'asl.ovr.ntc': {
+        const rolls = p['rolls'] as { unit: string; dr: number[]; drm: number; morale: number; passed: boolean }[];
+        for (const r of rolls)
+          out.push({ seq: e.seq, kind: 'check', text: `  ⚔ OVR NTC ${name(r.unit)}${p['by'] === 'leader' ? ' (for his stack)' : ''}: ${drText(r.dr)}${r.drm ? ` ${r.drm > 0 ? '+' : ''}${r.drm}` : ''} vs ${r.morale} — ${r.passed ? 'passes' : 'fails: no more movement or action this phase (ASLRB A10.1)'} (ASLRB A4.15)` });
+        break;
+      }
+      case 'asl.ovr.answer':
+        out.push({ seq: e.seq, kind: 'info', text: `  ${name(String(p['smc']))} ${p['choice'] === 'stay' ? 'stays to fight the overrun' : 'slips away from the overrun'} (ASLRB A4.151)` });
+        break;
+      case 'asl.ovr.slipped':
+        out.push({ seq: e.seq, kind: 'info', text: `  ${name(String(p['smc']))} slips away to ${hexLabel(String(p['to']))}, free of fire (ASLRB A4.151)` });
+        break;
+      case 'asl.tpbf.mandatory':
+        out.push({ seq: e.seq, kind: 'info', text: `  Mandatory TPBF in ${hexLabel(String(p['hex']))}: ${[...(p['units'] as string[]), ...(p['sw'] as string[])].map(name).join(', ')} (ASLRB A8.312)` });
+        break;
+      case 'asl.ovr.cc': {
+        const goOn = p['goOn'] as string[];
+        const outcome = p['outcome'] === 'eliminated' ? `${name(String(p['smc']))} is eliminated; ${goOn.length ? `${goOn.map(name).join(', ')} may move on with the MF left` : 'nobody moves on'}` : p['outcome'] === 'melee' ? `${name(String(p['smc']))} survives: Melee, CC again in the CCPh` : `${name(String(p['smc']))} survives`;
+        out.push({ seq: e.seq, kind: 'info', text: `  CC in the MPh in ${hexLabel(String(p['loc']))}: ${outcome} (ASLRB A4.152)` });
+        break;
+      }
       case 'asl.recombined': {
         const to = counters[p['to'] as string];
         const from = counters[p['from'] as string];
@@ -1534,7 +1630,7 @@ export function describeEvents(env: QueryEnv, events: LoggedEvent[], viewer: Sid
         break;
       }
       case 'sk4.concealment.lost': {
-        const why: Record<string, string> = { fire: 'fired in the LOS of a Good Order enemy', hit: 'an attack had a result on it', smoke: 'attempted Smoke', dc: 'attempted a DC placement', moved: 'moved without Assault Movement in enemy LOS', open: 'in Open Ground in enemy LOS', entered: 'an enemy unit tried to enter its hex', entering: 'tried to enter a hex with an enemy "?"', ca: 'changed its Gun\'s Covered Arc', transfer: 'took a weapon', deploy: 'deployed', recombine: 'recombined', leadership: 'used its leadership modifier', broken: 'broke', wounded: 'was wounded', voluntary: 'dropped it', cc: 'engaged in Close Combat', melee: 'ended the CCPh with an unbroken enemy in its hex' };
+        const why: Record<string, string> = { fire: 'fired in the LOS of a Good Order enemy', hit: 'an attack had a result on it', smoke: 'attempted Smoke', dc: 'attempted a DC placement', moved: 'moved without Assault Movement in enemy LOS', open: 'in Open Ground in enemy LOS', entered: 'an enemy unit tried to enter its hex', entering: 'tried to enter a hex holding a concealed or hidden enemy (SK4 8.3.2, ASLRB A12.15)', ca: 'changed its Gun\'s Covered Arc', transfer: 'took a weapon', deploy: 'deployed', recombine: 'recombined', leadership: 'used its leadership modifier', broken: 'broke', wounded: 'was wounded', voluntary: 'dropped it', cc: 'engaged in Close Combat', melee: 'ended the CCPh with an unbroken enemy in its hex' };
         out.push({ seq: e.seq, kind: 'info', text: `  ? Concealment lost: ${(p['units'] as string[]).map(name).join(', ')}${p['hex'] ? ` in ${hexLabel(p['hex'] as string)}` : ''} (${why[p['reason'] as string] ?? p['reason']})` });
         break;
       }

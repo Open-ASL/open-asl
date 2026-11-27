@@ -49,7 +49,7 @@ const LATW = ['amBAZ43', 'amBAZ44', 'amBAZ45', 'gePSK', 'brPIAT', 'gePF'];
 /** Boards whose committed art is the asl-players.net high-resolution redraw, not VASL's: the import leaves it alone. */
 const REDRAWN_BOARDS = new Set(['m', 'n', 'o', 't', 'u', 'v', 'w', 'x', 'y', 'z']);
 
-const VEHICLES = ['T-34 M43', 'T-34 M41', 'PzKw VIE', 'PzKw IVF2', 'PzKw IVH', 'PSW 234/1', 'StuH 42', 'StuG IIIG (L)', 'PzKw IIIN', 'Sherman III(a)@ru', 'PzKw VIE (L)', 'PzKw IVD', 'PzKw 35t', 'PzKw IIF', 'KV-2', 'BT-7 M37', 'IS-2', 'T-34/85', 'PzKw VG', 'PzKw VIB', 'PzKw IVJ', 'Mark VIB', 'JgdPz 38(t)', 'M4A2(L)@am', 'M4A3@am', 'M4A3E2@am', 'PzKw IIA', 'M5A1@am', 'PzKw IIIG', 'KV-1 M41', 'StuG IIIG', 'PSW 234/2', 'Cromwell IV', 'Sherman IIA(a)@br', 'Daimler AC', 'Type 97B CHI-HA', 'Type 97A CHI-HA', 'Type 95 HA-GO', 'M8 AC@am'];
+const VEHICLES = ['T-34 M43', 'T-34 M41', 'PzKw VIE', 'PzKw IVF2', 'PzKw IVH', 'PSW 234/1', 'StuH 42', 'StuG IIIG (L)', 'PzKw IIIN', 'Sherman III(a)@ru', 'PzKw VIE (L)', 'PzKw IVD', 'PzKw 35t', 'PzKw IIF', 'KV-2', 'BT-7 M37', 'IS-2', 'T-34/85', 'PzKw VG', 'PzKw VIB', 'PzKw IVJ', 'Mark VIB', 'JgdPz 38(t)', 'M4A2(L)@am', 'M4A3@am', 'M4A3E2@am', 'PzKw IIA', 'M5A1@am', 'PzKw IIIG', 'KV-1 M41', 'StuG IIIG', 'PSW 234/2', 'Cromwell IV', 'Sherman IIA(a)@br', 'Daimler AC', 'Type 97B CHI-HA', 'Type 89B CHI-RO', 'Type 95 HA-GO', 'M8 AC@am'];
 const MARKERS = [
   'MS/pin', 'MS/dm', 'MS/cx', 'MS/FirePrep', 'MS/FireAdv', 'MS/First', 'MS/Final', 'MS/Melee', 'MS/CC', 'MS/Wound',
   'MS/RFP01', 'MS/RFP02', 'MS/RFP04', 'MS/RFP06', 'MS/RFP08', 'MS/RFP12', 'ML/Smk2', 'ML/Smk3', 'ML/WP1', 'ML/WP2',

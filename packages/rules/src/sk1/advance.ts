@@ -11,6 +11,16 @@ declare module '@asl/engine' {
     'advance.exitIllegal': { ctx: { units: PieceId[]; to: HexId; side: SideId }; value: string | null };
     /** Why a unit may not advance in the APh (SK2: manhandlers, Gun possessors), or null. */
     'unit.cannotAdvance': { ctx: { unit: PieceId }; value: string | null };
+    /**
+     * The MF an advance of `units` into `to` costs `unit` (`cost`: what entering it would cost in the MPh). Full ASL adds
+     * the overstacking MF (ASLRB A5.11); unchanged in the Starter Kit.
+     */
+    'advance.cost': { ctx: { unit: PieceId; units: PieceId[]; to: LocId; cost: number }; value: number };
+    /**
+     * Whether an advance into `to` costing `cost` makes `unit` (with `mf` MF) CX, or is refused to it when already CX: in
+     * the Starter Kit when it takes all its MF (SK1 3.7); full ASL also at four MF (ASLRB A4.72).
+     */
+    'advance.cx': { ctx: { unit: PieceId; units: PieceId[]; to: LocId; cost: number; mf: number }; value: boolean };
   }
 }
 
@@ -19,7 +29,7 @@ import { byId, hexOf, otherSide, personnelAt, statics, unitsAt, vehiclesAt } fro
 import { LEVEL_CHANGE_MF, adjacentLocs, hexOfLoc, isGroundLoc, locExists, locKey, locOf, locationAt, type LocId } from '../common/location';
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
 import { T, actionIllegal, isCx, isGoodOrder, isPinned, mmc, pieceOf, restack, setTags, smc, squadEquivalents } from './status';
-import { entryHexesOf, notEntryHex, stackLimit } from './movement';
+import { entryHexesOf, notEntryHex, stackCap } from './movement';
 import { inPlay } from './terrain';
 
 /** `to`: the ADJACENT Location advanced into (ASLRB A4.7, A.8; a hex id at ground level). */
@@ -101,18 +111,19 @@ function advanceIllegal(env: QueryEnv, a: { units: PieceId[]; to: LocId; side: s
   for (const id of a.units) {
     const p = pieceOf(env, id);
     const mf = env.query('unit.mf', { unit: id, stack: a.units, doubleTime: false }, 0);
-    const cost = advanceCost(env, id, a.to);
+    const cost = advanceCost(env, id, a.to, a.units);
     // An advance enters a Location the unit could enter in the MPh (ASLRB A4.7): never one no MF can pay for (flooded
     // terrain, an uncrossable hexside).
     // A module's own reason (a river SSR) is the better message.
     if (!Number.isFinite(cost)) return env.query('advance.illegal', { units: a.units, to: a.to, side: a.side, ...(a.beneath !== undefined ? { beneath: a.beneath } : {}) }, null) ?? `${id} cannot enter that hex`;
-    if (cost >= mf && isCx(p))return `${id} is CX and cannot advance into a hex costing all its MF`;
+    if (isCx(p) && advanceCx(env, id, a.units, a.to, cost, mf)) return cost >= mf ? `${id} is CX and cannot advance into a hex costing all its MF` : `${id} is CX and cannot advance into a hex costing four MF or more (ASLRB A4.72)`;
   }
-  // Stacking limits.
+  // Stacking limits (full ASL: none but a capacity, ASLRB A5.1).
   const here = personnelAt(env, a.to, a.side).filter((p) => !a.units.includes(p.id));
   const all = [...here, ...a.units.map((u) => pieceOf(env, u))];
   const se = squadEquivalents(env, all);
-  const limit = stackLimit(env, a.to, a.side);
+  const limit = stackCap(env, a.to, a.side);
+  if (!limit) return actionIllegal(env, a.units) ?? env.query('advance.illegal', { units: a.units, to: a.to, side: a.side, ...(a.beneath !== undefined ? { beneath: a.beneath } : {}) }, null);
   if (se > limit.se) return `Stacking limit: ${limit.se} squad-equivalents${limit.note ? ` (${limit.note})` : ''}`;
   if (all.filter((p) => smc(env, p)).length > limit.smc) return `Stacking limit: ${limit.smc} SMC${limit.note ? ` (${limit.note})` : ''}`;
   return actionIllegal(env, a.units) ?? env.query('advance.illegal', { units: a.units, to: a.to, side: a.side, ...(a.beneath !== undefined ? { beneath: a.beneath } : {}) }, null);
@@ -186,7 +197,8 @@ export const advanceModule: RuleModule = {
         }
         // Full ASL: a change of position within the stack's own Location (ASLRB A4.7), where a module offers it.
         for (const [h, ids] of byHex) for (const units of ids.length > 1 ? [ids, ...ids.map((i) => [i])] : [ids]) out.push(...env.query('advance.variants', { side, units, to: h }, []));
-        return out;
+        // Only what `validate` accepts: a variant still pays its MF and CX (ASLRB A4.72).
+        return out.filter((a) => !('beneath' in a) || !advanceIllegal(env, { ...(a as AdvanceAction), side }));
       },
       validate: (env, a) => advanceIllegal(env, a),
       resolve(ctx, a) {
@@ -202,14 +214,34 @@ export const advanceModule: RuleModule = {
  * (ASLRB B13.4: woods cost two MF "unless entry is made via a road hexside"); up or down the stairs of its own hex, one MF
  * (full ASL, ASLRB B23.4; never in the Starter Kit).
  */
-function advanceCost(env: QueryEnv, id: PieceId, to: LocId): number {
+function advanceCost(env: QueryEnv, id: PieceId, to: LocId, units: PieceId[]): number {
+  const p = pieceOf(env, id);
+  if (locOf(env.state, p) === to) return 0;
+  return env.query('advance.cost', { unit: id, units, to, cost: advanceEntryCost(env, id, to) }, advanceEntryCost(env, id, to));
+}
+
+/** What entering `to` would cost `id` in the MPh, the terrain alone (see `advanceCost`); `noSmoke`: without SMOKE's MF (full ASL A4.72). */
+export function advanceEntryCost(env: QueryEnv, id: PieceId, to: LocId, noSmoke = false): number {
   const p = pieceOf(env, id);
   if (locOf(env.state, p) === to) return 0;
   const from = hexOf(env.state, p);
   const toHex = hexOfLoc(to);
   if (from === toHex) return LEVEL_CHANGE_MF;
   const viaRoad = isGroundLoc(to) && from !== null && (statics(env).map.roadHexside?.(from, toHex) ?? false);
-  return env.query('move.cost', { unit: id, from, to: toHex, viaRoad, ...(isGroundLoc(to) ? {} : { loc: to }) }, 1);
+  return env.query('move.cost', { unit: id, from, to: toHex, viaRoad, ...(isGroundLoc(to) ? {} : { loc: to }), ...(noSmoke ? { noSmoke: true } : {}) }, 1);
+}
+
+/** Whether an advance costing `cost` makes `id` CX (or is refused to it when CX): all its MF (SK1 3.7), or four MF (ASLRB A4.72). */
+const advanceCx = (env: QueryEnv, id: PieceId, units: PieceId[], to: LocId, cost: number, mf: number): boolean =>
+  env.query('advance.cx', { unit: id, units, to, cost, mf }, cost >= mf);
+
+/** What an advance of `units` into `to` would cost each and whether it makes each CX (for the player's view of the step). */
+export function advanceTerms(env: QueryEnv, units: PieceId[], to: LocId): { unit: PieceId; cost: number; cx: boolean }[] {
+  return units.map((unit) => {
+    const mf = env.query('unit.mf', { unit, stack: units, doubleTime: false }, 0);
+    const cost = advanceCost(env, unit, to, units);
+    return { unit, cost, cx: Number.isFinite(cost) && advanceCx(env, unit, units, to, cost, mf) };
+  });
 }
 
 /** Move the advancing units: MMC first pass a PAATC when an enemy AFV holds the hex (SK4 3.7), the rest advance. */
@@ -241,11 +273,12 @@ function advanceEnter(ctx: Ctx, a: AdvanceAction) {
   for (const id of [...units].sort()) {
     const p = pieceOf(ctx, id);
     const mf = ctx.query('unit.mf', { unit: id, stack: units, doubleTime: false }, 0);
-    const cost = advanceCost(ctx, id, a.to);
+    const cost = advanceCost(ctx, id, a.to, units);
+    const cx = advanceCx(ctx, id, units, a.to, cost, mf);
     ctx.emit('piece.moved', { id, loc: locationAt(a.to) });
     setTags(ctx, id, {
       advanced: true,
-      ...(cost >= mf ? { [T.cx]: true } : {}),
+      ...(cx ? { [T.cx]: true } : {}),
       ...(enemyThere ? { [T.advancedInto]: a.to } : {}),
     });
   }

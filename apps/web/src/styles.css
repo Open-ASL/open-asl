@@ -256,6 +256,8 @@ input[type='checkbox'] { accent-color: var(--brass); width: 16px; height: 16px; 
   z-index: 2;
 }
 .board-host { position: absolute; inset: 0; }
+.board-art-missing { position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 5; padding: 6px 12px; border-radius: 6px; background: rgba(14, 17, 14, 0.92); border: 1px solid #4a5443; color: #ece6d2; font-size: 14px; }
+.board-art-missing button { margin-left: 6px; }
 .board-host canvas { display: block; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .board-finder {
   position: absolute;
@@ -800,6 +802,7 @@ input[type='checkbox'] { accent-color: var(--brass); width: 16px; height: 16px; 
 @media (prefers-reduced-motion: reduce) {
   .your-call, .board-glow, .hud .end-btn.attention { animation: none; }
 }
+.fx-off .your-call, .fx-off .board-glow, .fx-off .hud .end-btn.attention { animation: none; }
 
 /* ================================================================== dice tray */
 .dice-tray { position: absolute; left: 14px; bottom: calc(52px + var(--strip-clear, 0px)); z-index: 6; display: grid; gap: 8px; pointer-events: none; width: 320px; }
@@ -1018,9 +1021,10 @@ p.cc-hint { margin: 0; text-transform: none; letter-spacing: 0.02em; font-size: 
   .pw-banner .who { font-size: 48px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
-.fx-off *, .fx-off *::before, .fx-off *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+/* One instant iteration: an infinite pulse cut to 0.01ms would otherwise cycle on every frame and flicker. */
+.fx-off *, .fx-off *::before, .fx-off *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 
 /* ================================================================== action wheel (right-click a stack) */
 .aw-backdrop { position: absolute; inset: 0; z-index: 12; } /* over the HUD bar: no entry hides under it */

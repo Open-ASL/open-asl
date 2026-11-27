@@ -70,6 +70,7 @@ const cards = () =>
     side: [...g.classList].find((c) => c.startsWith('side-'))!.slice(5),
     dice: g.querySelectorAll('.cc-dice').length > 0,
     text: g.querySelector('.cc-mid')?.textContent ?? '',
+    result: g.querySelector('.cc-result')?.textContent ?? null,
     targets: [...g.querySelectorAll('.cc-zone.t [data-cc-unit]')].map((u) => u.getAttribute('data-cc-unit')!),
   }));
 /** A Leader Creation table that makes a leader on a dr of 3 or less (the stub tables never make one). */
@@ -96,8 +97,8 @@ describe('the Close Combat overlay while a simultaneous CC is told', () => {
   };
   type Sample = ReturnType<typeof playOut>['samples'][number];
   const side = (s: Sample, x: string) => s.cards.find((c) => c.side === x)!;
-  /** Whether a card shows its result yet. */
-  const told = (c: ReturnType<typeof cards>[number]) => /Eliminated|Casualty Reduction|No effect/.test(c.text);
+  /** Whether a card shows its result yet (the odds also name the results they lead to, so not just its text). */
+  const told = (c: ReturnType<typeof cards>[number]) => c.result !== null;
   /** What every sample must hold, whatever the dice. */
   const steady = (samples: Sample[]) => {
     expect(samples.length).toBeGreaterThan(10);

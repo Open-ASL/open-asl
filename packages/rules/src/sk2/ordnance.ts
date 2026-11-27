@@ -171,6 +171,12 @@ declare module '@asl/engine' {
     'ordnance.illegal': { ctx: { shot: OrdnanceShot; mode: FireMode; side: SideId; moving?: PieceId[] }; value: string | null };
     /** To Hit DRM of a shot (chart cases 1–25 as they apply). */
     'ordnance.thDrm': { ctx: ShotCtx; value: number };
+    /**
+     * The vehicles in Location `target` a Vehicle Target Type shot by `side` names one by one (`OrdnanceShot.targetUnit`):
+     * none in the Starter Kit (a side has one vehicle per hex at the end of the MPh, SK4 3.3.2, so the shot takes the
+     * enemy vehicle there); full ASL each of several enemy vehicles in one Location (ASLRB A5.2).
+     */
+    'ordnance.vttTargets': { ctx: { target: LocId; side: SideId }; value: PieceId[] };
     /** Whether the shot uses the red To Hit numbers. */
     'ordnance.redTh': { ctx: ShotCtx; value: boolean };
     /** Effective ROF for the shot. */
@@ -246,7 +252,7 @@ export function shotContext(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, s
   const spines = shot.ca !== undefined ? spineChange(coveredArc(g), shot.ca) : 0;
   const los = env.query('los.trace', { from: loc, to: shot.target }, { clear: true, hindrance: 0, parts: [] });
   const manner = env.state.pieces[firer];
-  const targetVehicle = shot.targetType === 'VTT' ? (shot.targetUnit ?? enemyVehicleAt(env, shot.target, side)?.id) : undefined;
+  const targetVehicle = shot.targetType === 'VTT' ? (shot.targetUnit ?? enemyVehicleAt(env, shot.target, side, opts.moving)?.id) : undefined;
   return {
     shot,
     side,
@@ -274,10 +280,12 @@ export function shotContext(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, s
 }
 
 /** The one enemy vehicle (not a wreck) in a hex, if any (SK4 3.3.2: a side has one vehicle per hex). */
-export function enemyVehicleAt(env: QueryEnv, hex: HexId, side: SideId): Piece | undefined {
-  return Object.values(env.state.pieces)
+export function enemyVehicleAt(env: QueryEnv, hex: HexId, side: SideId, moving?: PieceId[]): Piece | undefined {
+  const there = Object.values(env.state.pieces)
     .filter((p) => p.side !== side && locOf(env.state, p) === hex && defOf(env, p).kind === 'vehicle' && p.tags['wreck'] !== true)
-    .sort(byId)[0];
+    .sort(byId);
+  // During an enemy move the vehicle aimed at by default is the one moving (Defensive First Fire, SK4 3.3.3).
+  return there.find((p) => moving?.includes(p.id)) ?? there[0];
 }
 
 /**
@@ -455,7 +463,7 @@ export function ordnanceWeaponIllegal(env: QueryEnv, weapon: PieceId, mode: Fire
   if (halved) return halved;
   const turned = caTurnedIllegal(env, g) ?? caTurnedIllegal(env, manner);
   if (turned) return turned;
-  if (mode === 'advancing' && !isLatw(def) && (g.tags[T.moved] || manner.tags[T.moved])) return `A ${def.light ? 'Mortar' : 'Gun'} that moved cannot fire in the AFPh`;
+  if (mode === 'advancing' && !isLatw(def) && env.query('fire.weaponMovedForAfph', { sw: g.id, holder: manner.id }, !!(g.tags[T.moved] || manner.tags[T.moved]))) return `A ${def.light ? 'Mortar' : 'Gun'} that moved cannot fire in the AFPh`;
   if (mode === 'advancing' && (g.tags[T2.manhandled] || manner.tags[T2.manhandled])) return 'A manhandled Gun cannot fire in the AFPh';
   return null;
 }
@@ -518,6 +526,8 @@ function ordnanceIllegal(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, side
     if (!tv || locOf(env.state, tv) !== shot.target || tv.side === side || defOf(env, tv).kind !== 'vehicle') return 'No enemy vehicle there to aim at';
     if (tv.tags['wreck']) return 'That vehicle is a wreck';
     if (!env.query('piece.visibleTo', { piece: tv.id, viewer: side }, true)) return 'No target there';
+    // Defensive First Fire attacks only the moving unit, never a vehicle that sits in its hex (SK4 3.3.3, ASLRB A8.1).
+    if (moving && !moving.includes(tv.id)) return 'Defensive First Fire may attack only the moving unit: that vehicle is not moving';
     if (def.type === 'MTR') return 'A Mortar cannot use the Vehicle Target Type';
   } else if (isMgOrdnance(def)) return 'A MG fires as ordnance only at an AFV (SK4 4.1); at anything else it fires on the IFT';
   if (isMgOrdnance(def)) {
@@ -537,7 +547,7 @@ function ordnanceIllegal(env: QueryEnv, shot: OrdnanceShot, mode: FireMode, side
   if (sc.def.minRange !== undefined && sc.range < sc.def.minRange) return 'Inside the minimum range';
   if (sc.def.maxRange !== undefined && sc.range > sc.def.maxRange) return isMgOrdnance(sc.def) ? `A MG fires as ordnance only within its normal range (${sc.def.maxRange} hexes, SK4 4.1)` : 'Beyond the maximum range';
   // A LATW may Advancing Fire after moving (+2, chart case 12); a Gun or Mortar that moved may not.
-  if (mode === 'advancing' && !isLatw(def) && !def.vehicle && (g.tags[T.moved] || manner.tags[T.moved])) return `A ${def.light ? 'Mortar' : 'Gun'} that moved cannot fire in the AFPh`;
+  if (mode === 'advancing' && !isLatw(def) && !def.vehicle && env.query('fire.weaponMovedForAfph', { sw: g.id, holder: manner.id }, !!(g.tags[T.moved] || manner.tags[T.moved]))) return `A ${def.light ? 'Mortar' : 'Gun'} that moved cannot fire in the AFPh`;
   if (mode === 'advancing' && (g.tags[T2.manhandled] || manner.tags[T2.manhandled])) return 'A manhandled Gun cannot fire in the AFPh';
   if (shot.director !== undefined) {
     const why = ordnanceDirectorIllegal(env, shot.weapon, shot.director, side, shot.targetType);
@@ -1088,14 +1098,16 @@ export function simpleShots(env: QueryEnv, side: SideId, targets: HexId[], mode:
       // The default ammunition, then each other kind the Gun could announce (SK4 6.2).
       const dflt = defaultAmmo(env, g, def);
       const ammos: (AmmoKind | undefined)[] = [undefined, ...ammoKinds(def).filter((k) => k !== dflt && ammoStatus(env, g, def, k).available)];
+      const named = vehicleThere ? env.query('ordnance.vttTargets', { target: t, side }, []) : [];
       for (const targetType of types) {
         for (const ammo of targetType === 'IFE' ? [undefined] : ammos) {
           for (const intensive of [false, true]) {
-            for (const backblast of backblasts) {
+            for (const backblast of backblasts) for (const targetUnit of targetType === 'VTT' && named.length ? named : [undefined]) {
               const shot: OrdnanceShot = {
                 weapon: g.id,
                 target: t,
                 targetType,
+                ...(targetUnit ? { targetUnit } : {}),
                 ...(ca !== undefined ? { ca } : {}),
                 ...(intensive ? { intensive } : {}),
                 ...(ammo ? { ammo } : {}),

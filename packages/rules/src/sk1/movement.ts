@@ -48,7 +48,7 @@ declare module '@asl/engine' {
      */
     'move.stepCost': { ctx: { ms: MoveState; to: LocId; declared?: number; woods?: boolean; bypass?: HexId[]; beneath?: boolean; noTb?: boolean; mines?: MineEntry }; value: number };
     /** Full ASL: further `move.step` forms into `to` (a step that goes straight beneath an entrenchment, ASLRB B27.4); none in the Starter Kit. */
-    'move.stepVariants': { ctx: { ms: MoveState; to: LocId }; value: { type: 'move.step'; to: LocId; beneath?: true; noTb?: true; mines?: MineEntry; hexsides?: [number, number] }[] };
+    'move.stepVariants': { ctx: { ms: MoveState; to: LocId }; value: { type: 'move.step'; to: LocId; beneath?: true; noTb?: true; mines?: MineEntry; hexsides?: [number, number]; ovr?: OvrNtc }[] };
     /** Fields a rules module adds to a stack's state as it starts moving (full ASL: its entrenchment position); `{}` in the Starter Kit. */
     'move.startState': { ctx: { units: PieceId[] }; value: Partial<MoveState> };
     /** Full ASL: why a unit may not Recover a weapon (ASLRB B27.13: not across a foxhole's rim); null in the Starter Kit. */
@@ -69,8 +69,19 @@ declare module '@asl/engine' {
      * Infantry stacking limit in a hex for a side: squad equivalents and SMC (SK4 2.0: three and four; PTO Dense jungle and
      * bamboo two squad equivalents, SK4 8.2.1).
      */
-    /** `note`: why the limit is what it is, where a rule sets it (a Cave holds one squad-equivalent), for refusals. */
-    'stack.limit': { ctx: { hex: HexId; side: SideId }; value: { se: number; smc: number; note?: string } };
+    /**
+     * `note`: why the limit is what it is, where a rule sets it (a Cave holds one squad-equivalent), for refusals.
+     * `capacity`: the limit is a capacity no unit may ever exceed (a pillbox, ASLRB B30.111, A5.6; a card's footbridge or
+     * Cave), not a limit that full ASL lets be exceeded with penalties (A5.1).
+     */
+    'stack.limit': { ctx: { hex: HexId; side: SideId }; value: StackLimit };
+    /**
+     * The stacking limit that refuses an entry in play (a move, advance or rout step) into Location `hex`: `limit`, the
+     * Location's stacking limit, in the Starter Kit (SK4 3.3: units "may not move into a hex that would violate stacking
+     * limits at any time during the move"); null where none refuses one. Full ASL lets the limits be exceeded with
+     * penalties (ASLRB A5.1) except where they are a capacity. Setup always keeps the limit (A2.9).
+     */
+    'stack.cap': { ctx: { hex: LocId; side: SideId; limit: StackLimit; offboard?: boolean }; value: StackLimit | null };
     /** Why a moving vehicle may not step into `to`, or null (SK3; the Infantry checks do not apply to it). */
     'vehicle.stepIllegal': { ctx: { ms: MoveState; to: HexId; declared?: number }; value: string | null };
     /** Whether the defender has any legal, plausible Defensive First Fire shot at the moving stack (so it is asked); `hex` is its Location. */
@@ -109,6 +120,22 @@ declare module '@asl/engine' {
      * a whole stack stranded still draws the DEFENDER's fire at that expenditure. False in the Starter Kit.
      */
     'move.strandedStay': { ctx: Record<string, never>; value: boolean };
+    /**
+     * Full ASL Minimum Move (ASLRB A4.134): whether `unit` of the moving stack may enter `to` although the step's `cost`
+     * exceeds the MF it has left. The Starter Kit has no Minimum Move (SK1 3.3: "up to the limit of their Movement Factor
+     * (MF) allotment"): false.
+     */
+    'move.minimumMoveAllowed': { ctx: { ms: MoveState; to: LocId; unit: PieceId; cost: number }; value: boolean };
+    /**
+     * Full ASL: whether the moving stack may enter Location `to` although it holds a Known enemy unit (ASLRB A4.14 EXC:
+     * Infantry OVR, A4.15). The Starter Kit never lets Infantry into an enemy hex in the MPh (SK1 3.3): false.
+     */
+    'move.enemyEntryAllowed': { ctx: { ms: MoveState; to: LocId }; value: boolean };
+    /**
+     * Whether `move.start`'s legal list also offers each start with Double Time and with Assault Movement (full ASL, so that
+     * every option a player has is reachable). False in the Starter Kit, whose list stays the plain starts.
+     */
+    'move.startOptionsListed': { ctx: Record<string, never>; value: boolean };
   }
 }
 
@@ -139,8 +166,15 @@ export interface MoveState {
    * A8.14). `firstFireTargets` joins them to `units`; a step to a new Location leaves them behind.
    */
   stopped?: PieceId[];
-  /** The units the move started with: the stack's identity as a Defensive First Fire target (`expenditureKey`). */
+  /** The units the move started with: the stack as it set out (units it loses on the way do not make it a new stack). */
   started?: PieceId[];
+  /**
+   * The move's number, set when it starts (the `seq` of the event that starts it, unique in the game): the stack's identity
+   * as a Defensive First Fire target (`expenditureKey`). A number, not the movers' ids, so that a view the movers are
+   * hidden from (a "?" stack, SK4 8.3) names the same target and still holds no trace of what is under the "?". A
+   * module that rebuilds one target's state more than once names it itself (a Banzai hex's First Fire window, SK4 8.1.8.6).
+   */
+  stack?: number | string;
   hex: HexId | null;
   /**
    * The building level the stack is at in `hex` (ASLRB A2.8); absent at ground level, never 0. `moveLoc` gives
@@ -230,6 +264,23 @@ export interface MoveState {
    * (Double Time's CX, the leaders restacked onto the moving MMC), as they were before. Gone with the move.
    */
   cancel?: { spent: Record<PieceId, number>; tags: Record<PieceId, Record<string, Scalar>> };
+  /** Full ASL: units that entered their hex by Minimum Move (ASLRB A4.134), pinned and CX once the stack's move is over. Never set in the Starter Kit. */
+  minimum?: PieceId[];
+  /** Full ASL: units that declared Double Time after spending MF (ASLRB A4.5 EXC: one MF more, CX). Never set in the Starter Kit. */
+  lateDt?: PieceId[];
+  /**
+   * Full ASL: the stack's declared Dash (ASLRB A4.63): from `from` across the road Location `road` to `to`. `void`: its
+   * benefits have ceased (stuck in the road, A4.63). Never set in the Starter Kit.
+   */
+  dash?: { from: HexId; road: HexId; to: HexId; void?: true };
+  /** Full ASL: the step being made is an Infantry OVR whose NTC this choice takes (ASLRB A4.15); never kept in the state. */
+  ovrNtc?: OvrNtc;
+  /**
+   * Full ASL: an Infantry OVR in progress (ASLRB A4.15–A4.152): the Location entered, the lone SMC there, the units that
+   * entered (`units`) and where it stands (`evade`: the SMC's choice to come; `fire`: First Fire, then CC). Never set in
+   * the Starter Kit.
+   */
+  ovr?: { loc: LocId; smc: PieceId; units: PieceId[]; phase: 'evade' | 'fire' | 'cc' };
 }
 
 /**
@@ -288,6 +339,8 @@ export interface VehicleMoveState {
 export { firstFireTargets, moveLoc, moveState } from './moveState';
 /** Full ASL: a step into a minefield along its Trail Break (ASLRB B28.61) or with all MF to clear it (B24.74). */
 export type MineEntry = 'tb' | 'clear';
+/** Full ASL Infantry OVR (ASLRB A4.15): the leader takes the NTC for every MMC with him, or each MMC its own. */
+export type OvrNtc = 'leader' | 'each';
 
 export const FIRST_FIRE = 'firstFire';
 /**
@@ -347,7 +400,7 @@ export type MoveAction =
    * `bypass` (full ASL): in Bypass of the obstacle hex `to` along the hexsides it shares with these hexes, in order
    * (ASLRB A2.2 "R3-R4": `to` first); `to` the hex already bypassed goes further round it.
    */
-  | (Action & { type: 'move.step'; to: LocId; declared?: number; woods?: boolean; bypass?: HexId[]; beneath?: true; noTb?: true; /** Full ASL: into a minefield along its TB, or to clear it (ASLRB B28.61, B24.74). */ mines?: MineEntry; hexsides?: [number, number] })
+  | (Action & { type: 'move.step'; to: LocId; declared?: number; woods?: boolean; bypass?: HexId[]; beneath?: true; noTb?: true; /** Full ASL: into a minefield along its TB, or to clear it (ASLRB B28.61, B24.74). */ mines?: MineEntry; hexsides?: [number, number]; /** Full ASL Infantry OVR: who takes the NTC (ASLRB A4.15). */ ovr?: OvrNtc })
   | (Action & { type: 'move.stopUnits'; units: PieceId[] })
   | (Action & { type: 'move.end' })
   /** Takes back the choice of the stack now moving, while it has spent no MF (see `cancelRefusal`). */
@@ -421,7 +474,9 @@ export const movementModule: RuleModule = {
     r.event<{ state: MoveState | null }>({
       type: 'sk1.move.state',
       apply(d, p) {
-        if (p.state) d.ext[MOVE] = p.state;
+        // A new move (a state that carries no `stack` yet) is numbered by the event that starts it; every later state of
+        // the move is derived from the one before and keeps its number.
+        if (p.state) d.ext[MOVE] = p.state.stack === undefined ? { ...p.state, stack: d.seq } : p.state;
         else delete d.ext[MOVE];
       },
     });
@@ -439,6 +494,9 @@ export const movementModule: RuleModule = {
     r.procedure<MoveEnterFn>(MOVE_ENTER, () => (ctx, ms, to, cost, woods, extra) => enterHex(ctx, ms, to, cost, woods, extra));
     r.procedure<MoveEnteredFn>(MOVE_ENTERED, () => () => {});
     r.procedure<MoveFinishFn>(MOVE_FINISH, () => (ctx) => finishStackBase(ctx));
+    r.procedure<MoveSpentFn>(MOVE_SPENT, () => () => {});
+    r.procedure<MoveHoldFn>(MOVE_BEFORE_FIRST_FIRE, () => () => false);
+    r.procedure<MoveHoldFn>(MOVE_BEFORE_RESUME, () => () => false);
     r.contribute({ id: 'sk1.move.stepCost.base', query: 'move.stepCost', layer: 0, apply: (_v, { ms, to, woods, noTb }, env) => stepCost(env, ms, to, woods, !!noTb) });
 
     // ---------------------------------------------------------------- Smoke Exponent
@@ -631,17 +689,26 @@ export const movementModule: RuleModule = {
           const k = p.loc.kind === 'hex' ? `${locKey(p.loc)}${p.loc.pos?.ent ? '|beneath' : ''}` : `off:${(p.loc.kind === 'offboard' && p.loc.hex) || p.id}`;
           byHex.set(k, [...(byHex.get(k) ?? []), { p, manhandle }]);
         }
+        // Full ASL: each start also with Double Time or Assault Movement where the rules allow it (ASLRB A4.5, A4.61).
+        const options = env.query('move.startOptionsListed', {}, false);
+        const push = (a: { type: 'move.start'; units: PieceId[]; manhandle?: PieceId }) => {
+          out.push(a);
+          if (!options) return;
+          for (const doubleTime of [true, false]) {
+            if (!env.query('move.cannotStart', { units: a.units, doubleTime, assault: !doubleTime, ...(a.manhandle ? { manhandle: a.manhandle } : {}) }, null)) out.push({ ...a, ...(doubleTime ? { doubleTime: true } : { assault: true }) });
+          }
+        };
         for (const ps of byHex.values()) {
-          for (const { p, manhandle } of ps) out.push({ type: 'move.start', units: [p.id], ...(manhandle ? { manhandle } : {}) });
+          for (const { p, manhandle } of ps) push({ type: 'move.start', units: [p.id], ...(manhandle ? { manhandle } : {}) });
           if (ps.length > 1) {
             // The whole stack: pushing the one Gun among them (a stack cannot push two).
             const guns = [...new Set(ps.map((x) => x.manhandle).filter((g): g is PieceId => !!g))];
             const units = ps.map((x) => x.p.id);
             // Only a stack the rules let start together (the list offers nothing that validation refuses).
             if (guns.length === 0) {
-              if (!env.query('move.cannotStart', { units, doubleTime: false, assault: false }, null)) out.push({ type: 'move.start', units });
+              if (!env.query('move.cannotStart', { units, doubleTime: false, assault: false }, null)) push({ type: 'move.start', units });
             }
-            else if (guns.length === 1 && !env.query('move.cannotStart', { units, doubleTime: false, assault: false, manhandle: guns[0]! }, null)) out.push({ type: 'move.start', units, manhandle: guns[0]! });
+            else if (guns.length === 1 && !env.query('move.cannotStart', { units, doubleTime: false, assault: false, manhandle: guns[0]! }, null)) push({ type: 'move.start', units, manhandle: guns[0]! });
           }
         }
         return out;
@@ -759,7 +826,7 @@ export const movementModule: RuleModule = {
           reAskMover(ctx);
           return;
         }
-        ctx.proc<MoveEnterFn>(MOVE_ENTER)(ctx, ms, a.to, cost, !!a.woods, a.beneath || a.noTb || a.mines ? { ...(a.beneath ? { ent: true as const } : {}), ...(a.noTb ? { noTb: true as const } : {}), ...(a.mines ? { mineEntry: a.mines, ...(a.hexsides ? { mineSides: a.hexsides } : {}) } : {}) } : undefined);
+        ctx.proc<MoveEnterFn>(MOVE_ENTER)(ctx, ms, a.to, cost, !!a.woods, a.beneath || a.noTb || a.mines || a.ovr ? { ...(a.beneath ? { ent: true as const } : {}), ...(a.noTb ? { noTb: true as const } : {}), ...(a.mines ? { mineEntry: a.mines, ...(a.hexsides ? { mineSides: a.hexsides } : {}) } : {}), ...(a.ovr ? { ovrNtc: a.ovr } : {}) } : undefined);
       },
     });
 
@@ -852,8 +919,10 @@ export const movementModule: RuleModule = {
         // Every attempt is rolled and placed before the defender may fire at the expenditure (ASLRB A8.1).
         for (const t of throws) {
           const exponent = ctx.query('unit.smoke', { unit: t.unit }, 0);
-          const dr = ctx.roll(`Smoke grenades by ${t.unit}`, 1).total;
-          const final = dr + (isCx(pieceOf(ctx, t.unit)) ? 1 : 0);
+          const cx = isCx(pieceOf(ctx, t.unit)) ? 1 : 0;
+          // The label names the hex and the dr that places Smoke there (the exponent, -1 if CX), for the log.
+          const dr = ctx.roll(`Smoke grenades by ${t.unit} into ${t.target} (dr ≤ ${exponent - cx})`, 1).total;
+          const final = dr + cx;
           if (ctx.query('events.optional', {}, false)) ctx.emit('sk1.move.smoke', { unit: t.unit, target: t.target, dr, placed: final <= exponent });
           // Each success is another counter in the hex (ASLRB A24.2: no limit on the number placed).
           if (final <= exponent) ctx.emit('hex.marker', { hex: t.target, key: 'smoke', value: smokeGrenades(ctx.state.hexMarkers[t.target]) + 1 });
@@ -915,7 +984,8 @@ export const movementModule: RuleModule = {
           const mf = ctx.query('unit.mf', { unit: a.unit, stack: ms.units, doubleTime: ms.doubleTime }, 0);
           if (mf < (ms.allowance[a.unit] ?? 0)) ctx.emit('sk1.move.state', { state: { ...ms, allowance: { ...ms.allowance, [a.unit]: mf } } });
         }
-        spendInPlace(ctx, moveState(ctx)!, 1, {});
+        // The MF is the Recovery's own: the weapon was not yet possessed while it was spent (ASLRB A4.41, A4.44).
+        spendInPlace(ctx, moveState(ctx)!, 1, {}, [a.sw]);
         afterMfExpenditure(ctx);
       },
     });
@@ -1375,7 +1445,7 @@ function stepIllegal(env: QueryEnv, ms: MoveState, to: LocId, pushing = false, d
   if (ms.manhandle && !pushing) return 'The stack is manhandling a Gun: push it (double MF, manhandling DR)';
   // Per Location (ASLRB A4.14): in full ASL an enemy on another level of the hex does not bar this one. A Location
   // holding only a concealed enemy stack may be *attempted* (SK4 8.3.2: both "?" come off and the mover stops short).
-  if (knownEnemyAt(env, to, env.state.attacker).length > 0) return isGroundLoc(to) && !ms.level ? (ms.sub === 'pb' && hexOfLoc(to) === ms.hex ? 'An enemy unit is in the hex outside the pillbox: a unit inside may only advance out (ASLRB B30.6)' : 'Cannot enter an enemy-occupied hex in the MPh') : parseLoc(to).sub === 'pb' ? 'Enemy Infantry hold the pillbox: no unit may enter it (ASLRB B30.44)' : 'Cannot enter an enemy-occupied Location in the MPh (ASLRB A4.14)';
+  if (knownEnemyAt(env, to, env.state.attacker).length > 0 && !env.query('move.enemyEntryAllowed', { ms, to }, false)) return isGroundLoc(to) && !ms.level ? (ms.sub === 'pb' && hexOfLoc(to) === ms.hex ? 'An enemy unit is in the hex outside the pillbox: a unit inside may only advance out (ASLRB B30.6)' : 'Cannot enter an enemy-occupied hex in the MPh') : parseLoc(to).sub === 'pb' ? 'Enemy Infantry hold the pillbox: no unit may enter it (ASLRB B30.44)' : 'Cannot enter an enemy-occupied Location in the MPh (ASLRB A4.14)';
   if (ms.assault && ms.hexesEntered >= 1) return 'Assault Movement is limited to one hex';
   const extra = env.query('move.stepIllegal', { ms, to, ...(beneath ? { beneath: true } : {}), ...(mines ? { mines } : {}), ...(hexsides ? { hexsides } : {}) }, mines || hexsides ? 'No minefields in the Starter Kit' : null);
   if (extra) return extra;
@@ -1387,29 +1457,48 @@ function stepIllegal(env: QueryEnv, ms: MoveState, to: LocId, pushing = false, d
   const bonusStep = !offTo && roadSideTo(env, ms, to) && !woods && !smokeIn(env, toHex);
   for (const u of ms.units) {
     const left = (ms.allowance[u] ?? 0) + (ms.roadOnly && bonusStep ? 1 : 0) - (ms.spent[u] ?? 0);
-    // Always allowed to enter one hex if it costs all MF (minimum move) — not in SK1; must have the MF.
-    if (cost > left) return `${u} lacks the MF (${left}) to enter (${cost})`;
+    // Must have the MF (SK1 3.3); full ASL's Minimum Move may enter one hex regardless (ASLRB A4.134).
+    if (cost > left && !env.query('move.minimumMoveAllowed', { ms, to, unit: u, cost }, false)) return `${u} lacks the MF (${left}) to enter (${cost})`;
   }
   const assaultAll = assaultAllMf(ms, cost);
   if (assaultAll) return assaultAll;
   // Stacking: three squad-equivalents and four SMC per side, per Location (ASLRB A5.1; "a hex", SK4 2.0, where
   // a hex is one Location), "at any time during the move" (SK4 3.3) and so offboard as well: A2.51 has offboard units
-  // move "normally" over real hexes, which are Open Ground (no terrain lowers the limit).
+  // move "normally" over real hexes, which are Open Ground (no terrain lowers the limit). Full ASL lets the limits be
+  // exceeded with penalties (ASLRB A5.1), except a capacity (`stackCap`).
   const here = (offTo ? offboardOccupants(env, to, env.state.attacker) : personnelAt(env, to, env.state.attacker)).filter((p) => !ms.units.includes(p.id));
   const all = [...here, ...ms.units.map((u) => pieceOf(env, u))];
   const se = squadEquivalents(env, all);
   const smcs = all.filter((p) => smc(env, p)).length;
-  const limit: { se: number; smc: number; note?: string } = offTo ? OPEN_STACK_LIMIT : stackLimit(env, to, env.state.attacker);
+  const limit = offTo ? stackCap(env, to, env.state.attacker, true) : stackCap(env, to, env.state.attacker);
+  if (!limit) return null;
   if (se > limit.se) return `Stacking limit: ${limit.se} squad-equivalents${limit.note ? ` (${limit.note})` : ''}`;
   if (smcs > limit.smc) return `Stacking limit: ${limit.smc} SMC${limit.note ? ` (${limit.note})` : ''}`;
   return null;
 }
 
+/** A stacking limit: squad-equivalents and SMC per side (see the `'stack.limit'` query). */
+export interface StackLimit {
+  se: number;
+  smc: number;
+  note?: string;
+  capacity?: boolean;
+}
+
 /** The Infantry stacking limit of a hex for a side (SK4 2.0; PTO terrain may lower it). */
-export const stackLimit = (env: QueryEnv, hex: HexId, side: SideId) => env.query('stack.limit', { hex, side }, OPEN_STACK_LIMIT);
+export const stackLimit = (env: QueryEnv, hex: HexId, side: SideId): StackLimit => env.query('stack.limit', { hex, side }, OPEN_STACK_LIMIT);
+
+/**
+ * The stacking limit that refuses an entry in play into Location `hex` (`offboard`: an offboard hex, Open Ground), or
+ * null where none does (see the `'stack.cap'` query).
+ */
+export function stackCap(env: QueryEnv, hex: LocId, side: SideId, offboard = false): StackLimit | null {
+  const limit = offboard ? OPEN_STACK_LIMIT : stackLimit(env, hex, side);
+  return env.query('stack.cap', { hex, side, limit, ...(offboard ? { offboard: true } : {}) }, limit);
+}
 
 /** The Infantry stacking limit with no terrain to lower it, as offboard (SK4 2.0, 3.3; ASLRB A5.1). */
-export const OPEN_STACK_LIMIT = { se: 3, smc: 4 } as const;
+export const OPEN_STACK_LIMIT: StackLimit = { se: 3, smc: 4 };
 
 /** The side's Personnel waiting in an offboard hex (`except` left out). */
 export const offboardOccupants = (env: QueryEnv, hex: HexId, side: SideId, except: Iterable<PieceId> = []): Piece[] => {
@@ -1458,7 +1547,8 @@ function smokeCost(env: QueryEnv, ms: MoveState, throws: SmokeThrow[]): number {
   return throws.some((t) => env.query('move.smokeAdjacent', { ms, target: t.target }, t.target !== ms.hex)) ? 2 : 1;
 }
 
-export function spendInPlace(ctx: Ctx, ms: MoveState, cost: number, patch: Partial<MoveState>) {
+export function spendInPlace(ctx: Ctx, ms: MoveState, cost: number, patch: Partial<MoveState>, exempt: PieceId[] = []) {
+  if (cost > 0) ctx.proc<MoveSpentFn>(MOVE_SPENT)(ctx, ms.units, exempt);
   // A new expenditure: the trench-to-trench mark of the last one (full ASL, ASLRB B27.54) is over.
   const { trenchMove: _trench, tb: _tb, mineEntry: _mineEntry, mineSides: _mineSides, ...base } = ms;
   void _trench;
@@ -1520,6 +1610,22 @@ export function exitTargets(env: QueryEnv, ms: Pick<MoveState, 'hex' | 'off'>): 
     .filter((o) => map.offboardNeighbors(o.id).onboard.includes(hex))
     .map((o) => o.id);
 }
+
+/**
+ * Procedure run as the moving stack spends MF/MP (a step, or an expenditure in place): (ctx, units spending, weapons not
+ * yet possessed while it was spent: the one a Recovery took). A no-op unless a module records it (full ASL: which
+ * weapons moved, ASLRB A4.41).
+ */
+export const MOVE_SPENT = 'sk1.move.spent';
+export type MoveSpentFn = (ctx: Ctx, units: PieceId[], exempt: PieceId[]) => void;
+
+/**
+ * Procedures that may hold the move up for a decision of their own, returning true when they did: before the First Fire
+ * at an expenditure (after its Residual FP attack), and before the mover gets the decision back. False in the Starter Kit.
+ */
+export const MOVE_BEFORE_FIRST_FIRE = 'sk1.move.beforeFirstFire';
+export const MOVE_BEFORE_RESUME = 'sk1.move.beforeResume';
+export type MoveHoldFn = (ctx: Ctx) => boolean;
 
 /** Procedure that finishes the moving stack (its units have moved): (ctx). SK3 wraps it for a vehicle's Motion. */
 export const MOVE_FINISH = 'sk1.move.finish';
@@ -1596,6 +1702,7 @@ function enterHex(ctx: Ctx, ms: MoveState, toLoc: LocId, cost: number, woods = f
     // SK1 4.0: no SW can be portaged more than once per MPh.
     for (const s of swHeldBy(ctx.state, id).sort(byId)) if (!s.tags[PORTAGED]) setTags(ctx, s.id, { [PORTAGED]: true });
   }
+  ctx.proc<MoveSpentFn>(MOVE_SPENT)(ctx, ms.units, []);
   // A new Location: its MF and First Fire counts start afresh (ASLRB A8.12). `level` only above ground, never 0.
   // Units stopped in the old one stay behind: their MPh ends as the others move on (SK1 3.3.1).
   // A Bypass (full ASL) ends with its hex: the stack is out of it, or (`extra`) in Bypass of the next.
@@ -1643,6 +1750,9 @@ export const moveInternals = {
   entryHexes: (env: QueryEnv, ms: MoveState) => entryHexes(env, ms),
   remaining: (ms: MoveState, unit: PieceId) => (ms.allowance[unit] ?? 0) - (ms.spent[unit] ?? 0),
   pruneMovers: (ctx: Ctx) => pruneMovers(ctx),
+  /** Why the moving stack may not step into `to` (every rule `move.step` checks), or null. */
+  stepRefusal: (env: QueryEnv, ms: MoveState, to: LocId, woods = false) => stepRefusal(env, ms, to, undefined, woods),
+  enter: (ctx: Ctx, ms: MoveState, to: LocId, cost: number, extra?: Partial<MoveState>) => ctx.proc<MoveEnterFn>(MOVE_ENTER)(ctx, ms, to, cost, false, extra),
 };
 
 /**
@@ -1819,6 +1929,9 @@ export function cancelRefusal(env: QueryEnv): string | null {
 }
 
 function reAskMover(ctx: Ctx) {
+  // A module may hold the mover back for something that follows the First Fire (full ASL: CC in the MPh after an
+  // Infantry OVR, ASLRB A4.152); it gives the mover the decision back itself.
+  if (ctx.proc<MoveHoldFn>(MOVE_BEFORE_RESUME)(ctx)) return;
   // A stack whose movement ended where it stands (bounced off a hidden Gun, a vehicle ending its move) is done once the defender has had its say.
   const cur = moveState(ctx);
   if (cur?.halted || cur?.vehicle?.ending) finishStack(ctx);
@@ -1840,6 +1953,9 @@ export function afterMfExpenditure(ctx: Ctx) {
     reAskMover(ctx);
     return;
   }
+  // A module may put a decision first (full ASL: the SMC's answer to an Infantry OVR, mandatory TPBF); it carries on with
+  // the First Fire itself once that is settled.
+  if (ctx.proc<MoveHoldFn>(MOVE_BEFORE_FIRST_FIRE)(ctx)) return;
   offerFirstFire(ctx);
 }
 

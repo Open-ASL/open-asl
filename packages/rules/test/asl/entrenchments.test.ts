@@ -245,7 +245,8 @@ describe('Into and out of a foxhole during the MPh (B27.1 EX, B27.4, B27.42, A8.
     s = tele(engine, s, 'in', 'uN5', 'foxhole');
     const starts = legal(engine, s, 'move.start');
     for (const a of starts) expect(engine.validate(s, a), JSON.stringify(a)).toBeNull();
-    expect(starts.filter((a) => (a['units'] as string[]).some((u) => u === 'in' || u === 'out')).map((a) => a['units'])).toEqual([['in'], ['out']]);
+    // Each also offered with Double Time and with Assault Movement (A4.5, A4.61): the plain starts are the stacks.
+    expect(starts.filter((a) => !a['doubleTime'] && !a['assault'] && (a['units'] as string[]).some((u) => u === 'in' || u === 'out')).map((a) => a['units'])).toEqual([['in'], ['out']]);
     // Two units beneath it are one stack together.
     const both = game([ge('a', 'uN5'), ge('b', 'uN5'), ...far], { phase: 'MPh' });
     let t = place(both.engine, both.state, 'ge', [fox('uN5', 2)]);
@@ -633,6 +634,16 @@ describe('Rout, rally and advance with entrenchments (B27.41, A10.5, A10.531, A1
     expect(entrenchmentRoom(engine.env(r.state), 'uN5', 'ge')).toMatchObject({ se: 0 });
     r = act(engine, r.state, { type: 'advance', units: ['b'], to: 'uO5', beneath: true });
     expect(loc(r.state, 'b')).toEqual({ kind: 'hex', hex: 'uO5', pos: { ent: 'foxhole' } });
+  });
+
+  it('a change of position within its own hex is offered only when the engine accepts it: a CX unit with no MF left is refused, and not offered (A4.7, A4.72, B27.44)', () => {
+    const sws: PieceSpec[] = [{ id: 'm1', def: 'ge.MMG', side: 'ge', heldBy: 'c' }, { id: 'm2', def: 'ge.MMG', side: 'ge', heldBy: 'c' }];
+    const { engine, state } = game([ge('c', 'uO5'), ...sws, ...far], { phase: 'APh' });
+    let s = place(engine, state, 'ge', [fox('uO5', 1)]);
+    s = act(engine, s, { type: 'test.tag', id: 'c', tags: { cx: true } }).state;
+    expect(engine.query(s, 'unit.mf', { unit: 'c', stack: ['c'], doubleTime: false }, 0).value).toBeLessThanOrEqual(0);
+    expect(check(engine, s, { type: 'advance', units: ['c'], to: 'uO5', beneath: true })).toMatch(/CX/);
+    expect(legal(engine, s, 'advance').filter((a) => (a['units'] as string[]).includes('c') && a['to'] === 'uO5')).toEqual([]);
   });
 
   it('Recovery does not cross the rim of a foxhole (B27.13); a weapon dropped by a unit beneath it stays beneath', () => {

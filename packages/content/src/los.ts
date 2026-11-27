@@ -285,10 +285,11 @@ export function pixelTracers(
           continue;
         }
         hillRun = 0;
-        if (e < lo) {
-          owners = owners.filter((o) => (o.elevation ?? 0) >= lo);
-          if (!owners.length) continue;
-        }
+        // At or below the lower end, a pixel counts only for the hexes it belongs to whose centre dot is at that level or
+        // above: a lower hex's terrain is at its own level (SK4 1.1.1) wherever its art is drawn, so it is overlooked,
+        // even over ground at the lower end's level.
+        owners = owners.filter((o) => (o.elevation ?? 0) >= lo);
+        if (!owners.length) continue;
       }
       // Palm trees (PTO): an obstacle to a LOS between two levels, a Hindrance like any orchard on one level.
       if (fromLevel !== lo && opts.obstacleBetweenLevels && owners.some(opts.obstacleBetweenLevels)) return { clear: false, crossed, blockedAt: { x, y } };

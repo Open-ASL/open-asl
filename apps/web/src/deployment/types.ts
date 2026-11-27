@@ -12,6 +12,22 @@ export interface HudGame {
   mySide?: string | null;
   /** The ruleset's version hash, which the match pins. */
   ruleset: string;
+  /** What the game screen shows besides the board (a bug report records it). */
+  ui?: HudUi;
+}
+
+/** The game screen's own state: what the orders panel and the map are showing. */
+export interface HudUi {
+  /** The kind of decision the game waits on, if any. */
+  decision: string | null;
+  /** Dice still being shown: orders wait until they are. */
+  resolving: boolean;
+  /** An action wheel open on the map. */
+  wheel: boolean;
+  /** The phase wheel playing (the cinematic that announces a new phase or Player Turn). */
+  phaseWheel: boolean;
+  /** The orders panel folded away. */
+  sideCollapsed: boolean;
 }
 
 export interface HudToolsProps {

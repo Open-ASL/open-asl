@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Engine, GameState, RuleModule } from '@asl/engine';
-import { banzaiModule, banzaiState, banzaiSteps, banzaiWindowsPending, chargerIllegal, concealmentModule, declareIllegal, hiddenUnitsModule, japaneseModule, moveState, sk2CoreModules, sk3CoreModules, type Statics } from '../../src';
+import { banzaiModule, banzaiState, banzaiSteps, banzaiWindowsPending, chargerIllegal, concealmentModule, declareIllegal, directorIllegal, hiddenUnitsModule, japaneseModule, moveState, sk2CoreModules, sk3CoreModules, type Statics } from '../../src';
 import { act, makeEngine, type PieceSpec } from '../fixtures';
+import { expenditureKey } from '../../src/sk1/moveState';
 
 /**
  * The Banzai Charge (SK4 8.1.8.6–8.1.8.8): who may declare it and at what, the Impulse movement (one hex each,
@@ -61,6 +62,83 @@ const CHARGE: PieceSpec[] = [
   { id: 'b', def: 'ja.447', side: 'ja', hex: 'yL5' },
   { id: 'm', def: 'am.768', side: 'am', hex: 'yP5' },
 ];
+
+describe('Banzai TPBF directed by a leader in the hex (SK4 8.1.8.7; SK1 3.2)', () => {
+  // The Japanese leader and a squad at L5 charge the Marines at M5: a 7-6-8 with a 9-1.
+  const tpbfAt = (leaderTags: Record<string, boolean> = {}) => {
+    events = [];
+    const { engine, state: s0 } = game([
+      { id: 'l', def: 'ja.L91', side: 'ja', hex: 'yL5' },
+      { id: 'a', def: 'ja.447', side: 'ja', hex: 'yL5' },
+      { id: 'm', def: 'am.768', side: 'am', hex: 'yM5' },
+      { id: 'ml', def: 'am.L91', side: 'am', hex: 'yM5', tags: leaderTags },
+    ], { dice: new Array(80).fill(4) });
+    let s = declare(engine, s0, 'l', 'yM5', ['l', 'a']);
+    s = go(engine, s, 'a', 'yM5');
+    const shot = events.filter((e) => e.type === 'sk1.fire.attack').at(-1)!.payload as { attack: { parts: string[]; directors?: string[] }; explain: { label: string }[] };
+    return { engine, s, shot };
+  };
+
+  it('the 9-1 directs the FG at the entering squad: -1, and he is not one of its firers', () => {
+    const { shot } = tpbfAt();
+    expect(shot.attack.parts).toEqual(['m']);
+    expect(shot.attack.directors).toEqual(['ml']);
+    expect(shot.explain.map((x) => x.label)).toContain('-1 leadership');
+  });
+
+  it('a pinned leader may not direct it', () => {
+    const { shot } = tpbfAt({ pinned: true });
+    expect(shot.attack.directors ?? []).toEqual([]);
+    expect(shot.explain.map((x) => x.label).some((l) => /leadership/.test(l))).toBe(false);
+  });
+
+  it('through to the next Player Turn: the record of his direction is gone', () => {
+    let { engine, s } = tpbfAt();
+    for (let i = 0; i < 200 && !(s.attacker === 'am' && s.phase === 'PFPh'); i++) s = onward(engine, s);
+    expect(s).toMatchObject({ attacker: 'am', phase: 'PFPh' });
+    // The direction of the TPBF is forgotten with the Player Turn (he is in Melee now, so not Good Order to direct).
+    const log = s.ext['sk1.fireLog'] as { directed?: Record<string, string[]> } | undefined;
+    expect(log?.directed?.['ml']).toBeUndefined();
+    expect(directorIllegal(engine.env(s), 'ml', 'prep', ['m'])).not.toMatch(/already directed/);
+  });
+});
+
+describe('Banzai Ambush (SK4 8.1.8.8, 8.1.8.1, Banzai Example)', () => {
+  // After the Charge each Banzai counter shows "+1 Ambush": the units of the Charge ambush as Inexperienced, those that
+  // ended it adjacent and advance in included, and without the -1 of Elite/1st Line Japanese.
+  const drm = (pieces: PieceSpec[], units: string[]) => {
+    const { engine, state } = game([...pieces, { id: 'm', def: 'am.768', side: 'am', hex: 'yK5' }]);
+    const r = engine.env(state).explain('cc.ambushDrm', { hex: 'yK5', side: 'ja', units }, 0);
+    return { value: r.value, labels: r.trace.filter((t) => !t.suppressedBy && t.label).map((t) => t.label) };
+  };
+  const banzai = { banzai: 'done' };
+
+  it('a Banzai squad that ended adjacent and advances in, with the crew and leader that charged in: +1, no -1', () => {
+    const r = drm([
+      { id: 'a', def: 'ja.447', side: 'ja', hex: 'yK5', tags: { ...banzai, advancedInto: 'yK5' } },
+      { id: 'c', def: 'ja.228c', side: 'ja', hex: 'yK5', tags: banzai },
+      { id: 'l', def: 'ja.L80', side: 'ja', hex: 'yK5', tags: banzai },
+    ], ['a', 'c', 'l']);
+    expect(r.value).toBe(1);
+    expect(r.labels).toEqual(['+1 Banzai units Inexperienced']);
+  });
+
+  it('a Banzai squad advancing in alone carries its own +1', () => {
+    expect(drm([{ id: 'a', def: 'ja.447', side: 'ja', hex: 'yK5', tags: { ...banzai, advancedInto: 'yK5' } }], ['a']).value).toBe(1);
+  });
+
+  it('a 1st Line squad that took no part advancing in with Banzai units: -1 for it, +1 for them', () => {
+    const r = drm([
+      { id: 'a', def: 'ja.447', side: 'ja', hex: 'yK5', tags: { advancedInto: 'yK5' } },
+      { id: 'c', def: 'ja.228c', side: 'ja', hex: 'yK5', tags: banzai },
+    ], ['a', 'c']);
+    expect(r.value).toBe(0);
+  });
+
+  it('Japanese with no part in a Charge: the -1 alone', () => {
+    expect(drm([{ id: 'a', def: 'ja.447', side: 'ja', hex: 'yK5', tags: { advancedInto: 'yK5' } }], ['a']).value).toBe(-1);
+  });
+});
 
 describe('Banzai Charge: declaration (SK4 8.1.8.6)', () => {
   it('needs a Japanese leader, Good Order unmoved units in one chain, and a target within eight hexes in LOS', () => {
@@ -248,6 +326,8 @@ describe('Banzai Charge: Impulses (SK4 8.1.8.6)', () => {
     expect(engine.currentDecision(s)!.kind).toBe('firstFire');
     expect(at()).toBe('yL5');
     expect(banzaiWindowsPending(engine.env(s))).toEqual(['yL4']);
+    // The window's target for the Mandatory Fire Group rule (ASLRB A7.55): the same each time the window comes up.
+    const l5 = expenditureKey(engine.env(s));
     s = step(act(engine, s, mmgAt('yL5')));
     expect(events.filter((e) => e.type === 'sk1.fire.attack').length).toBe(1);
     // Back to L4 before passing: L5 comes up again next, and the MMG that fired there may not fire there again.
@@ -257,6 +337,7 @@ describe('Banzai Charge: Impulses (SK4 8.1.8.6)', () => {
     expect(engine.currentDecision(s)!.kind).toBe('firstFire');
     expect(at()).toBe('yL5');
     expect(moveState(engine.env(s))!.firedHere['mg']).toBe(1);
+    expect(expenditureKey(engine.env(s))).toBe(l5);
     expect(engine.validate(s, { ...mmgAt('yL5'), side: 'am', decisionId: engine.currentDecision(s)!.id } as Action)).not.toBeNull();
     s = step(act(engine, s, { type: 'defPass' }));
     // Every window is done: the next Impulse, with no window record left over.

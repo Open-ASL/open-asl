@@ -2,7 +2,7 @@ import type { Piece, PieceId, QueryEnv } from '@asl/engine';
 import { statics } from '../common/pieces';
 import type { IftResult } from '../common/statics';
 import { attackFp, iftColumn, type FireAttackCtx } from './fire';
-import { isBroken, isPinned, mmc, smc } from './status';
+import { isBroken, isGoodOrder, isPinned, lendsLeadershipTo, mmc, smc } from './status';
 
 /** P(2d6 = n), n in 2..12. */
 export const p2d6 = (n: number) => (n < 2 || n > 12 ? 0 : (6 - Math.abs(n - 7)) / 36);
@@ -119,8 +119,12 @@ export function shotOdds(env: QueryEnv, attack: FireAttackCtx): ShotOdds {
   const leaders = targets
     .filter((p) => smc(env, p))
     .sort((x, y) => smc(env, x)!.leadership - smc(env, y)!.leadership || smc(env, y)!.morale - smc(env, x)!.morale || (x.id < y.id ? -1 : 1));
-  /** The DRM the leaders who passed lend a unit: the best one's, and only a DRM that helps (one he may lead with). */
-  const lentBy = (lenders: Piece[], to: Piece) => Math.min(0, ...lenders.map((l) => env.query('unit.leadership', { unit: l.id, for: to.id }, smc(env, l)!.leadership)));
+  /**
+   * The DRM the leaders who passed lend a unit: the best one's, and only a DRM that helps (one he may lead with); only a
+   * leader of its own side lends, unpinned and in Good Order, so never one in Melee (`lendsLeadershipTo`, SK1 3.2.1).
+   */
+  const lentBy = (lenders: Piece[], to: Piece) =>
+    Math.min(0, ...lenders.filter((l) => lendsLeadershipTo(env, l, to)).map((l) => env.query('unit.leadership', { unit: l.id, for: to.id }, smc(env, l)!.leadership)));
 
   // What becomes of one unit, as chances of each state it can end in.
   type Dist = { none: number; pinned: number; broken: number; reduced: number; reducedBroken: number; elim: number };
@@ -214,10 +218,11 @@ export function shotOdds(env: QueryEnv, attack: FireAttackCtx): ShotOdds {
   };
   // Leader Loss (SK1 3.2.1): a leader broken makes the others in his Location below his Morale take a LLTC, one
   // eliminated a LLMC, his leadership DRM added to their DR as a penalty; they come after the attack's own checks.
-  type Loss = { kind: 'LLTC' | 'LLMC'; from: PieceId; morale: number; mod: number };
+  type Loss = { kind: 'LLTC' | 'LLMC'; from: PieceId; side: string; morale: number; mod: number };
   const lossOf = (l: Piece, kind: Loss['kind']): Loss => ({
     kind,
     from: l.id,
+    side: l.side,
     morale: env.query('unit.morale', { unit: l.id }, smc(env, l)!.morale),
     mod: Math.max(0, -env.query('unit.leadership', { unit: l.id }, smc(env, l)!.leadership)),
   });
@@ -246,8 +251,8 @@ export function shotOdds(env: QueryEnv, attack: FireAttackCtx): ShotOdds {
       let branches: Branch[] = [{ p: pw, lenders: [], losses: [], fate: new Map() }];
       for (const l of leaders) {
         const r = resOf(l);
-        // Only a leader Good Order and unpinned before his check lends (`checkGroup`).
-        const usable = !isBroken(l) && !isPinned(l);
+        // Only a leader Good Order (not in Melee) and unpinned before his check lends (`checkGroup`).
+        const usable = !isBroken(l) && !isPinned(l) && isGoodOrder(env, l);
         const next: Branch[] = [];
         for (const br of branches) {
           const own = ownResult(l, r, picked.has(l.id), lentBy(br.lenders, l));
@@ -270,7 +275,8 @@ export function shotOdds(env: QueryEnv, attack: FireAttackCtx): ShotOdds {
           let own = smc(env, p) ? only(br.fate.get(p.id)!) : ownResult(p, resOf(p), picked.has(p.id), lentBy(br.lenders, p));
           // Each Leader Loss check this unit is below, in turn (a leader broken by one causing another is left out).
           for (const loss of br.losses) {
-            if (loss.from === p.id) continue;
+            // Only his own side's units check, and a LLTC only those in Good Order (SK1 3.2.1; `flushLeaderLoss`).
+            if (loss.from === p.id || loss.side !== p.side || (loss.kind === 'LLTC' && !isGoodOrder(env, p))) continue;
             // Only those below the leader's Morale check, as they stand by then (broken, a unit checks on its broken side).
             const below = { ...zero() };
             const rest = { ...zero() };

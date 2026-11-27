@@ -1,5 +1,5 @@
 import type { Piece, PieceId, QueryEnv } from '@asl/engine';
-import { dmChoiceIllegal } from '@asl/rules';
+import { dmChoiceIllegal, hexOfLoc, locOf, overstackBy, terrainOf } from '@asl/rules';
 
 /** The DM choice the Rally Phase offers on one broken unit: remove its DM, or keep it after all. */
 export interface DmChoice {
@@ -27,7 +27,7 @@ export function dmChoices(env: QueryEnv, side: string, units: Piece[]): DmChoice
             unit: p.id,
             kind: 'keep' as const,
             why: null,
-            label: 'Keep DM',
+            label: overstackedShelter(env, p) ? 'Keep DM (overstacked, A10.62)' : 'Keep DM',
             hint: "Its DM comes off at the end of the Rally Phase. Keep it so the unit may still rout in this turn's Rout Phase (its next rally is then at +4)",
           }
         : (() => {
@@ -36,11 +36,19 @@ export function dmChoices(env: QueryEnv, side: string, units: Piece[]): DmChoice
               unit: p.id,
               kind: 'remove' as const,
               why,
-              label: 'Remove DM',
+              label: !why && overstackedShelter(env, p) ? 'Remove DM (overstacked: it may keep it, A10.62)' : 'Remove DM',
               hint:
                 why ??
-                "It keeps its DM unless you remove it (SK1 3.1 g): with DM it may rout in this turn's Rout Phase, but its next rally attempt is at +4. Removed, it comes off at the end of the Rally Phase",
+                (overstackedShelter(env, p)
+                  ? "Overstacked in woods or a building, it may keep its DM there (ASLRB A10.62): it keeps it unless you remove it. With DM it may rout in this turn's Rout Phase, but its next rally attempt is at +4. Removed, it comes off at the end of the Rally Phase"
+                  : "It keeps its DM unless you remove it (SK1 3.1 g): with DM it may rout in this turn's Rout Phase, but its next rally attempt is at +4. Removed, it comes off at the end of the Rally Phase"),
             };
           })(),
     );
+}
+
+/** Whether `p` is in woods or a building its side has overstacked (full ASL A10.62: it may then keep its DM there). */
+function overstackedShelter(env: QueryEnv, p: Piece): boolean {
+  const loc = p.loc.kind === 'hex' ? locOf(env.state, p) : null;
+  return !!loc && !!terrainOf(env, hexOfLoc(loc)).routShelter && overstackBy(env, loc, p.side).personnel > 0;
 }

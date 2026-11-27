@@ -20,7 +20,7 @@ import { SPINES, arcNeighbours, inCoveredArc, spineChange } from '../sk2/arc';
 import { levelOf } from '../sk2/elevation';
 import { T2 } from '../sk2/status';
 import { OP, simpleShots, type OrdnanceFireFn, type OrdnancePauseFn, type OrdnanceResumeFn, type OrdnanceShot } from '../sk2/ordnance';
-import { T3, crewCanAct, inMotion, isBogged, isCe, isImmobile, isMobile, isWreck, stunWord, tcaOf, vcaOf, vehicle } from './status';
+import { T3, crewCanAct, inMotion, isBogged, isCe, isImmobile, isMobile, isWreck, smokeDispenser, stunWord, tcaOf, vcaOf, vehicle } from './status';
 import { applyVehicleEffect } from './vehicleStatus';
 import { installRecall } from './recall';
 
@@ -51,6 +51,11 @@ declare module '@asl/engine' {
     'vehicle.mustMoveOn': { ctx: { ms: MoveState }; value: string | null };
     /** Full ASL: MP a vehicle pays to enter `hex` on top of its COT, by road or not (ASLRB B26.43: Wire); 0 in the Starter Kit. */
     'vehicle.extraMp': { ctx: { vehicle: PieceId; hex: HexId }; value: number };
+    /**
+     * Whether `side`'s vehicles may end the MPh sharing a hex: no in the Starter Kit ("each side may have only one
+     * non-wrecked vehicle in each hex at the end of the MPh", SK4 3.3.2); full ASL allows it with penalties (ASLRB A5.2).
+     */
+    'vehicle.overstackAllowed': { ctx: { side: SideId }; value: boolean };
     /** Whether entering `hex` (`turn`: changing VCA in it) calls for a Bog Check; the Starter Kit's woods, buildings and rubble (full ASL adds Wire, B26.43, D8.21). */
     'vehicle.bogIn': { ctx: { vehicle: PieceId; hex: HexId; turn: boolean }; value: boolean };
   }
@@ -272,6 +277,9 @@ function motionMp(env: QueryEnv, p: Piece): number {
 }
 
 /** Map hexes holding two or more non-wrecked vehicles of `side` (SK4 3.3.2 forbids that at the end of the MPh). */
+/** Whether `side`'s vehicles may end the MPh sharing a hex (see the `'vehicle.overstackAllowed'` query). */
+const overstackAllowed = (env: QueryEnv, side: SideId) => env.query('vehicle.overstackAllowed', { side }, false);
+
 export function overstackedHexes(env: QueryEnv, side: SideId): HexId[] {
   const count = new Map<HexId, number>();
   for (const p of Object.values(env.state.pieces)) {
@@ -290,6 +298,7 @@ function wreckIllegal(env: QueryEnv, id: PieceId): string | null {
   if (isWreck(p)) return 'Already a wreck';
   if (p.loc.kind !== 'hex') return 'The vehicle is not on the map';
   if (!overstackedHexes(env, p.side).includes(p.loc.hex)) return 'The vehicle does not share its hex with another friendly vehicle';
+  if (overstackAllowed(env, p.side)) return 'Vehicles may share a hex with overstacking penalties (ASLRB A5.2)';
   return null;
 }
 
@@ -363,14 +372,14 @@ export const vehicleMoveModule: RuleModule = {
     r.contribute({
       id: 'sk3.vehicle.overstack.end-blocked',
       query: 'phase.endBlocked',
-      when: (_c, env) => env.state.phase === 'MPh' && overstackedHexes(env, env.state.attacker).length > 0,
+      when: (_c, env) => env.state.phase === 'MPh' && overstackedHexes(env, env.state.attacker).length > 0 && !overstackAllowed(env, env.state.attacker),
       apply: (v, _c, env) => v ?? `Two vehicles in ${overstackedHexes(env, env.state.attacker).join(', ')}: move one on or flip one to its wreck side (SK4 3.3.2)`,
     });
     r.action<VehicleMoveAction & { type: 'vmove.wreck' }>({
       type: 'vmove.wreck',
       decisionKinds: [PHASE_DECISION],
       legal: (env) =>
-        env.state.phase === 'MPh'
+        env.state.phase === 'MPh' && !overstackAllowed(env, env.state.attacker)
           ? overstackedHexes(env, env.state.attacker).flatMap((h) => vehiclesInHex(env, h, env.state.attacker, true).sort(byId).map((v) => ({ type: 'vmove.wreck' as const, vehicle: v.id })))
           : [],
       validate: (env, a) => wreckIllegal(env, a.vehicle),
@@ -760,7 +769,7 @@ export const vehicleMoveModule: RuleModule = {
       const d = p && vehicle(env, p);
       if (!p || !d) return 'Not a vehicle';
       if (p.side !== side) return 'Not your vehicle';
-      const disp = d.smoke?.[0];
+      const disp = smokeDispenser(env, d);
       if (!disp) return 'The vehicle has no smoke dispenser';
       if (isWreck(p) || !crewCanAct(p)) return 'The crew cannot use the dispenser now';
       if (p.tags[T3.smokeUsed]) return 'The dispenser was used this Player Turn';
@@ -783,7 +792,7 @@ export const vehicleMoveModule: RuleModule = {
     const dispense = (ctx: Ctx, id: PieceId, target: HexId | undefined, defending: boolean) => {
       const p = pieceOf(ctx, id);
       const d = vehicle(ctx, p)!;
-      const disp = d.smoke![0]!;
+      const disp = smokeDispenser(ctx, d)!;
       const at = hexOf(ctx.state, p)!;
       const hex = disp.kind === 'sM' ? target! : at;
       let drm = isCe(p) ? 0 : 1;
@@ -815,8 +824,9 @@ export const vehicleMoveModule: RuleModule = {
         const m = movingVehicle(env);
         if (!m || !m.ms.hex) return [];
         const d = vehicle(env, m.p)!;
-        if (!d.smoke?.length) return [];
-        if (d.smoke[0]!.kind !== 'sM') return smokeIllegal(env, m.p.id, m.p.side, undefined, false) ? [] : [{ type: 'vmove.smoke' as const }];
+        const disp = smokeDispenser(env, d);
+        if (!disp) return [];
+        if (disp.kind !== 'sM') return smokeIllegal(env, m.p.id, m.p.side, undefined, false) ? [] : [{ type: 'vmove.smoke' as const }];
         // A Smoke Mortar's target: any hex 1 to 3 hexes away (SK4 7.5), as validation accepts. The vehicle's own
         // conditions are judged once, then each hex.
         if (smokeIllegal(env, m.p.id, m.p.side, undefined, false) !== SM_NO_TARGET) return [];
@@ -844,7 +854,7 @@ export const vehicleMoveModule: RuleModule = {
         if (!ms?.hex) return [];
         const side = env.state.sides.find((s) => s !== env.state.attacker)!;
         return Object.values(env.state.pieces)
-          .filter((p) => p.side === side && vehicle(env, p)?.smoke?.length && vehicle(env, p)!.smoke![0]!.kind !== 'sM' && !smokeIllegal(env, p.id, side, undefined, true))
+          .filter((p) => { const d = vehicle(env, p); const disp = d && smokeDispenser(env, d); return p.side === side && !!disp && disp.kind !== 'sM' && !smokeIllegal(env, p.id, side, undefined, true); })
           .filter((p) => {
             const at = hexOf(env.state, p);
             return !!at && env.query('los.trace', { from: at, to: ms.hex! }, { clear: true, hindrance: 0, parts: [] }).clear;
@@ -1140,7 +1150,7 @@ function endIllegal(env: QueryEnv, ms: MoveState & { vehicle: VehicleMoveState }
   const onward = env.query('vehicle.mustMoveOn', { ms }, null);
   if (onward) return onward;
   // One vehicle per side per hex at the end of the MPh (SK4 3.3.2).
-  if (ms.hex && vehiclesInHex(env, ms.hex, p.side, true).some((v) => v.id !== p.id)) return 'Only one vehicle per side may end the MPh in a hex: move on';
+  if (ms.hex && vehiclesInHex(env, ms.hex, p.side, true).some((v) => v.id !== p.id) && !overstackAllowed(env, p.side)) return 'Only one vehicle per side may end the MPh in a hex: move on';
   return null;
 }
 

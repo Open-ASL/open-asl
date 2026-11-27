@@ -5,11 +5,12 @@ import { hexOfLoc, isGroundLoc, locationsOf, locOf, type LocId } from '../common
 import { personnelAt, statics } from '../common/pieces';
 import { isAblaze } from './fire';
 import { rubbleAt } from './rubble';
+import { overstackEntryMf } from './overstacking';
 import { revealFortification, shownCounter, wireAt, type FortRecord } from './fortifications';
 import type { FireAttackCtx } from '../sk1/fire';
 import { FORTIFIED_DRM, fortifiedState, revealFortified } from '../sk1/fortified';
 import { visibleEnemyAt } from '../sk1/known';
-import { MOVE_BYPASS, MOVE_ENTER, MOVE_FINISH, exitTargets, leftUnits, moveInternals, moveState, type BypassPos, type MoveBypassFn, type MoveEnterFn, type MoveFinishFn, type MoveState } from '../sk1/movement';
+import { MOVE_BYPASS, MOVE_ENTER, MOVE_FINISH, MOVE_SPENT, exitTargets, leftUnits, moveInternals, moveState, stackCap, type BypassPos, type MoveBypassFn, type MoveEnterFn, type MoveFinishFn, type MoveSpentFn, type MoveState } from '../sk1/movement';
 import { updateControl } from '../sk1/scenario';
 import { isBroken, isPinned, pieceOf, smc, squadEquivalents } from '../sk1/status';
 import { inPlay, smokeIn, terrainOf } from '../sk1/terrain';
@@ -162,7 +163,9 @@ export function plan(env: QueryEnv, ms: MoveState, hex: HexId, via: HexId[]): { 
     through += env.query('bypass.cornerCost', { hex, corner: cur }, 0);
     cur = ks[i] === cur ? mod6(ks[i]! + 1) : ks[i]!;
   }
-  const cost = costFor(base, before.length + ks.length) - costFor(base, before.length) + through;
+  // Into Bypass of a hex whose Location holds friendly units: its overstacking MF (A5.11; the stack is in that Location).
+  const over = same ? 0 : overstackEntryMf(env, hex, ms.units, env.state.attacker);
+  const cost = costFor(base, before.length + ks.length) - costFor(base, before.length) + through + over;
   return { pos: { hex, sides: [...before, ...ks], at: reached, base }, cost };
 }
 
@@ -170,10 +173,14 @@ export function plan(env: QueryEnv, ms: MoveState, hex: HexId, via: HexId[]): { 
 function exitCost(env: QueryEnv, units: PieceId[], from: HexId, x: HexId): number | null {
   const map = statics(env).map;
   if (!map.hex(x) || !inPlay(env, x) || visibleEnemyAt(env, x, env.state.attacker).length > 0) return null;
-  const here = personnelAt(env, x, env.state.attacker).filter((p) => !units.includes(p.id));
-  const all = [...here, ...units.map((u) => pieceOf(env, u))];
-  if (squadEquivalents(env, all) > 3 || all.filter((p) => smc(env, p)).length > 4) return null;
-  return Math.max(...units.map((u) => env.query('move.cost', { unit: u, from, to: x, viaRoad: false }, 1)));
+  // Stacking: only a capacity refuses the entry (A5.1); an overstacked hex costs more to enter (A5.11, `move.stepCost`).
+  const cap = stackCap(env, x, env.state.attacker);
+  if (cap) {
+    const here = personnelAt(env, x, env.state.attacker).filter((p) => !units.includes(p.id));
+    const all = [...here, ...units.map((u) => pieceOf(env, u))];
+    if (squadEquivalents(env, all) > cap.se || all.filter((p) => smc(env, p)).length > cap.smc) return null;
+  }
+  return Math.max(...units.map((u) => env.query('move.cost', { unit: u, from, to: x, viaRoad: false }, 1))) + overstackEntryMf(env, x, units, env.state.attacker);
 }
 
 /**
@@ -243,11 +250,12 @@ function canFinish(env: QueryEnv, ms: MoveState, pos: BypassPos, left: number, m
       const c0 = sameCorner(map, pos.hex, pos.at, x);
       if (c0 === null) continue;
       const base = baseCost(env, pos.hex, x);
-      if (base > left) continue;
+      const over = overstackEntryMf(env, x, ms.units, env.state.attacker);
+      if (base + over > left) continue;
       for (const dir of [1, -1]) {
         const k = dir > 0 ? c0 : mod6(c0 - 1);
         if (!sideFree(env, x, k)) continue;
-        if (canFinish(env, ms, { hex: x, sides: [k], at: mod6(dir > 0 ? c0 + 1 : c0 - 1), base }, left - base, memo)) return true;
+        if (canFinish(env, ms, { hex: x, sides: [k], at: mod6(dir > 0 ? c0 + 1 : c0 - 1), base }, left - base - over, memo)) return true;
       }
     }
     return false;
@@ -604,6 +612,8 @@ function revealGround(ctx: Ctx, hex: HexId, reason: string): boolean {
 
 function bypassStep(ctx: Ctx, ms: MoveState, to: LocId, via: HexId[] | undefined, cost: number) {
   const hex = hexOfLoc(to);
+  // The weapons the stack holds were possessed while MF were spent (A4.41; a repeat by the entry it leads to is harmless).
+  if (cost > 0) ctx.proc<MoveSpentFn>(MOVE_SPENT)(ctx, ms.units, []);
   const spent = Object.fromEntries(ms.units.map((u) => [u, (ms.spent[u] ?? 0) + cost]));
   const trail = cost > 0 ? [...(ms.trail ?? []), { hex, mp: cost }] : ms.trail;
   if (!via) {

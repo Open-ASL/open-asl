@@ -1,7 +1,7 @@
 import type { Action, Ctx, Piece, QueryEnv, RuleModule } from '@asl/engine';
 import { defOf, isFixedWeapon, isVehicleDef, otherSide, personnelAt, statics, swHeldBy } from '../common/pieces';
 import { locKey, type LocId } from '../common/location';
-import { isVisibleTo } from './known';
+import { isFireTargetFor } from './known';
 import { PHASE_DECISION, askPhaseOwner } from '../common/turn';
 import { FP, discloseDrm, fireTargetsAt, iftColumn, simpleDeclarations, type ApplyResultFn, type AttackResolvedFn, type BeforeApplyFn, type FireAttackCtx, type FireDeclaration, type FireMode, type ResolveFireFn } from './fire';
 import { P as MP, type FlushFn } from './morale';
@@ -42,14 +42,17 @@ export const FPP = {
 } as const;
 export type ResolveDcFn = (ctx: Ctx, dc: Piece) => void;
 
-/** The Locations a side may fire at (ASLRB A2.8: hex ids at ground level): every one with a visible enemy unit or in Melee. */
+/**
+ * The Locations a side may fire at (ASLRB A2.8: hex ids at ground level): every one with an enemy unit it may aim at
+ * (`piece.fireTarget`: one it sees, or a concealed stack's "?", SK4 8.3.2) or in Melee.
+ */
 export function fireTargets(env: QueryEnv, side: string): string[] {
   const enemy = otherSide(env.state, side);
   const hexes = new Set<string>();
   for (const p of Object.values(env.state.pieces)) {
     if (p.loc.kind !== 'hex') continue;
     const loc = locKey(p.loc);
-    if ((p.side === enemy && isVisibleTo(env, p, side)) || inMelee(env, loc)) hexes.add(loc);
+    if ((p.side === enemy && isFireTargetFor(env, p, side)) || inMelee(env, loc)) hexes.add(loc);
   }
   return [...hexes].sort();
 }

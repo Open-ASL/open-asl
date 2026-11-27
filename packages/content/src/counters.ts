@@ -19,12 +19,6 @@ const SK_PRINTED: Record<string, (d: CounterDef) => CounterDef> = {
     d.kind === 'vehicle' ? { ...d, af: { hull: { ...d.af.hull, front: 3 }, turret: { ...d.af.turret, front: 3 } } } : d,
   // The Shinhoto CHI-HA prints no smoke dispenser: SK4's Japanese Vehicle Notes give sD to the Type 97A only.
   'ja.ty97Bchiha': (d) => (d.kind === 'vehicle' ? (({ smoke: _smoke, ...rest }) => rest)(d) : d),
-  // The SK Type 97A CHI-HA (S71) prints 10 MP, AF 2 front and 1 side boxed (its turret side one more), and a 57* MA;
-  // the VASL piece carries 14 MP, 3/2 (turret 4/3) and no "*" the import reads.
-  'ja.ty97Achiha': (d) =>
-    d.kind === 'vehicle' && d.ma
-      ? { ...d, mp: 10, af: { hull: { front: 2, side: 1, rear: 1 }, turret: { front: 2, side: 2, rear: 2 } }, ma: { ...d.ma, barrel: '*' } }
-      : d,
 };
 
 /**

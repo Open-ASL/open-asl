@@ -4,11 +4,12 @@ import { moveState, playerTurnLeftovers, statics, unlistedTags } from '@asl/rule
 
 /**
  * The Location model's Starter Kit invariant (packages/rules/docs/location-model.md): an SK game plays at
- * ground level only, so no piece is ever at a level, sub-Location or position, and every hex marker is
+ * ground level only, so no piece is ever at a level, sub-Location (but a card's Cave) or position, and every hex marker is
  * keyed by a plain hex id. Null when it holds, else what breaks it.
  */
 export function skLocationViolation(state: GameState): string | null {
-  for (const p of Object.values(state.pieces)) if (p.loc.kind === 'hex' && ('level' in p.loc || 'sub' in p.loc || 'pos' in p.loc)) return `${p.id} at ${JSON.stringify(p.loc)}`;
+  // A card's Caves SSR makes each Cave hex hold a Cave Location, `<hex>:cave` (ASLRB A2.8, G11): the one sub-Location an SK game has.
+  for (const p of Object.values(state.pieces)) if (p.loc.kind === 'hex' && ('level' in p.loc || ('sub' in p.loc && p.loc.sub !== 'cave') || 'pos' in p.loc)) return `${p.id} at ${JSON.stringify(p.loc)}`;
   for (const k of Object.keys(state.hexMarkers)) if (k.includes(':')) return `hex marker key ${k}`;
   return null;
 }
@@ -68,4 +69,19 @@ export function tankWeights(a: Action, legal: Action[], state: GameState, engine
   };
   const canStep = legal.some((x) => x.type === 'move.step');
   return a.type === 'move.step' ? (closes() ? 20 : 3) : a.type === 'vmove.start' ? 10 : /^(fire|defFire|ordnance|vmove\.bff)/.test(a.type) ? (seesTarget() ? 12 : 0.2) : a.type === 'endPhase' ? (busy ? 0 : 1) : a.type === 'vmove.ce' ? 0.2 : a.type === 'vmove.turn' || a.type === 'vmove.turret' ? 0.5 : /^(vmove\.(end|stop)|move\.end)$/.test(a.type) ? (canStep ? 0.05 : 1) : 1;
+}
+
+/**
+ * Whether `json` names the piece id anywhere: as a whole string or key, or inside a string built from ids (a record
+ * keyed by a stack's units, `a+b#2`). An id followed or preceded by more id characters is another id (`x.1` in `x.10`).
+ */
+export function namesId(json: string, id: string): boolean {
+  return mentionOf(json, id) !== null;
+}
+
+/** Where `json` names the piece id (`namesId`): the text around the first mention, or null. */
+export function mentionOf(json: string, id: string): string | null {
+  const esc = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = new RegExp(`(?<![\\w.:])${esc}(?![\\w.:])`).exec(json);
+  return m ? json.slice(Math.max(0, m.index - 160), m.index + id.length + 80) : null;
 }

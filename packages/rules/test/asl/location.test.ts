@@ -199,19 +199,30 @@ describe('Stacking and stack order are per Location (ASLRB A5.1, A2.8)', () => {
     expect(s.pieces['m']!.loc).toEqual({ kind: 'hex', hex: 'uK4' });
   });
 
-  it('a fourth squad cannot enter a ground Location already holding three', () => {
-    const { engine, state } = game(
-      [
-        { id: 'g1', def: 'ru.447', side: 'ru', hex: 'uK4' },
-        { id: 'g2', def: 'ru.447', side: 'ru', hex: 'uK4' },
-        { id: 'g3', def: 'ru.447', side: 'ru', hex: 'uK4' },
-        { id: 'm', def: 'ru.447', side: 'ru', hex: 'uL4' },
-        { id: 'ge', def: 'ge.467', side: 'ge', hex: 'uY1' },
-      ],
-      { startPhase: 'MPh' },
-    );
-    const s = act(engine, state, { type: 'move.start', units: ['m'] }).state;
-    expect(() => act(engine, s, { type: 'move.step', to: 'uK4' })).toThrow(/Stacking limit/);
+  it('a fourth squad entering a ground Location already holding three overstacks it, paying one MF more; the squads upstairs count apart (A5.1, A5.11)', () => {
+    const pieces: PieceSpec[] = [
+      { id: 'g1', def: 'ru.447', side: 'ru', hex: 'uK4' },
+      { id: 'g2', def: 'ru.447', side: 'ru', hex: 'uK4' },
+      { id: 'g3', def: 'ru.447', side: 'ru', hex: 'uK4' },
+      { id: 'm', def: 'ru.447', side: 'ru', hex: 'uL4' },
+      { id: 'ge', def: 'ge.467', side: 'ge', hex: 'uY1' },
+    ];
+    const { engine, state } = game([...upstairs, ...pieces], { startPhase: 'MPh' });
+    let s = act(engine, state, { type: 'move.start', units: ['m'] }).state;
+    s = act(engine, s, { type: 'move.step', to: 'uK4' }).state;
+    expect(s.pieces['m']!.loc).toEqual({ kind: 'hex', hex: 'uK4' });
+    expect(moveState(engine.env(s))!.spent['m']).toBe(3);
+    // The Starter Kit caps it (SK4 3.3).
+    const sk = game(pieces, { startPhase: 'MPh', asl: false });
+    const s2 = act(sk.engine, sk.state, { type: 'move.start', units: ['m'] }).state;
+    expect(() => act(sk.engine, s2, { type: 'move.step', to: 'uK4' })).toThrow(/Stacking limit/);
+  });
+
+  it('the stairs into an upper level holding three squads cost one MF more (A5.11, B23.4)', () => {
+    const { engine, state } = game([...upstairs, { id: 'm', def: 'ru.447', side: 'ru', hex: 'uK4' }, { id: 'ge', def: 'ge.467', side: 'ge', hex: 'uY1' }], { startPhase: 'MPh' });
+    let s = act(engine, state, { type: 'move.start', units: ['m'] }).state;
+    s = act(engine, s, { type: 'move.step', to: 'uK4:1' }).state;
+    expect(moveState(engine.env(s))!.spent['m']).toBe(2);
   });
 
   it('a leader stands on a MMC of his own Location, never on one at another level', () => {

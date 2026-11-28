@@ -198,6 +198,12 @@ export function buildMap(
     railroad?: { hexes: string[]; roads?: string[] }[];
     /** Hexes in which "no building exists" (S70 SSR 2's Cave hexes): their building is gone, Open Ground on their hill. */
     noBuilding?: string[];
+    /**
+     * SSR terrain the rules change, not the map (the `terrain-override` SSR, which the engine's `hex.terrain` applies):
+     * printed terrain id → id, and hex id → id. The LOS does not judge those hexes' art; their terrain decides (S19 SSR 1:
+     * "The CC6 woods mass is considered Open Ground (ignore the woods illustrations)").
+     */
+    terrainOverride?: { terrain?: Record<string, string>; hexes?: Record<string, string> }[];
     /** Hidden hexes (S70: the Connection Location; see `HexGridMapOptions.hiddenHexes`). */
     hiddenHexes?: HexGridMapOptions['hiddenHexes'];
     /** Hexes at another level by SSR (S66: the footbridge hex "one level lower"). */
@@ -319,6 +325,8 @@ export function buildMap(
   const inherentHindrance = (h: MapHex) => SK4_TERRAIN[h.terrain]?.los === 'hindrance' && !!SK4_TERRAIN[h.terrain]?.inherent && !h.features.includes(NON_INHERENT);
   const artHindrance = (h: MapHex) => !!SK4_TERRAIN[h.terrain]?.artHindrance;
   const obstacleBetweenLevels = (h: MapHex) => !!SK4_TERRAIN[h.terrain]?.obstacleBetweenLevels;
+  const overrides = opts.terrainOverride ?? [];
+  const ruledHex = (h: MapHex) => overrides.some((o) => !!o.hexes?.[h.id] || !!o.terrain?.[h.terrain]);
   const pixel =
     opts.los !== 'grid'
       ? pixelTracers(
@@ -330,6 +338,7 @@ export function buildMap(
             artHindrance,
             obstacleBetweenLevels,
             ...(Object.keys(raisedArt).length ? { raisedArt } : {}),
+            ...(overrides.length ? { ruledHex } : {}),
             heightOf: (h) => h.obstacleHeight ?? SK4_TERRAIN[h.terrain]?.height ?? 1,
             // PTO: brush art is bamboo (an obstacle), grain art is kunai.
             // "Kunai is jungle" (S65 SSR 1): grain art blocks as jungle does.

@@ -1,6 +1,6 @@
 import { Engine, buildRuleset, type RuleModule } from '@asl/engine';
 import { CAVES_MODULE, type CavesParams, PANZERFAUST_MODULE, PTO_TERRAIN_MODULE, RIVER_MODULE, type RiverParams, SECRET_LENGTH_MODULE, SK4_TERRAIN, aslCoreModules, scenarioRuleset, type CounterDef, type SecretLengthParams, type SpecialAmmoDef, exitVpCondition, panzerfaustModule, pfDeniedBySsr, piecesModule, sk1CoreModules, sk2CoreModules, sk3CoreModules, sk4CoreModules, turnModule, type ScenarioDef, type Statics } from '@asl/rules';
-import { SSR_MODULES, type RedrawTerrainParams } from './ssr';
+import { SSR_MODULES, type RedrawTerrainParams, type TerrainOverrideParams } from './ssr';
 import { ASSETS, COUNTERS, SK1_COUNTER_IDS, sk1Counters, sk2Counters, sk3Counters, sk4Counters } from './counters';
 
 const SK1_IDS = new Set(SK1_COUNTER_IDS);
@@ -138,6 +138,10 @@ export function staticsFor(scenario: ScenarioDef, opts: { los?: 'pixel' | 'grid'
               o.entry ? [{ name: o.entry.edge, hexes: o.entry.hexes, side: o.entry.beyond }] : [],
             ),
           }
+        : {}),
+      // SSR terrain the rules change (`hex.terrain`): the LOS judges those hexes by that terrain, not their art.
+      ...(scenario.ssr.some((s) => s.module === 'terrain-override' && s.params)
+        ? { terrainOverride: scenario.ssr.filter((s) => s.module === 'terrain-override' && s.params).map((s) => s.params as TerrainOverrideParams) }
         : {}),
       ...(scenario.ssr.some((s) => s.module === 'redraw-terrain')
         ? { redraw: scenario.ssr.filter((s) => s.module === 'redraw-terrain').map((s) => s.params as unknown as RedrawTerrainParams) }

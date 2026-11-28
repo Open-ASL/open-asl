@@ -149,6 +149,12 @@ export function pixelTracers(
     obstacleBetweenLevels?: (h: MapHex) => boolean;
     /** A hex's obstacle height in levels (`MapHex.obstacleHeight`, else its terrain's), for `losAt`; one when absent. */
     heightOf?: (h: MapHex) => number;
+    /**
+     * A hex a rule makes another terrain for the whole hex, whatever is drawn (S19 SSR 1: "The CC6 woods mass is
+     * considered Open Ground (ignore the woods illustrations)"): its art is not judged. The thread reports the hex as
+     * crossed, and the hex's terrain, as the rules give it, decides (`sk1.los.terrain`).
+     */
+    ruledHex?: (h: MapHex) => boolean;
   } = {},
 ) {
   const { width, height } = GEO.px;
@@ -178,6 +184,7 @@ export function pixelTracers(
     }
   }
   const isInherent = (h: MapHex) => (opts.inherentHindrance ? opts.inherentHindrance(h) : h.terrain === 'orchard' && !h.features.includes(NON_INHERENT));
+  const isRuled = (h: MapHex) => !!opts.ruledHex?.(h);
   /** Wooden building art (the depictions a hut hex is judged by). */
   const WOOD_BUILDING = new Set([50, 51, 203]);
   const locate = (x: number, y: number): { pb: PlacedBoard; i: number } | null => {
@@ -259,7 +266,8 @@ export function pixelTracers(
       let owners = nearestHexes(centers, x, y);
       if (owners.some((o) => o.id === from.id || o.id === to.id)) {
         // Woods art under the thread inside the end hexes themselves (an SSR may make it a mere hindrance).
-        if (obstacle.has(terrainAt(x, y)) && WOODS.has(terrainAt(x, y))) for (const o of owners) if (o.id === from.id || o.id === to.id) woods.add(o.id);
+        // A hex a rule makes another terrain has no woods art.
+        if (obstacle.has(terrainAt(x, y)) && WOODS.has(terrainAt(x, y))) for (const o of owners) if ((o.id === from.id || o.id === to.id) && !isRuled(o)) woods.add(o.id);
         // The thread leaving the road of an Orchard-Road end hex (SK4 1.1.1 Orchard-Road).
         for (const o of owners) if ((o.id === from.id || o.id === to.id) && isOrchardRoad(o) && offRoad(o, terrainAt(x, y))) orchardEnds.add(o.id);
         if (fromLevel > lo && owners.some((o) => o.id === from.id)) sinceHigher = 0;
@@ -270,7 +278,7 @@ export function pixelTracers(
       // Inherent Terrain is at the level of its hex's centre dot throughout, hexsides included, whatever ground the thread
       // crosses there (SK4 1.1.1, 8.2.1): Dense jungle on a hill blocks a LOS along its hexside at the hill's level, though
       // the slope beside it is lower; Dense jungle below both ends is overlooked like the ground under it.
-      if (opts.inherentObstacle && owners.some((o) => opts.inherentObstacle!(o) && (o.elevation ?? 0) >= lo)) return { clear: false, crossed, blockedAt: { x, y } };
+      if (opts.inherentObstacle && owners.some((o) => !isRuled(o) && opts.inherentObstacle!(o) && (o.elevation ?? 0) >= lo)) return { clear: false, crossed, blockedAt: { x, y } };
       if (hasElevation) {
         // SK4 1.1.1 / 3.2.1: hexes, units and terrain are at the level under them. Ground higher than
         // both hexes is a hill in the way; between levels, higher ground outside the higher hex is a
@@ -299,6 +307,13 @@ export function pixelTracers(
         seen.add(h.id);
         crossed.push({ hex: h.id, terrain, ...(inherentHexside ? { inherentHexside: true } : {}) });
       };
+      // A hex a rule makes another terrain for the whole hex: the art drawn there is not judged, the hex's terrain decides
+      // (S19 SSR 1: "ignore the woods illustrations"). On its hexside, another hex's Inherent Terrain still counts.
+      if (owners.some(isRuled)) {
+        for (const o of owners) if (isRuled(o)) add(o, false);
+        for (const o of owners) if (!isRuled(o) && isInherent(o) && offRoad(o, code)) add(o, true);
+        continue;
+      }
       // A hut (PTO): its building depiction is a +1 Hindrance, never an obstacle; the rest of the hex is open.
       if (WOOD_BUILDING.has(code) && opts.artHindrance) {
         const hut = owners.find((o) => opts.artHindrance!(o));

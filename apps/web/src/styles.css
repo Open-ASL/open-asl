@@ -1879,3 +1879,94 @@ button.google:hover:not(:disabled) { filter: none; background: #f2f2f2; }
 .peek-fort { display: flex; align-items: center; gap: 5px; font-size: 11.5px; margin-top: 2px; }
 .peek-fort.hidden { opacity: 0.8; font-style: italic; }
 .peek-fort img { border-radius: 2px; }
+
+/* ================================================================== phone top bar
+   Small screens: the top bar is made compact and scaled for real through --hud-k (a font and
+   padding factor) instead of transform/zoom. Hud.tsx measures the bar with a ResizeObserver and
+   writes --hud-h for the "your call" strip, so a visual transform would leave both that reading
+   and the hit boxes wrong. Every rule below sits inside a max-width query: above 900px nothing
+   applies, --hud-k stays unset, and the desktop bar renders exactly as before. */
+@media (max-width: 900px) {
+  /* The bar's type and spacing follow --hud-k; touch targets keep their own minimum (further down). */
+  .game, .board-pane { --hud-k: 0.86; }
+  /* A notched phone in landscape needs the status-bar inset above the bar. */
+  .hud { padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+  /* The tool row wraps instead of running out past .board-pane's overflow: hidden, which clipped
+     its right-hand buttons out of reach. */
+  .hud .hud-tools { flex-wrap: wrap; min-width: 0; max-width: 100%; justify-content: flex-end; }
+  .hud .hud-bar .title-block { padding-right: calc(18px * var(--hud-k, 1)); }
+  .hud .scenario-code { font-size: calc(20px * var(--hud-k, 1)); }
+  .hud .turn-track { padding: 0 calc(18px * var(--hud-k, 1)); gap: calc(12px * var(--hud-k, 1)); }
+  .hud .turn-track .lbl { font-size: calc(11px * var(--hud-k, 1)); }
+  .hud .turn-track .pips { gap: calc(5px * var(--hud-k, 1)); }
+  .hud .turn-track .pip {
+    width: calc(22px * var(--hud-k, 1)); height: calc(22px * var(--hud-k, 1));
+    font-size: calc(12px * var(--hud-k, 1));
+  }
+  .hud .turn-track .pip.half::after { width: calc(9px * var(--hud-k, 1)); height: calc(9px * var(--hud-k, 1)); }
+  .hud .sides { flex-wrap: wrap; min-width: 0; gap: calc(10px * var(--hud-k, 1)); padding: 0 calc(18px * var(--hud-k, 1)); }
+  .hud .side-chip {
+    font-size: calc(13px * var(--hud-k, 1));
+    padding: calc(5px * var(--hud-k, 1)) calc(10px * var(--hud-k, 1)) calc(5px * var(--hud-k, 1)) calc(6px * var(--hud-k, 1));
+  }
+  .hud .side-chip .sw { width: calc(10px * var(--hud-k, 1)); height: calc(10px * var(--hud-k, 1)); }
+  .hud .ratings { font-size: calc(10px * var(--hud-k, 1)); }
+  .hud .ratings .v { font-size: calc(11px * var(--hud-k, 1)); }
+  .hud .phase-strip { padding: 0 calc(12px * var(--hud-k, 1)); gap: calc(4px * var(--hud-k, 1)); }
+  .hud .phase-strip .ph {
+    font-size: calc(12px * var(--hud-k, 1));
+    padding: calc(5px * var(--hud-k, 1)) calc(9px * var(--hud-k, 1));
+  }
+}
+
+@media (max-width: 560px) {
+  .game, .board-pane { --hud-k: 0.74; }
+  .hud { padding: calc(4px + env(safe-area-inset-top, 0px)) 8px 8px; }
+  /* Off the bar: the scenario's long name (the briefing has it), each side's role and player name,
+     and the ELR/SAN table (also in the briefing). The weather's ground tag goes too, but only the
+     ground condition: WeatherChip reuses .ground for Gusts and the EC, which have no other display
+     in play and stay. */
+  .hud .scenario-name,
+  .hud .side-chip .role,
+  .hud .side-chip .player,
+  .hud .ratings,
+  .hud .weather-chip .ground:not(.wind-word):not(.gusts):not(.ec) { display: none; }
+  .hud .hud-bar { gap: 4px 0; }
+  /* Compact sizes; max() keeps the named minimums where the .74 scale would drop below them. */
+  .hud .hud-bar .title-block { padding-right: calc(18px * var(--hud-k, 1)); }
+  .hud .scenario-code { font-size: max(15px, calc(20px * var(--hud-k, 1))); }
+  .hud .turn-track { padding: 0 8px; gap: 6px; }
+  .hud .turn-track .pips { gap: 3px; }
+  .hud .turn-track .pip {
+    width: max(18px, calc(22px * var(--hud-k, 1))); height: max(18px, calc(22px * var(--hud-k, 1)));
+    font-size: max(10px, calc(12px * var(--hud-k, 1)));
+  }
+  .hud .sides { gap: 6px; padding: 0 4px; }
+  .hud .side-chip { gap: 4px; font-size: max(11px, calc(13px * var(--hud-k, 1))); padding: 3px 6px; }
+  .hud .side-chip .sw { width: 8px; height: 8px; }
+  .hud .phase-strip { padding: 0 4px; gap: 3px; }
+  .hud .phase-strip .ph { padding: 3px 4px; font-size: max(10px, calc(12px * var(--hud-k, 1))); }
+  /* A long turn track or the full eight-phase strip can still outgrow one row: wrap their chips
+     rather than let the row run under .board-pane's overflow: hidden. */
+  .hud .turn-track,
+  .hud .phase-strip { min-width: 0; }
+  .hud .turn-track .pips { flex-wrap: wrap; }
+  .hud .phase-strip { flex-wrap: wrap; justify-content: flex-end; }
+  /* The tool row: wrapping (above) keeps every button inside the pane; the buttons keep a 32-36px
+     touch height while their labels and the control gutters shrink. */
+  .hud .hud-tools { gap: 3px; }
+  .hud .hud-tools > * { flex: none; }
+  .hud .hud-tools .map-ctl,
+  .hud .hud-tools .fx-ctl { padding-left: 0; gap: 3px; }
+  .hud .hud-tools .seg button { padding: 3px 5px; min-height: 32px; }
+  .hud .units-btn { padding: 4px 5px; min-height: 32px; }
+  .hud .gear-btn { min-width: 32px; min-height: 32px; }
+  .hud .log-btn { min-height: 36px; margin-left: 0; padding: 3px 8px 3px 6px; }
+  .hud .keys-btn { min-height: 36px; margin: 0; padding: 4px 8px; }
+  .hud .end-btn { min-height: 36px; margin-left: 6px; padding: 5px 10px; }
+  /* One column: the bar (not the end-phase button) takes the full width, so the side chips and the
+     phase strip stay on one row each instead of every group wrapping; the button keeps the right
+     edge just under the bar. */
+  .hud { grid-template-columns: minmax(0, 1fr); }
+  .hud .end-btn { justify-self: end; margin: 2px 0 0; }
+}

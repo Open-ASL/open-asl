@@ -1970,3 +1970,154 @@ button.google:hover:not(:disabled) { filter: none; background: #f2f2f2; }
   .hud { grid-template-columns: minmax(0, 1fr); }
   .hud .end-btn { justify-self: end; margin: 2px 0 0; }
 }
+
+/* ================================================================== close combat on phones
+   The Close Combat panel used to fill the board pane, which on a phone is only 55vh tall: the
+   pools stacked, the content scrolled out of reach and the foot buttons (Everyone in / Lock in
+   attacks) could not be tapped. Narrow screens now show it as a bottom drawer over the board: the
+   top of the board stays visible, the panel is capped at 55vh with a scrolling middle, and the
+   foot stays inside the drawer, so both buttons are always in reach. The unit pools fold down to
+   their header, so the middle has room even on a short phone. */
+@media (max-width: 900px) {
+  .cc-overlay {
+    position: fixed;
+    top: var(--hud-h, 60px);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    /* Above the online seat strip (z 60): nothing may cover the drawer's buttons. */
+    z-index: 70;
+    display: flex;
+    align-items: flex-end;
+    padding: 0;
+    backdrop-filter: none;
+    /* Lighter at the top so the board peeks out above the drawer. */
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.35) 45%, rgba(0, 0, 0, 0.65));
+  }
+  .cc-panel {
+    width: 100%;
+    height: 55vh;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+    border-radius: 14px 14px 0 0;
+    border-bottom: 0;
+    overflow: hidden;
+    box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.65);
+  }
+  /* The little grab handle of a bottom sheet. */
+  .cc-panel::before {
+    content: '';
+    flex: none;
+    width: 42px;
+    height: 4px;
+    margin: 0 auto 2px;
+    border-radius: 2px;
+    background: var(--line-hi);
+  }
+  .cc-head,
+  .cc-ambush { flex: none; }
+  .cc-head { margin-bottom: 0; }
+  .cc-ambush { margin-bottom: 0; }
+  /* The two pools side by side, the draft/results under them; this middle scrolls. */
+  .cc-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: 'poolA poolB' 'arena arena';
+    gap: 8px;
+    align-content: start;
+  }
+  .cc-body > .cc-pool:first-child { grid-area: poolA; }
+  .cc-body > .cc-pool:last-child { grid-area: poolB; }
+  .cc-body > .cc-arena { grid-area: arena; }
+  .cc-pool { padding: 6px; }
+  .cc-pool .cc-stacks { flex-direction: row; flex-wrap: wrap; }
+  .cc-zone { min-height: 44px; }
+  .cc-mid { min-width: 0; }
+  /* The foot is a flex child of the drawer, not part of the scrolling middle. */
+  .cc-foot {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: stretch;
+    margin: 0;
+    padding: 8px 2px 0;
+    border-top: 1px solid var(--line);
+    background: rgba(12, 15, 12, 0.97);
+  }
+  .cc-foot button { flex: 1 1 0; min-height: 44px; font-size: 13px; }
+  .cc-foot .cc-error { flex: 1 0 100%; margin: 0 0 2px; }
+}
+
+/* Landscape phones have little height: the drawer takes the screen, so its middle has room. */
+@media (max-width: 900px) and (max-height: 520px) {
+  .cc-overlay { top: 0; padding: 6px; align-items: stretch; }
+  .cc-panel { height: 100%; border-radius: 8px; border-bottom: 1px solid var(--line-hi); }
+}
+
+@media (max-width: 560px) {
+  .cc-panel { height: 55vh; padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); gap: 6px; }
+  .cc-head { gap: 8px; }
+  .cc-head .kicker { font-size: 10px; letter-spacing: 0.18em; }
+  .cc-head .cc-title { font-size: 20px; }
+  .cc-head .cc-wait { font-size: 10px; }
+  .cc-ambush { gap: 10px; padding: 6px 8px; }
+  .cc-ambush-side .die { width: 24px; height: 24px; }
+  .cc-ambush .cc-verdict { font-size: 14px; }
+  .cc-body { gap: 6px; }
+  /* Two pools share the width down here: keep each pool's header on one line by dropping the role
+     and the count, and shrinking the fold button. */
+  .cc-col-head { gap: 2px 4px; min-width: 0; }
+  .cc-col-head .ct { display: none; }
+  .cc-pool-count { display: none; }
+  .cc-pool { min-width: 0; }
+  .cc-pool-toggle { padding: 1px 4px; font-size: 8px; letter-spacing: 0.06em; }
+  .cc-unit img,
+  .cc-unit i { width: 40px; height: 40px; }
+  .cc-unit.small img,
+  .cc-unit.small i { width: 34px; height: 34px; }
+  .cc-unit small { font-size: 8px; }
+  .cc-col-head .cw { font-size: 15px; }
+  .cc-col-head .ct { font-size: 9px; letter-spacing: 0.12em; }
+  .cc-group { padding: 6px; gap: 6px; }
+  .cc-cards,
+  .cc-draft { gap: 6px; }
+  .cc-odds { font-size: 26px; }
+  .cc-fp,
+  .cc-math { font-size: 10px; }
+  .cc-hint { font-size: 10px; padding: 2px 4px; }
+  p.cc-hint { font-size: 12px; }
+  /* Two long bilingual labels do not fit side by side on a 360-390px phone. */
+  .cc-foot { flex-direction: column; align-items: stretch; gap: 6px; padding: 8px 0 0; }
+  .cc-foot button { width: 100%; font-size: 12px; }
+  .cc-foot .cc-error { margin: 0; }
+}
+
+/* Folding a unit pool down to its header (available on every screen size). */
+.cc-col-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; }
+.cc-col-head .ct { margin-left: 0; }
+.cc-pool-toggle {
+  margin-left: auto;
+  padding: 1px 6px;
+  min-height: 26px;
+  font: 600 9px var(--font-head);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line-hi);
+  border-radius: 3px;
+}
+.cc-pool-toggle:hover:not(:disabled) { color: var(--text); border-color: var(--brass); }
+.cc-pool-count { font: 600 10px var(--font-head); letter-spacing: 0.06em; }
+.cc-pool.folded { grid-template-rows: auto; }
+.cc-pool.folded .cc-stacks { display: none; }
+.cc-pool.folded .cc-empty { display: none; }

@@ -370,6 +370,8 @@ function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, chec
   const units = useMemo(() => new Map(env.state.sides.flatMap((s) => (roster[s] ?? []).map((u) => [u.id, u] as const))), [env.state.sides, roster]);
   const unitOf = (id: PieceId) => units.get(id);
   const [error, setError] = useState<string | null>(null);
+  // A pool can be folded down to its header, so the middle of the panel keeps room on a phone.
+  const [folded, setFolded] = useState<Partial<Record<SideId, boolean>>>({});
 
   // --- the declaring player's groups, started afresh for each decision.
   const [draft, setDraft] = useState<{ decisionId: string; groups: CcAttack[]; current: number }>({ decisionId: '', groups: [{ attackers: [], targets: [] }], current: 0 });
@@ -498,13 +500,25 @@ function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, chec
     const loose = shown.filter((u) => u.leader && !mmcs.some((m) => m.id === u.stackedOn));
     const arranging = mine && step === 'arrange' && side === me;
     const zone = `pool:${side}`;
+    const isFolded = !!folded[side];
     return (
-      <div key={side} className={`cc-pool side-${side}${over === zone ? ' over' : ''}`} data-cc-zone={zone}>
+      <div key={side} className={`cc-pool side-${side}${over === zone ? ' over' : ''}${isFolded ? ' folded' : ''}`} data-cc-zone={zone}>
         <div className="cc-col-head">
           <span className="cw">{sideName(side)}</span>
           <span className="ct">{side === view.attacker ? 'Attacker' : 'Defender'}</span>
+          <span className="cc-pool-count">{shown.length}</span>
+          <button
+            type="button"
+            className="cc-pool-toggle"
+            aria-expanded={!isFolded}
+            aria-label={isFolded ? 'Show units' : 'Hide units'}
+            title={isFolded ? 'Show units' : 'Hide units'}
+            onClick={() => setFolded((f) => ({ ...f, [side]: !f[side] }))}
+          >
+            {isFolded ? '▸' : '▾'}
+          </button>
         </div>
-        <div className="cc-stacks">
+        {!isFolded && <div className="cc-stacks">
           {mmcs.map((m) => (
             <div key={m.id} className={`cc-stack${arranging ? ' target' : ''}${over === `stack:${m.id}` ? ' over' : ''}`} {...(arranging ? { 'data-cc-zone': `stack:${m.id}` } : {})}>
               {unit(m)}
@@ -517,7 +531,7 @@ function Panel({ env, resolving, decision, owner, waitingOn, sideName, run, chec
             </div>
           )}
           {shown.length === 0 && <div className="cc-empty">{units.length ? 'all committed' : 'no units'}</div>}
-        </div>
+        </div>}
       </div>
     );
   };
